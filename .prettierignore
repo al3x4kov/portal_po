@@ -1,0 +1,12 @@
+**/dist/**
+**/coverage/**
+**/node_modules/**
+**/*.tsbuildinfo
+playwright-report/**
+test-results/**
+package-lock.json
+
+# Pre-existing specification / design artifacts (not maintained by Prettier)
+overview/**
+tasks/**
+uiux/**
