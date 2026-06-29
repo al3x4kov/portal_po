@@ -31,7 +31,8 @@
   --crit-high: #ea580c;
   --crit-critical: #dc2626;
 
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Inter, Arial, sans-serif;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Inter, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 
   --radius-sm: 6px;

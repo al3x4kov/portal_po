@@ -9,10 +9,7 @@ import { ensureDir } from './ensureDir.js';
  * never leaves a partially written destination — on error the temp file is
  * removed and any pre-existing destination is untouched.
  */
-export async function atomicWrite(
-  filePath: string,
-  data: string | Uint8Array,
-): Promise<void> {
+export async function atomicWrite(filePath: string, data: string | Uint8Array): Promise<void> {
   const dir = path.dirname(filePath);
   await ensureDir(dir);
   const tmp = path.join(dir, `.tmp-${randomBytes(8).toString('hex')}-${path.basename(filePath)}`);

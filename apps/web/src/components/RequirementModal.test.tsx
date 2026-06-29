@@ -56,7 +56,9 @@ describe('RequirementModal (T-605, FR-6)', () => {
   });
 
   it('surfaces an API error returned on save', async () => {
-    create.mockRejectedValueOnce(new ApiError(422, { code: 'VALIDATION', message: 'Плохие данные' }));
+    create.mockRejectedValueOnce(
+      new ApiError(422, { code: 'VALIDATION', message: 'Плохие данные' }),
+    );
     const onClose = vi.fn();
     const user = userEvent.setup();
     renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={onClose} />);
@@ -86,7 +88,12 @@ describe('RequirementModal (T-605, FR-6)', () => {
       updatedAt: '2026-01-01T00:00:00.000Z',
     };
     renderWithProviders(
-      <RequirementModal projectId="p1" reqType="FUNCTION" requirement={requirement} onClose={onClose} />,
+      <RequirementModal
+        projectId="p1"
+        reqType="FUNCTION"
+        requirement={requirement}
+        onClose={onClose}
+      />,
     );
 
     await user.type(screen.getByTestId('req-name-input'), ' v2');

@@ -14,15 +14,28 @@ export function OpenExisting(): React.ReactElement {
       </p>
 
       {isLoading ? (
-        <p className="mt-6 text-sm" style={{ color: 'var(--color-text-3)' }} data-testid="open-loading">
+        <p
+          className="mt-6 text-sm"
+          style={{ color: 'var(--color-text-3)' }}
+          data-testid="open-loading"
+        >
           Загрузка…
         </p>
       ) : isError ? (
-        <p className="mt-6 rounded-lg p-3 text-sm" role="alert" style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }} data-testid="open-error">
+        <p
+          className="mt-6 rounded-lg p-3 text-sm"
+          role="alert"
+          style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+          data-testid="open-error"
+        >
           {errorMessage(error)}
         </p>
       ) : projects && projects.length > 0 ? (
-        <ul className="card mt-6 divide-y" style={{ borderColor: 'var(--color-border)' }} data-testid="open-list">
+        <ul
+          className="card mt-6 divide-y"
+          style={{ borderColor: 'var(--color-border)' }}
+          data-testid="open-list"
+        >
           {projects.map((p) => (
             <li key={p.id}>
               <Link
@@ -36,7 +49,10 @@ export function OpenExisting(): React.ReactElement {
                   </span>
                   <span>
                     <span className="block font-medium">{p.name}</span>
-                    <span className="block font-mono text-xs" style={{ color: 'var(--color-text-3)' }}>
+                    <span
+                      className="block font-mono text-xs"
+                      style={{ color: 'var(--color-text-3)' }}
+                    >
                       {p.mainPath}
                     </span>
                   </span>

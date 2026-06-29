@@ -64,7 +64,10 @@ describe('T-501/T-502 import-export', () => {
       expect(broken).toEqual([]);
       expect(requirements.map((r) => r.id).sort()).toEqual(ids);
       const parent = requirements.find((r) => r.name === 'Parent')!;
-      expect(parent.links).toContainEqual({ type: 'PARENT_OF', targetId: requirements.find((r) => r.name === 'Child')!.id });
+      expect(parent.links).toContainEqual({
+        type: 'PARENT_OF',
+        targetId: requirements.find((r) => r.name === 'Child')!.id,
+      });
     });
   }
 
@@ -78,7 +81,10 @@ describe('T-501/T-502 import-export', () => {
 
   it('rolls back a broken archive: no target dir, temp cleaned (FR-3.4)', async () => {
     const zip = new AdmZip();
-    zip.addFile('project.json', Buffer.from(JSON.stringify({ name: 'X', schemaVersion: 1, createdAt: 'now' })));
+    zip.addFile(
+      'project.json',
+      Buffer.from(JSON.stringify({ name: 'X', schemaVersion: 1, createdAt: 'now' })),
+    );
     zip.addFile('requirements/bad.md', Buffer.from('---\nbroken: true\n---\noops'));
     const file = path.join(scratch, 'broken.zip');
     await fs.writeFile(file, zip.toBuffer());

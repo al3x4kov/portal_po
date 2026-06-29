@@ -1,10 +1,4 @@
-import type {
-  Criticality,
-  LinkType,
-  Requirement,
-  RequirementType,
-  TargetQuarter,
-} from '@po/core';
+import type { Criticality, LinkType, Requirement, RequirementType, TargetQuarter } from '@po/core';
 
 /** Project descriptor returned by the API (mirrors server ProjectSummary). */
 export interface ProjectSummary {

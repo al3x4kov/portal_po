@@ -82,7 +82,10 @@ export class FsProjectRepo {
    * Create a new project directory (FR-2). Recreates Projects/ when missing,
    * sanitizes the name, rejects duplicates with a 409.
    */
-  async create(rawName: string, now: () => string = () => new Date().toISOString()): Promise<ProjectSummary> {
+  async create(
+    rawName: string,
+    now: () => string = () => new Date().toISOString(),
+  ): Promise<ProjectSummary> {
     await this.ensureRoot();
     const id = sanitizeProjectName(rawName);
     const dir = this.dirOf(id);

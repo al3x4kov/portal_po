@@ -8,7 +8,13 @@ import { makeHierarchy, makeReq } from '../test/fixtures';
 
 function renderTree(): void {
   const { parent, child } = makeHierarchy();
-  const leaf = makeReq({ id: 'r2', name: 'Возвраты', implemented: false, targetQuarter: 'Q4', targetYear: 2026 });
+  const leaf = makeReq({
+    id: 'r2',
+    name: 'Возвраты',
+    implemented: false,
+    targetQuarter: 'Q4',
+    targetYear: 2026,
+  });
   renderWithProviders(
     <TreeTable
       title="Функциональные требования"

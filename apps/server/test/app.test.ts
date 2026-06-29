@@ -13,7 +13,9 @@ function multipart(
   const chunks: Buffer[] = [];
   for (const [name, value] of Object.entries(fields)) {
     chunks.push(
-      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`),
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+      ),
     );
   }
   chunks.push(
@@ -46,7 +48,11 @@ describe('T-301/T-304/T-403/T-503 HTTP integration', () => {
   });
 
   it('project lifecycle: create (201) → list → get → duplicate (409) → missing (404)', async () => {
-    const created = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Demo' } });
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'Demo' },
+    });
     expect(created.statusCode).toBe(201);
     expect(created.json()).toMatchObject({ id: 'Demo', name: 'Demo' });
 
@@ -56,7 +62,11 @@ describe('T-301/T-304/T-403/T-503 HTTP integration', () => {
     const get = await app.inject({ method: 'GET', url: '/api/projects/Demo' });
     expect(get.statusCode).toBe(200);
 
-    const dup = await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Demo' } });
+    const dup = await app.inject({
+      method: 'POST',
+      url: '/api/projects',
+      payload: { name: 'Demo' },
+    });
     expect(dup.statusCode).toBe(409);
     expect(dup.json().code).toBe('CONFLICT');
 

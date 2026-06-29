@@ -32,8 +32,8 @@ export function NewProject(): React.ReactElement {
       <div className="card p-6">
         <h1 className="text-xl font-bold">Новый проект</h1>
         <p className="mt-1 text-sm" style={{ color: 'var(--color-text-2)' }}>
-          Будет создан каталог в Projects/. Если каталог Projects/ отсутствует — он будет
-          воссоздан автоматически.
+          Будет создан каталог в Projects/. Если каталог Projects/ отсутствует — он будет воссоздан
+          автоматически.
         </p>
 
         {created ? (
@@ -75,12 +75,21 @@ export function NewProject(): React.ReactElement {
               }}
               aria-describedby="pname-hint"
             />
-            <p id="pname-hint" className="font-mono text-xs" style={{ color: 'var(--color-text-3)' }}>
+            <p
+              id="pname-hint"
+              className="font-mono text-xs"
+              style={{ color: 'var(--color-text-3)' }}
+            >
               Будет создан путь: Projects/{name.trim() || '…'}
             </p>
 
             {error ? (
-              <p className="rounded-lg p-2 text-sm" role="alert" style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }} data-testid="newproject-error">
+              <p
+                className="rounded-lg p-2 text-sm"
+                role="alert"
+                style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+                data-testid="newproject-error"
+              >
                 {error}
               </p>
             ) : null}

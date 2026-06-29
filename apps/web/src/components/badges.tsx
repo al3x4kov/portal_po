@@ -7,7 +7,10 @@ export function CriticalityBadge({
   criticality: Criticality;
 }): React.ReactElement {
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-semibold" data-testid="criticality-badge">
+    <span
+      className="inline-flex items-center gap-1.5 text-xs font-semibold"
+      data-testid="criticality-badge"
+    >
       <span
         className="inline-block h-2 w-2 rounded-full"
         style={{ background: CRITICALITY_COLOR_VAR[criticality] }}

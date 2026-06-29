@@ -46,19 +46,21 @@ export const requirementsApi = {
       method: 'POST',
       body: input,
     }),
-  update: (
-    projectId: string,
-    rid: string,
-    input: RequirementUpdateInput,
-  ): Promise<Requirement> =>
-    apiRequest(`/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(rid)}`, {
-      method: 'PUT',
-      body: input,
-    }),
+  update: (projectId: string, rid: string, input: RequirementUpdateInput): Promise<Requirement> =>
+    apiRequest(
+      `/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(rid)}`,
+      {
+        method: 'PUT',
+        body: input,
+      },
+    ),
   remove: (projectId: string, rid: string): Promise<null> =>
-    apiRequest(`/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(rid)}`, {
-      method: 'DELETE',
-    }),
+    apiRequest(
+      `/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(rid)}`,
+      {
+        method: 'DELETE',
+      },
+    ),
 };
 
 export const linksApi = {

@@ -148,9 +148,7 @@ export class ArchiveRepo {
           );
         }
         const inverse = inverseLinkType(link.type);
-        const reciprocated = other.links.some(
-          (l) => l.type === inverse && l.targetId === req.id,
-        );
+        const reciprocated = other.links.some((l) => l.type === inverse && l.targetId === req.id);
         if (!reciprocated) {
           throw new ArchiveError(
             `Link from "${req.id}" to "${link.targetId}" is missing its inverse on the target.`,
@@ -159,7 +157,9 @@ export class ArchiveRepo {
         if (link.type === 'CHILD_OF') parents += 1;
       }
       if (parents > 1) {
-        throw new ArchiveError(`Requirement "${req.id}" has ${parents} parents (only one allowed).`);
+        throw new ArchiveError(
+          `Requirement "${req.id}" has ${parents} parents (only one allowed).`,
+        );
       }
     }
   }

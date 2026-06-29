@@ -80,14 +80,22 @@ export function Import(): React.ReactElement {
                 pickFile(e.dataTransfer.files[0] ?? null);
               }}
             >
-              <span className="text-2xl" style={{ color: 'var(--color-text-3)' }} aria-hidden="true">
+              <span
+                className="text-2xl"
+                style={{ color: 'var(--color-text-3)' }}
+                aria-hidden="true"
+              >
                 ↓
               </span>
               <span className="text-sm font-medium">Перетащите архив сюда</span>
               <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
                 или
               </span>
-              <button type="button" className="btn btn-secondary" onClick={() => fileRef.current?.click()}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => fileRef.current?.click()}
+              >
                 Выбрать файл
               </button>
               <input
@@ -109,7 +117,12 @@ export function Import(): React.ReactElement {
                 <span className="font-mono text-xs">
                   {file.name} · {formatSize(file.size)}
                 </span>
-                <button type="button" className="btn btn-ghost text-sm" aria-label="Убрать файл" onClick={() => pickFile(null)}>
+                <button
+                  type="button"
+                  className="btn btn-ghost text-sm"
+                  aria-label="Убрать файл"
+                  onClick={() => pickFile(null)}
+                >
                   ✕
                 </button>
               </div>
@@ -117,7 +130,12 @@ export function Import(): React.ReactElement {
           </div>
 
           {error ? (
-            <p className="rounded-lg p-3 text-sm" role="alert" style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }} data-testid="import-error">
+            <p
+              className="rounded-lg p-3 text-sm"
+              role="alert"
+              style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+              data-testid="import-error"
+            >
               {error}
             </p>
           ) : null}

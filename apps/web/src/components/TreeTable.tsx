@@ -51,7 +51,11 @@ function Row({
               {isExpanded ? '▾' : '▸'}
             </button>
           ) : (
-            <span className="px-1 text-sm" style={{ color: 'var(--color-text-3)' }} aria-hidden="true">
+            <span
+              className="px-1 text-sm"
+              style={{ color: 'var(--color-text-3)' }}
+              aria-hidden="true"
+            >
               •
             </span>
           )}
@@ -65,7 +69,10 @@ function Row({
           </button>
         </div>
       </td>
-      <td className="max-w-[1px] truncate py-2.5 pr-3 align-top text-sm" style={{ color: 'var(--color-text-2)' }}>
+      <td
+        className="max-w-[1px] truncate py-2.5 pr-3 align-top text-sm"
+        style={{ color: 'var(--color-text-2)' }}
+      >
         {req.description}
       </td>
       <td className="py-2.5 pr-3 align-top">
@@ -133,13 +140,20 @@ export function TreeTable({
       </div>
 
       {requirements.length === 0 ? (
-        <p className="px-4 py-6 text-sm" style={{ color: 'var(--color-text-3)' }} data-testid={`empty-${testidPrefix}`}>
+        <p
+          className="px-4 py-6 text-sm"
+          style={{ color: 'var(--color-text-3)' }}
+          data-testid={`empty-${testidPrefix}`}
+        >
           Пока нет требований. Нажмите «{addLabel}», чтобы добавить.
         </p>
       ) : (
         <table className="w-full text-sm" data-testid={`table-${testidPrefix}`}>
           <thead>
-            <tr className="text-left text-xs uppercase tracking-wide" style={{ color: 'var(--color-text-3)' }}>
+            <tr
+              className="text-left text-xs uppercase tracking-wide"
+              style={{ color: 'var(--color-text-3)' }}
+            >
               <th className="w-[42%] px-4 py-2 font-semibold">Требование</th>
               <th className="px-4 py-2 font-semibold">Описание</th>
               <th className="px-4 py-2 font-semibold">Критичность</th>
@@ -149,7 +163,13 @@ export function TreeTable({
           </thead>
           <tbody>
             {rows.map((node) => (
-              <Row key={node.requirement.id} node={node} onEdit={onEdit} onLink={onLink} onDelete={onDelete} />
+              <Row
+                key={node.requirement.id}
+                node={node}
+                onEdit={onEdit}
+                onLink={onLink}
+                onDelete={onDelete}
+              />
             ))}
           </tbody>
         </table>

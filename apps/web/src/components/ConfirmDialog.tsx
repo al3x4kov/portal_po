@@ -48,7 +48,13 @@ export function ConfirmDialog({
       style={{ background: 'rgba(15,23,42,.5)' }}
       data-testid={`${testid}-overlay`}
     >
-      <div role="alertdialog" aria-modal="true" aria-label={title} className="card w-full max-w-md p-6" data-testid={testid}>
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={title}
+        className="card w-full max-w-md p-6"
+        data-testid={testid}
+      >
         {danger ? (
           <div
             className="mb-4 grid h-11 w-11 place-items-center rounded-full text-xl"
@@ -59,11 +65,19 @@ export function ConfirmDialog({
           </div>
         ) : null}
         <h2 className="mb-1 text-lg font-bold">{title}</h2>
-        <div className="mb-4 text-sm" style={{ color: 'var(--color-text-2)' }} data-testid={`${testid}-message`}>
+        <div
+          className="mb-4 text-sm"
+          style={{ color: 'var(--color-text-2)' }}
+          data-testid={`${testid}-message`}
+        >
           {message}
         </div>
         {note ? (
-          <div className="mb-5 rounded-lg p-3 text-sm" style={noteStyle} data-testid={`${testid}-note`}>
+          <div
+            className="mb-5 rounded-lg p-3 text-sm"
+            style={noteStyle}
+            data-testid={`${testid}-note`}
+          >
             {note.text}
           </div>
         ) : null}
@@ -78,7 +92,12 @@ export function ConfirmDialog({
           </div>
         ) : null}
         <div className="flex justify-end gap-3">
-          <button type="button" className="btn btn-secondary" data-testid={`${testid}-cancel`} onClick={onCancel}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            data-testid={`${testid}-cancel`}
+            onClick={onCancel}
+          >
             {cancelLabel}
           </button>
           <button

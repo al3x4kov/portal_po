@@ -55,7 +55,10 @@ export function Main(): React.ReactElement {
 
   return (
     <div className="flex min-h-screen flex-col" data-testid="main-page">
-      <PathHeader name={projectQuery.data?.name ?? id} mainPath={projectQuery.data?.mainPath ?? ''} />
+      <PathHeader
+        name={projectQuery.data?.name ?? id}
+        mainPath={projectQuery.data?.mainPath ?? ''}
+      />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
         {reqQuery.isLoading ? (
@@ -122,17 +125,32 @@ export function Main(): React.ReactElement {
         </div>
         <div className="flex items-center gap-2">
           {exportError ? (
-            <span className="text-xs" role="alert" style={{ color: 'var(--color-danger)' }} data-testid="export-error">
+            <span
+              className="text-xs"
+              role="alert"
+              style={{ color: 'var(--color-danger)' }}
+              data-testid="export-error"
+            >
               {exportError}
             </span>
           ) : null}
           <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
             Экспорт:
           </span>
-          <button type="button" className="btn btn-secondary text-sm" data-testid="export-zip" onClick={() => void onExport('zip')}>
+          <button
+            type="button"
+            className="btn btn-secondary text-sm"
+            data-testid="export-zip"
+            onClick={() => void onExport('zip')}
+          >
             .zip
           </button>
-          <button type="button" className="btn btn-secondary text-sm" data-testid="export-targz" onClick={() => void onExport('targz')}>
+          <button
+            type="button"
+            className="btn btn-secondary text-sm"
+            data-testid="export-targz"
+            onClick={() => void onExport('targz')}
+          >
             .tar.gz
           </button>
         </div>
@@ -148,7 +166,12 @@ export function Main(): React.ReactElement {
       ) : null}
 
       {modal?.kind === 'link' ? (
-        <LinkModal projectId={id} source={modal.source} requirements={requirements} onClose={closeModal} />
+        <LinkModal
+          projectId={id}
+          source={modal.source}
+          requirements={requirements}
+          onClose={closeModal}
+        />
       ) : null}
 
       {modal?.kind === 'delete'

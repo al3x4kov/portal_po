@@ -1,8 +1,4 @@
 {
   "files": [],
-  "references": [
-    { "path": "./packages/core" },
-    { "path": "./apps/server" },
-    { "path": "./e2e" }
-  ]
+  "references": [{ "path": "./packages/core" }, { "path": "./apps/server" }, { "path": "./e2e" }]
 }

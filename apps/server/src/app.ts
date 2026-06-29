@@ -41,7 +41,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     limits: { fileSize: 200 * 1024 * 1024 },
   });
 
-  const deps = { projectsRoot: opts.projectsRoot, now: opts.now ?? (() => new Date().toISOString()) };
+  const deps = {
+    projectsRoot: opts.projectsRoot,
+    now: opts.now ?? (() => new Date().toISOString()),
+  };
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof DomainError) {
@@ -58,7 +61,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       return;
     }
     req.log.error({ err }, 'unhandled error');
-    reply.status(500).send({ code: 'INTERNAL', message: 'Internal Server Error', details: undefined });
+    reply
+      .status(500)
+      .send({ code: 'INTERNAL', message: 'Internal Server Error', details: undefined });
   });
 
   app.get('/healthz', async () => ({ status: 'ok' }));

@@ -92,7 +92,8 @@ export function RequirementModal({
   const buildPayload = (values: RequirementFormValues) => ({
     name: values.name.trim(),
     criticality: values.criticality,
-    description: values.description && values.description.length > 0 ? values.description : undefined,
+    description:
+      values.description && values.description.length > 0 ? values.description : undefined,
     implemented: values.implemented,
     targetQuarter: values.implemented ? undefined : values.targetQuarter,
     targetYear: values.implemented ? undefined : values.targetYear,
@@ -133,10 +134,21 @@ export function RequirementModal({
 
   const footer = (
     <>
-      <button type="button" className="btn btn-secondary" data-testid="req-cancel" onClick={handleCancel}>
+      <button
+        type="button"
+        className="btn btn-secondary"
+        data-testid="req-cancel"
+        onClick={handleCancel}
+      >
         Отменить
       </button>
-      <button type="submit" form={FORM_ID} className="btn btn-primary" data-testid="req-apply" disabled={applyDisabled}>
+      <button
+        type="submit"
+        form={FORM_ID}
+        className="btn btn-primary"
+        data-testid="req-apply"
+        disabled={applyDisabled}
+      >
         Применить
       </button>
     </>
@@ -160,17 +172,34 @@ export function RequirementModal({
           <label className="label" htmlFor="req-name-input">
             Название <span style={{ color: 'var(--color-danger)' }}>*</span>
           </label>
-          <input id="req-name-input" className="input" data-testid="req-name-input" {...register('name')} />
+          <input
+            id="req-name-input"
+            className="input"
+            data-testid="req-name-input"
+            {...register('name')}
+          />
           {errors.name ? (
-            <p className="mt-1.5 text-xs" style={{ color: 'var(--color-danger)' }} data-testid="req-name-validation">
+            <p
+              className="mt-1.5 text-xs"
+              style={{ color: 'var(--color-danger)' }}
+              data-testid="req-name-validation"
+            >
               {errors.name.message}
             </p>
           ) : nameTaken ? (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs" style={{ color: 'var(--color-danger)' }} data-testid="req-name-error">
+            <p
+              className="mt-1.5 flex items-center gap-1.5 text-xs"
+              style={{ color: 'var(--color-danger)' }}
+              data-testid="req-name-error"
+            >
               {takenMessage(reqType)}
             </p>
           ) : nameOk ? (
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs" style={{ color: 'var(--color-success)' }} data-testid="req-name-ok">
+            <p
+              className="mt-1.5 flex items-center gap-1.5 text-xs"
+              style={{ color: 'var(--color-success)' }}
+              data-testid="req-name-ok"
+            >
               ✓ Имя уникально среди {typeNounGenitive(reqType)}
             </p>
           ) : null}
@@ -181,7 +210,12 @@ export function RequirementModal({
             <label className="label" htmlFor="req-criticality">
               Критичность <span style={{ color: 'var(--color-danger)' }}>*</span>
             </label>
-            <select id="req-criticality" className="input" data-testid="req-criticality" {...register('criticality')}>
+            <select
+              id="req-criticality"
+              className="input"
+              data-testid="req-criticality"
+              {...register('criticality')}
+            >
               {CRITICALITIES.map((c) => (
                 <option key={c} value={c}>
                   {CRITICALITY_LABEL[c]}
@@ -198,7 +232,9 @@ export function RequirementModal({
                 style={implemented ? { borderColor: 'var(--color-primary)' } : undefined}
                 aria-pressed={implemented}
                 data-testid="req-implemented-yes"
-                onClick={() => setValue('implemented', true, { shouldDirty: true, shouldValidate: true })}
+                onClick={() =>
+                  setValue('implemented', true, { shouldDirty: true, shouldValidate: true })
+                }
               >
                 Реализовано
               </button>
@@ -208,7 +244,9 @@ export function RequirementModal({
                 style={!implemented ? { borderColor: 'var(--color-primary)' } : undefined}
                 aria-pressed={!implemented}
                 data-testid="req-implemented-no"
-                onClick={() => setValue('implemented', false, { shouldDirty: true, shouldValidate: true })}
+                onClick={() =>
+                  setValue('implemented', false, { shouldDirty: true, shouldValidate: true })
+                }
               >
                 Не реализовано
               </button>
@@ -230,7 +268,9 @@ export function RequirementModal({
                 id="req-quarter"
                 className="input"
                 data-testid="req-quarter"
-                {...register('targetQuarter', { setValueAs: (v) => (v === '' || v == null ? undefined : v) })}
+                {...register('targetQuarter', {
+                  setValueAs: (v) => (v === '' || v == null ? undefined : v),
+                })}
               >
                 <option value="">—</option>
                 {TARGET_QUARTERS.map((q) => (
@@ -240,7 +280,11 @@ export function RequirementModal({
                 ))}
               </select>
               {errors.targetQuarter ? (
-                <p className="mt-1.5 text-xs" style={{ color: 'var(--color-danger)' }} data-testid="req-quarter-error">
+                <p
+                  className="mt-1.5 text-xs"
+                  style={{ color: 'var(--color-danger)' }}
+                  data-testid="req-quarter-error"
+                >
                   {errors.targetQuarter.message}
                 </p>
               ) : null}
@@ -261,7 +305,11 @@ export function RequirementModal({
                 })}
               />
               {errors.targetYear ? (
-                <p className="mt-1.5 text-xs" style={{ color: 'var(--color-danger)' }} data-testid="req-year-error">
+                <p
+                  className="mt-1.5 text-xs"
+                  style={{ color: 'var(--color-danger)' }}
+                  data-testid="req-year-error"
+                >
                   {errors.targetYear.message}
                 </p>
               ) : null}
@@ -276,7 +324,13 @@ export function RequirementModal({
           <label className="label" htmlFor="req-description">
             Описание
           </label>
-          <textarea id="req-description" rows={4} className="input" data-testid="req-description" {...register('description')} />
+          <textarea
+            id="req-description"
+            rows={4}
+            className="input"
+            data-testid="req-description"
+            {...register('description')}
+          />
           <p className="mt-1 text-xs" style={{ color: 'var(--color-text-3)' }}>
             Поддерживается Markdown · до 5000 символов.
           </p>

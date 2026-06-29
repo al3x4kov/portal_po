@@ -85,7 +85,10 @@ export class LinkService {
     const newSourceLinks = source.links.filter((l) => !sameLink(l, sourceLink));
     const newTargetLinks = target.links.filter((l) => !sameLink(l, targetLink));
 
-    if (newSourceLinks.length === source.links.length && newTargetLinks.length === target.links.length) {
+    if (
+      newSourceLinks.length === source.links.length &&
+      newTargetLinks.length === target.links.length
+    ) {
       throw new NotFoundError(`Link ${type} from "${sourceId}" to "${targetId}" does not exist.`);
     }
 

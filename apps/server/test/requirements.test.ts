@@ -37,7 +37,9 @@ describe('T-401/T-402/T-405 requirements repo + service', () => {
 
   it('rejects a duplicate name within the same type (409 / UniquenessError)', async () => {
     await service.create(reqInput({ name: 'Login' }));
-    await expect(service.create(reqInput({ name: 'login' }))).rejects.toBeInstanceOf(UniquenessError);
+    await expect(service.create(reqInput({ name: 'login' }))).rejects.toBeInstanceOf(
+      UniquenessError,
+    );
     // Same name, different type is allowed.
     await expect(service.create(reqInput({ name: 'Login', type: 'NFR' }))).resolves.toBeTruthy();
   });
@@ -47,7 +49,9 @@ describe('T-401/T-402/T-405 requirements repo + service', () => {
       service.create(reqInput({ name: 'X', implemented: false })),
     ).rejects.toBeInstanceOf(ValidationError);
     await expect(
-      service.create(reqInput({ name: 'X', implemented: false, targetQuarter: 'Q3', targetYear: 2026 })),
+      service.create(
+        reqInput({ name: 'X', implemented: false, targetQuarter: 'Q3', targetYear: 2026 }),
+      ),
     ).resolves.toBeTruthy();
   });
 

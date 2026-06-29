@@ -12,7 +12,12 @@ interface LinkModalProps {
   onClose: () => void;
 }
 
-export function LinkModal({ projectId, source, requirements, onClose }: LinkModalProps): React.ReactElement {
+export function LinkModal({
+  projectId,
+  source,
+  requirements,
+  onClose,
+}: LinkModalProps): React.ReactElement {
   const [type, setType] = useState<LinkType>('CHILD_OF');
   const [search, setSearch] = useState('');
   const [target, setTarget] = useState<Requirement | null>(null);
@@ -41,7 +46,12 @@ export function LinkModal({ projectId, source, requirements, onClose }: LinkModa
 
   const footer = (
     <>
-      <button type="button" className="btn btn-secondary" data-testid="link-cancel" onClick={onClose}>
+      <button
+        type="button"
+        className="btn btn-secondary"
+        data-testid="link-cancel"
+        onClick={onClose}
+      >
         Отменить
       </button>
       <button
@@ -57,7 +67,13 @@ export function LinkModal({ projectId, source, requirements, onClose }: LinkModa
   );
 
   return (
-    <Modal title="Связать требование" onClose={onClose} testid="link-modal" widthClass="max-w-lg" footer={footer}>
+    <Modal
+      title="Связать требование"
+      onClose={onClose}
+      testid="link-modal"
+      widthClass="max-w-lg"
+      footer={footer}
+    >
       <div
         className="rounded-lg p-3 text-sm"
         style={{ background: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}

@@ -35,7 +35,10 @@ export function PathHeader({ name, mainPath }: PathHeaderProps): React.ReactElem
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <span className="hidden truncate text-sm font-semibold sm:inline" data-testid="project-name">
+        <span
+          className="hidden truncate text-sm font-semibold sm:inline"
+          data-testid="project-name"
+        >
           {name}
         </span>
         <ThemeToggle />

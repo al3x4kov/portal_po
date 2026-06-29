@@ -14,7 +14,10 @@ describe('ConfirmDialog (T-606, FR-9)', () => {
         danger
         title="Точно удалить требование?"
         message="«X» будет удалено безвозвратно."
-        note={{ tone: 'warning', text: 'У требования нет дочерних элементов — удаление безопасно.' }}
+        note={{
+          tone: 'warning',
+          text: 'У требования нет дочерних элементов — удаление безопасно.',
+        }}
         confirmLabel="Удалить"
         onConfirm={onConfirm}
         onCancel={onCancel}
