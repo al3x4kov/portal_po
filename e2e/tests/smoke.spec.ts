@@ -1,10 +1,17 @@
 import { test, expect } from '@playwright/test';
 
-/**
- * Demo E2E (E1 skeleton). Real FR-1..FR-10 scenarios land in E7.
- * Skipped until apps/web serves a page (no webServer yet).
- */
-test.skip('home page opens', async ({ page }) => {
+/** Smoke check: the built SPA is served and the start screen renders (FR-1). */
+test('start page opens with the three actions', async ({ page }) => {
   await page.goto('/');
   await expect(page).toHaveTitle(/.+/);
+  await expect(page.getByTestId('start-page')).toBeVisible();
+  await expect(page.getByTestId('start-new')).toBeVisible();
+  await expect(page.getByTestId('start-import')).toBeVisible();
+  await expect(page.getByTestId('start-open')).toBeVisible();
+});
+
+test('healthz endpoint is up', async ({ request }) => {
+  const res = await request.get('/healthz');
+  expect(res.ok()).toBeTruthy();
+  expect(await res.json()).toEqual({ status: 'ok' });
 });
