@@ -1,0 +1,47 @@
+<!-- Галерея макетов. Открыть этот файл двойным кликом. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Макеты — Управление требованиями PO</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css">
+<style>.frame{height:230px;border:0;width:100%;background:#fff;transform:scale(1);pointer-events:none}</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto px-4 py-10">
+  <header class="flex items-center justify-between mb-2">
+    <h1 class="text-2xl font-bold">Макеты: «Управление требованиями PO»</h1>
+    <div class="flex gap-2">
+      <a href="style-guide.html" class="btn btn-secondary text-sm">Style Guide</a>
+      <button onclick="document.documentElement.classList.toggle('dark')" class="btn btn-secondary text-sm">◐ Тема</button>
+    </div>
+  </header>
+  <p class="t2 mb-8">HTML + Tailwind. Кликните по карточке, чтобы открыть экран. Покрытие FR-1…FR-10.</p>
+
+  <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5" id="grid"></div>
+</div>
+<script>
+const screens = [
+  ['screens/start.html','Стартовая','FR-1 · Новый / Импорт / Открыть'],
+  ['screens/new-project.html','Новый проект','FR-2 · ввод имени + валидация'],
+  ['screens/import.html','Импорт','FR-3 · zip / tar.gz'],
+  ['screens/open-existing.html','Открыть существующий','FR-4 · список Projects/'],
+  ['screens/main.html','Основной экран','FR-5/7 · дерево ФТ и НФТ'],
+  ['screens/requirement-modal.html','Требование (модалка)','FR-6 · создать/редактировать'],
+  ['screens/link-modal.html','Связывание','FR-8 · тип связи + поиск'],
+  ['screens/main-delete.html','Удаление','FR-9 · подтверждение'],
+];
+document.getElementById('grid').innerHTML = screens.map(([href,title,desc])=>`
+  <a href="${href}" class="card overflow-hidden hover:shadow-md transition block">
+    <div class="overflow-hidden" style="border-bottom:1px solid var(--color-border)">
+      <iframe class="frame" src="${href}" loading="lazy"></iframe>
+    </div>
+    <div class="p-4">
+      <h3 class="font-semibold">${title}</h3>
+      <p class="text-xs t3 mt-1">${desc}</p>
+    </div>
+  </a>`).join('');
+</script>
+</body>
+</html>

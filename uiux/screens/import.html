@@ -1,0 +1,44 @@
+<!-- Экран: Импорт проекта. Состояние: загрузка архива + имя. Покрывает FR-3. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Импорт проекта</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+</head>
+<body class="min-h-screen">
+<div class="max-w-lg mx-auto px-4 py-10">
+  <a href="start.html" class="btn btn-ghost mb-6">← Назад</a>
+  <div class="card p-7">
+    <h2 class="text-xl font-bold mb-1">Импорт проекта</h2>
+    <p class="t2 text-sm mb-6">Загрузите архив <span class="mono text-xs">.zip</span> или <span class="mono text-xs">.tar.gz</span>. Содержимое будет проверено и распаковано в новый каталог.</p>
+
+    <label class="label">Имя проекта (каталог)</label>
+    <input class="input mb-5" value="imported-crm">
+
+    <label class="label">Архив проекта</label>
+    <div class="border-2 border-dashed rounded-xl p-8 text-center" style="border-color:var(--color-border)">
+      <svg class="mx-auto mb-3" width="34" height="34" fill="none" stroke="var(--color-text-3)" stroke-width="1.6" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      <p class="text-sm font-medium">Перетащите архив сюда</p>
+      <p class="text-xs t3 mb-3">или</p>
+      <button class="btn btn-secondary">Выбрать файл</button>
+    </div>
+
+    <!-- Выбранный файл -->
+    <div class="mt-4 flex items-center justify-between p-3 rounded-lg surface">
+      <div class="flex items-center gap-3 text-sm">
+        <span class="badge" style="background:var(--color-info-bg);color:var(--color-info)">tar.gz</span>
+        <span class="mono text-xs">crm-export-2026.tar.gz · 248 КБ</span>
+      </div>
+      <button class="btn btn-ghost text-sm">✕</button>
+    </div>
+
+    <div class="flex justify-end gap-3 mt-7">
+      <a href="start.html" class="btn btn-secondary">Отменить</a>
+      <a href="main.html" class="btn btn-primary">Импортировать</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

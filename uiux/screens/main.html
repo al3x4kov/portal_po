@@ -1,0 +1,168 @@
+<!-- Экран: Основной. Состояние: проект с требованиями (дерево). Покрывает FR-5, FR-6.1, FR-7. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>payments-platform — Требования</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  .crit{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600}
+  .dot{width:8px;height:8px;border-radius:999px;display:inline-block}
+  .row:hover .row-actions{opacity:1}
+  .row-actions{opacity:0;transition:opacity .12s}
+  @media (max-width:768px){.row-actions{opacity:1}}
+</style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+<!-- TOP: Main Path -->
+<header class="surface sticky top-0 z-10 px-4 py-3 flex items-center justify-between gap-3" style="border-width:0 0 1px">
+  <div class="flex items-center gap-3 min-w-0">
+    <a href="start.html" class="btn btn-ghost shrink-0">←</a>
+    <div class="min-w-0">
+      <p class="text-xs t3">Main Path</p>
+      <p class="mono text-sm truncate">~/Projects/payments-platform</p>
+    </div>
+  </div>
+  <button onclick="document.documentElement.classList.toggle('dark')" class="btn btn-ghost shrink-0">◐</button>
+</header>
+
+<!-- MIDDLE -->
+<main class="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
+
+  <!-- Секция: Функциональные требования -->
+  <section class="card mb-6 overflow-hidden">
+    <div class="flex items-center justify-between px-4 py-3" style="background:var(--color-surface-2);border-bottom:1px solid var(--color-border)">
+      <h2 class="font-bold">Функциональные требования <span class="t3 font-normal">(8)</span></h2>
+      <a href="requirement-modal.html" class="btn btn-primary text-sm py-1.5">+ Функция</a>
+    </div>
+
+    <table class="w-full text-sm">
+      <thead class="t3 text-xs uppercase tracking-wide">
+        <tr style="border-bottom:1px solid var(--color-border)">
+          <th class="text-left font-semibold px-4 py-2 w-[42%]">Требование</th>
+          <th class="text-left font-semibold px-4 py-2">Описание</th>
+          <th class="text-left font-semibold px-4 py-2">Критичность</th>
+          <th class="text-left font-semibold px-4 py-2">Реализация</th>
+          <th class="px-4 py-2"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- уровень 0 -->
+        <tr class="row" style="border-bottom:1px solid var(--color-border)">
+          <td class="px-4 py-2.5">
+            <a href="requirement-modal.html" class="flex items-center gap-2 font-medium hover:text-[var(--color-primary)]">
+              <span class="t3">▾</span> Платежи
+            </a>
+          </td>
+          <td class="px-4 py-2.5 t2">Приём и обработка платежей</td>
+          <td class="px-4 py-2.5"><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td>
+          <td class="px-4 py-2.5"><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td>
+          <td class="px-4 py-2.5 text-right">
+            <div class="row-actions inline-flex gap-1">
+              <a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a>
+              <a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a>
+            </div>
+          </td>
+        </tr>
+        <!-- уровень 1 -->
+        <tr class="row" style="border-bottom:1px solid var(--color-border)">
+          <td class="px-4 py-2.5">
+            <a href="requirement-modal.html" class="flex items-center gap-2 hover:text-[var(--color-primary)]" style="padding-left:24px">
+              <span class="t3">▾</span> Оплата картой
+            </a>
+          </td>
+          <td class="px-4 py-2.5 t2 truncate max-w-[1px]">Поддержка Visa/MC, 3-D Secure…</td>
+          <td class="px-4 py-2.5"><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+          <td class="px-4 py-2.5"><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td>
+          <td class="px-4 py-2.5 text-right">
+            <div class="row-actions inline-flex gap-1">
+              <a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a>
+              <a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a>
+            </div>
+          </td>
+        </tr>
+        <!-- уровень 2 -->
+        <tr class="row" style="border-bottom:1px solid var(--color-border)">
+          <td class="px-4 py-2.5">
+            <a href="requirement-modal.html" class="flex items-center gap-2 hover:text-[var(--color-primary)]" style="padding-left:48px">
+              <span class="t3">•</span> Сохранение карты (токенизация)
+            </a>
+          </td>
+          <td class="px-4 py-2.5 t2">PCI-DSS токенизация</td>
+          <td class="px-4 py-2.5"><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+          <td class="px-4 py-2.5"><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td>
+          <td class="px-4 py-2.5 text-right">
+            <div class="row-actions inline-flex gap-1">
+              <a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a>
+              <a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a>
+            </div>
+          </td>
+        </tr>
+        <!-- уровень 1 -->
+        <tr class="row">
+          <td class="px-4 py-2.5">
+            <a href="requirement-modal.html" class="flex items-center gap-2 hover:text-[var(--color-primary)]" style="padding-left:24px">
+              <span class="t3">•</span> Возвраты (refund)
+            </a>
+          </td>
+          <td class="px-4 py-2.5 t2">Полный и частичный возврат</td>
+          <td class="px-4 py-2.5"><span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span></td>
+          <td class="px-4 py-2.5"><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q4 2026</span></td>
+          <td class="px-4 py-2.5 text-right">
+            <div class="row-actions inline-flex gap-1">
+              <a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a>
+              <a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Секция: Нефункциональные требования -->
+  <section class="card mb-6 overflow-hidden">
+    <div class="flex items-center justify-between px-4 py-3" style="background:var(--color-surface-2);border-bottom:1px solid var(--color-border)">
+      <h2 class="font-bold">Нефункциональные требования <span class="t3 font-normal">(3)</span></h2>
+      <a href="requirement-modal.html" class="btn btn-primary text-sm py-1.5">+ НФТ</a>
+    </div>
+    <table class="w-full text-sm">
+      <tbody>
+        <tr class="row" style="border-bottom:1px solid var(--color-border)">
+          <td class="px-4 py-2.5 w-[42%]"><span class="font-medium">Время ответа API &lt; 200мс</span></td>
+          <td class="px-4 py-2.5 t2">p95 при 100 RPS</td>
+          <td class="px-4 py-2.5"><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+          <td class="px-4 py-2.5"><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td>
+          <td class="px-4 py-2.5 text-right"><div class="row-actions inline-flex gap-1">
+            <a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a>
+            <a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+        <tr class="row">
+          <td class="px-4 py-2.5 w-[42%]"><span class="font-medium">Соответствие PCI-DSS</span></td>
+          <td class="px-4 py-2.5 t2">Уровень 1</td>
+          <td class="px-4 py-2.5"><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td>
+          <td class="px-4 py-2.5"><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td>
+          <td class="px-4 py-2.5 text-right"><div class="row-actions inline-flex gap-1">
+            <a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a>
+            <a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+
+<!-- BOTTOM -->
+<footer class="surface sticky bottom-0 px-4 py-3 flex flex-wrap items-center justify-between gap-3" style="border-width:1px 0 0">
+  <div class="flex gap-2">
+    <a href="requirement-modal.html" class="btn btn-primary text-sm">+ Функция</a>
+    <a href="requirement-modal.html" class="btn btn-secondary text-sm">+ НФТ</a>
+  </div>
+  <div class="flex items-center gap-2">
+    <span class="text-xs t3">Экспорт:</span>
+    <button class="btn btn-secondary text-sm">.zip</button>
+    <button class="btn btn-secondary text-sm">.tar.gz</button>
+  </div>
+</footer>
+</body>
+</html>

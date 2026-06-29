@@ -1,0 +1,55 @@
+<!-- Экран: Стартовая страница. Состояние: основное. Покрывает FR-1. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Старт — Управление требованиями</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+</head>
+<body class="min-h-screen">
+<div class="max-w-4xl mx-auto px-4 py-10">
+  <header class="flex items-center justify-between mb-12">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl grid place-items-center text-white" style="background:var(--color-primary)">
+        <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold">Требования PO</h1>
+        <p class="text-xs t3">Управление ФТ и НФТ продукта</p>
+      </div>
+    </div>
+    <button onclick="document.documentElement.classList.toggle('dark')" class="btn btn-ghost" title="Сменить тему">◐</button>
+  </header>
+
+  <div class="text-center mb-10">
+    <h2 class="text-3xl font-bold mb-2">С чего начнём?</h2>
+    <p class="t2">Создайте новый проект требований, импортируйте архив или откройте существующий.</p>
+  </div>
+
+  <div class="grid sm:grid-cols-3 gap-4">
+    <a href="new-project.html" class="card p-6 hover:shadow-md transition block group">
+      <div class="w-11 h-11 rounded-lg grid place-items-center mb-4" style="background:var(--color-primary-soft);color:var(--color-primary)">
+        <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      </div>
+      <h3 class="font-semibold mb-1 group-hover:text-[var(--color-primary)]">Новый проект</h3>
+      <p class="text-sm t2">Создать пустой проект в каталоге Projects/.</p>
+    </a>
+    <a href="import.html" class="card p-6 hover:shadow-md transition block group">
+      <div class="w-11 h-11 rounded-lg grid place-items-center mb-4" style="background:var(--color-info-bg);color:var(--color-info)">
+        <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      </div>
+      <h3 class="font-semibold mb-1 group-hover:text-[var(--color-primary)]">Импорт</h3>
+      <p class="text-sm t2">Загрузить архив .zip или .tar.gz.</p>
+    </a>
+    <a href="open-existing.html" class="card p-6 hover:shadow-md transition block group">
+      <div class="w-11 h-11 rounded-lg grid place-items-center mb-4" style="background:var(--color-surface-2);color:var(--color-text-2)">
+        <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+      </div>
+      <h3 class="font-semibold mb-1 group-hover:text-[var(--color-primary)]">Открыть существующий</h3>
+      <p class="text-sm t2">Выбрать проект из Projects/.</p>
+    </a>
+  </div>
+</div>
+</body>
+</html>

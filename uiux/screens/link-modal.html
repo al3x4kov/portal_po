@@ -1,0 +1,65 @@
+<!-- Экран: Модалка связывания требований. Покрывает FR-8. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Связать требование</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+</head>
+<body class="min-h-screen">
+<div class="fixed inset-0" style="background:rgba(15,23,42,.5)"></div>
+<div class="fixed inset-0 grid place-items-center p-4">
+  <div class="card w-full max-w-lg p-0" style="box-shadow:var(--shadow-lg)">
+    <div class="flex items-center justify-between px-6 py-4" style="border-bottom:1px solid var(--color-border)">
+      <h2 class="text-lg font-bold">Связать требование</h2>
+      <a href="main.html" class="btn btn-ghost">✕</a>
+    </div>
+
+    <div class="p-6 space-y-5">
+      <!-- что связываем -->
+      <div class="p-3 rounded-lg text-sm" style="background:var(--color-primary-soft);color:var(--color-primary)">
+        Связываем: <b>«Сохранение карты (токенизация)»</b>
+      </div>
+
+      <div>
+        <label class="label">Тип связи</label>
+        <select class="input">
+          <option selected>является дочерней (CHILD_OF)</option>
+          <option>является родителем (PARENT_OF)</option>
+          <option>связана с (RELATES_TO)</option>
+          <option>зависит от (DEPENDS_ON)</option>
+          <option>блокируется (BLOCKED_BY)</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="label">С каким требованием</label>
+        <input class="input" placeholder="Поиск по названию…" value="Оплата">
+        <div class="card mt-2 divide-y max-h-48 overflow-auto" style="border-color:var(--color-border)">
+          <button class="w-full text-left px-3 py-2 text-sm hover:bg-[var(--color-surface-2)] flex justify-between" style="background:var(--color-surface-2)">
+            <span>Оплата картой</span><span class="t3 text-xs">FUNCTION</span></button>
+          <button class="w-full text-left px-3 py-2 text-sm hover:bg-[var(--color-surface-2)] flex justify-between">
+            <span>Оплата по СБП</span><span class="t3 text-xs">FUNCTION</span></button>
+        </div>
+      </div>
+
+      <!-- читаемая формулировка результата -->
+      <div class="p-3 rounded-lg text-sm t2" style="background:var(--color-surface-2)">
+        Итог: «Сохранение карты (токенизация)» <b>является дочерней</b> для «Оплата картой».
+      </div>
+
+      <!-- возможная ошибка целостности -->
+      <div class="p-3 rounded-lg text-sm hidden" style="background:var(--color-danger-bg);color:var(--color-danger)">
+        Нельзя: связь создаёт цикл / у требования уже есть родитель.
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-3 px-6 py-4" style="border-top:1px solid var(--color-border)">
+      <a href="main.html" class="btn btn-secondary">Отменить</a>
+      <a href="main.html" class="btn btn-primary">Связать</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

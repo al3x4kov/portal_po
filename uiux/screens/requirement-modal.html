@@ -1,0 +1,81 @@
+<!-- Экран: Модалка добавления/редактирования требования. Покрывает FR-6, FR-6.6. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Требование</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+</head>
+<body class="min-h-screen">
+<!-- затемнённый фон -->
+<div class="fixed inset-0" style="background:rgba(15,23,42,.5)"></div>
+
+<div class="fixed inset-0 grid place-items-center p-4 overflow-y-auto">
+  <div class="card w-full max-w-xl p-0 shadow-2xl my-8" style="box-shadow:var(--shadow-lg)">
+    <div class="flex items-center justify-between px-6 py-4" style="border-bottom:1px solid var(--color-border)">
+      <h2 class="text-lg font-bold">Новая функция</h2>
+      <a href="main.html" class="btn btn-ghost">✕</a>
+    </div>
+
+    <div class="p-6 space-y-5">
+      <div>
+        <label class="label">Название <span style="color:var(--color-danger)">*</span></label>
+        <input class="input" value="Сохранение карты (токенизация)">
+        <!-- real-time проверка уникальности -->
+        <p class="text-xs mt-1.5 flex items-center gap-1.5" style="color:var(--color-success)">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+          Имя уникально среди функциональных требований
+        </p>
+        <!-- состояние дубликата (пример):
+        <p style="color:var(--color-danger)">Функция с таким именем уже существует</p> -->
+      </div>
+
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div>
+          <label class="label">Критичность <span style="color:var(--color-danger)">*</span></label>
+          <select class="input">
+            <option>Low</option><option>Medium</option><option selected>High</option><option>Critical</option>
+          </select>
+        </div>
+        <div>
+          <label class="label">Статус реализации</label>
+          <div class="flex gap-2">
+            <label class="flex-1 flex items-center gap-2 input cursor-pointer">
+              <input type="radio" name="impl"> Реализовано
+            </label>
+            <label class="flex-1 flex items-center gap-2 input cursor-pointer" style="border-color:var(--color-primary)">
+              <input type="radio" name="impl" checked> Не реализовано
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- блок появляется только при «Не реализовано» -->
+      <div class="grid sm:grid-cols-2 gap-4 p-4 rounded-lg" style="background:var(--color-surface-2)">
+        <div>
+          <label class="label">Квартал <span style="color:var(--color-danger)">*</span></label>
+          <select class="input"><option>Q1</option><option>Q2</option><option selected>Q3</option><option>Q4</option></select>
+        </div>
+        <div>
+          <label class="label">Год <span style="color:var(--color-danger)">*</span></label>
+          <input class="input" type="number" value="2026" min="2020" max="2100">
+        </div>
+        <p class="sm:col-span-2 text-xs t3">Квартал и год обязательны, пока требование не реализовано.</p>
+      </div>
+
+      <div>
+        <label class="label">Описание</label>
+        <textarea class="input" rows="4">PCI-DSS токенизация карточных данных, хранение токена вместо PAN.</textarea>
+        <p class="text-xs t3 mt-1">Поддерживается Markdown · до 5000 символов.</p>
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-3 px-6 py-4" style="border-top:1px solid var(--color-border)">
+      <a href="main.html" class="btn btn-secondary">Отменить</a>
+      <a href="main.html" class="btn btn-primary">Применить</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

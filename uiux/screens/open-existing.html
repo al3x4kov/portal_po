@@ -1,0 +1,53 @@
+<!-- Экран: Открыть существующий. Состояние: список проектов из Projects/. Покрывает FR-4. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Открыть проект</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+</head>
+<body class="min-h-screen">
+<div class="max-w-2xl mx-auto px-4 py-10">
+  <a href="start.html" class="btn btn-ghost mb-6">← Назад</a>
+  <h2 class="text-xl font-bold mb-1">Открыть существующий проект</h2>
+  <p class="t2 text-sm mb-6 mono">Projects/</p>
+
+  <div class="card divide-y" style="border-color:var(--color-border)">
+    <a href="main.html" class="flex items-center justify-between p-4 hover:bg-[var(--color-surface-2)] transition">
+      <div class="flex items-center gap-3">
+        <svg width="20" height="20" fill="none" stroke="var(--color-primary)" stroke-width="2" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <div>
+          <p class="font-medium">payments-platform</p>
+          <p class="text-xs t3">42 требования · изменён 2 дня назад</p>
+        </div>
+      </div>
+      <span class="t3">→</span>
+    </a>
+    <a href="main.html" class="flex items-center justify-between p-4 hover:bg-[var(--color-surface-2)] transition">
+      <div class="flex items-center gap-3">
+        <svg width="20" height="20" fill="none" stroke="var(--color-primary)" stroke-width="2" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <div>
+          <p class="font-medium">imported-crm</p>
+          <p class="text-xs t3">17 требований · изменён неделю назад</p>
+        </div>
+      </div>
+      <span class="t3">→</span>
+    </a>
+    <a href="main.html" class="flex items-center justify-between p-4 hover:bg-[var(--color-surface-2)] transition">
+      <div class="flex items-center gap-3">
+        <svg width="20" height="20" fill="none" stroke="var(--color-primary)" stroke-width="2" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <div>
+          <p class="font-medium">mobile-app-v2</p>
+          <p class="text-xs t3">8 требований · изменён сегодня</p>
+        </div>
+      </div>
+      <span class="t3">→</span>
+    </a>
+  </div>
+
+  <!-- Пустое состояние (альтернатива) -->
+  <p class="text-xs t3 mt-4">Если в Projects/ нет проектов — показывается приглашение создать новый.</p>
+</div>
+</body>
+</html>
