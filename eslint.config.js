@@ -11,6 +11,8 @@ export default tseslint.config(
       '**/*.tsbuildinfo',
       'playwright-report/**',
       'test-results/**',
+      'docs/**',
+      '.dev/**',
     ],
   },
   js.configs.recommended,

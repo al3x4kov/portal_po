@@ -3,15 +3,16 @@ import {
   addRequirement,
   createProject,
   deleteRequirement,
-  expandRow,
   linkRequirements,
   renameRequirement,
   rowByName,
+  setTreeMode,
+  expandNode,
   uniqueName,
 } from './helpers/app.js';
 
 /**
- * T-406 · Requirements & links (FR-6, FR-7, FR-8, FR-9).
+ * T-406 · Requirements & links (FR-6, FR-7, FR-8, FR-9) under the new UI.
  */
 test.describe('T-406 requirements', () => {
   test.beforeEach(async ({ page }) => {
@@ -35,11 +36,11 @@ test.describe('T-406 requirements', () => {
     await expect(page.getByTestId('requirement-modal')).toBeVisible();
 
     // Default is "not implemented" → target fields shown (FR-6.2 / 2.4 §2.2).
-    await expect(page.getByTestId('req-target-fields')).toBeVisible();
+    await expect(page.getByTestId('req-target')).toBeVisible();
     await page.getByTestId('req-implemented-yes').click();
-    await expect(page.getByTestId('req-target-fields')).toBeHidden();
+    await expect(page.getByTestId('req-target')).toBeHidden();
     await page.getByTestId('req-implemented-no').click();
-    await expect(page.getByTestId('req-target-fields')).toBeVisible();
+    await expect(page.getByTestId('req-target')).toBeVisible();
 
     await page.getByTestId('requirement-modal-close').click();
     await expect(page.getByTestId('requirement-modal')).toBeHidden();
@@ -58,22 +59,22 @@ test.describe('T-406 requirements', () => {
     await expect(rowByName(page, name)).toContainText('2027');
   });
 
-  test('live uniqueness check blocks Apply on a duplicate name (FR-6.6)', async ({ page }) => {
+  test('live uniqueness check blocks Save on a duplicate name (FR-6.6)', async ({ page }) => {
     const dup = uniqueName('FT-dup');
     await addRequirement(page, { kind: 'function', name: dup });
 
     await page.getByTestId('add-function').click();
     await expect(page.getByTestId('requirement-modal')).toBeVisible();
-    await page.getByTestId('req-name-input').fill(dup);
+    await page.getByTestId('req-name').fill(dup);
 
-    // Debounced check-name returns "taken" → error shown, Apply disabled.
-    await expect(page.getByTestId('req-name-error')).toBeVisible();
-    await expect(page.getByTestId('req-apply')).toBeDisabled();
+    // Debounced check-name returns "taken" → status flips to taken, Save disabled.
+    await expect(page.getByTestId('req-name-status')).toHaveAttribute('data-state', 'taken');
+    await expect(page.getByTestId('req-submit')).toBeDisabled();
 
-    // A different name clears the error and re-enables Apply.
-    await page.getByTestId('req-name-input').fill(uniqueName('FT-ok'));
-    await expect(page.getByTestId('req-name-ok')).toBeVisible();
-    await expect(page.getByTestId('req-apply')).toBeEnabled();
+    // A different name clears the error and re-enables Save.
+    await page.getByTestId('req-name').fill(uniqueName('FT-ok'));
+    await expect(page.getByTestId('req-name-status')).toHaveAttribute('data-state', 'ok');
+    await expect(page.getByTestId('req-submit')).toBeEnabled();
     await page.getByTestId('requirement-modal-close').click();
   });
 
@@ -95,9 +96,13 @@ test.describe('T-406 requirements', () => {
     // child CHILD_OF parent  ⇒  child nests under parent.
     await linkRequirements(page, child, 'CHILD_OF', parent);
 
-    // Nested child is collapsed by default; parent gains an expand toggle.
+    // Default mode is "Раскрыть все": the nested child is visible immediately.
+    await expect(rowByName(page, child)).toBeVisible();
+
+    // Switching to "Скрыть зависимости" collapses the branch; the chip re-expands it.
+    await setTreeMode(page, 'collapse');
     await expect(rowByName(page, child)).toBeHidden();
-    await expandRow(page, parent);
+    await expandNode(page, parent);
     await expect(rowByName(page, child)).toBeVisible();
   });
 

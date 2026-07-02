@@ -40,7 +40,7 @@ export function NewProject(): React.ReactElement {
           <div className="mt-6 space-y-4" data-testid="newproject-success">
             <div
               className="rounded-lg p-3 text-sm"
-              style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}
+              style={{ background: 'var(--color-success-bg)', color: 'var(--color-success-fg)' }}
             >
               Проект «{created.name}» создан.
             </div>
@@ -87,7 +87,7 @@ export function NewProject(): React.ReactElement {
               <p
                 className="rounded-lg p-2 text-sm"
                 role="alert"
-                style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+                style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
                 data-testid="newproject-error"
               >
                 {error}

@@ -1,4 +1,4 @@
-import { DomainError } from '@po/core';
+import { CycleError, DomainError, HasChildrenError } from '@po/core';
 
 /** Requested resource (project / requirement) does not exist. */
 export class NotFoundError extends DomainError {
@@ -28,6 +28,25 @@ export class ArchiveError extends DomainError {
   }
 }
 
+/** A syntactically malformed request (e.g. an unparseable multipart upload). */
+export class BadRequestError extends DomainError {
+  constructor(message: string) {
+    super('BAD_REQUEST', message);
+  }
+}
+
+/**
+ * Structured, machine-readable details for specific domain errors (ARCH-11).
+ * Shared by the REST error handler and the MCP tool wrapper so both transports
+ * surface the same payload (e.g. a cycle's `path`, a node's blocking `children`)
+ * instead of collapsing it into a plain string.
+ */
+export function domainErrorDetails(err: DomainError): unknown {
+  if (err instanceof CycleError) return { path: err.path };
+  if (err instanceof HasChildrenError) return { children: err.children };
+  return undefined;
+}
+
 /**
  * Map a DomainError code to an HTTP status.
  * Everything unknown falls back to 500 in the error handler.
@@ -35,6 +54,7 @@ export class ArchiveError extends DomainError {
 export function httpStatusForCode(code: string): number {
   switch (code) {
     case 'PATH_UNSAFE':
+    case 'BAD_REQUEST':
       return 400;
     case 'NOT_FOUND':
       return 404;

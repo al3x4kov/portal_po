@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface ConfirmDialogProps {
   title: string;
@@ -7,6 +8,12 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   danger?: boolean;
   busy?: boolean;
+  /**
+   * Disable the confirm button with the reason shown in `note` (UX-3): e.g. a
+   * requirement that still has children cannot be deleted, so we prevent the
+   * click that would fail server-side rather than surfacing the error after.
+   */
+  confirmDisabled?: boolean;
   /** Optional coloured note box (e.g. children-safety hint for delete). */
   note?: { tone: 'warning' | 'danger'; text: string };
   error?: string | null;
@@ -23,12 +30,18 @@ export function ConfirmDialog({
   cancelLabel = 'Отменить',
   danger = false,
   busy = false,
+  confirmDisabled = false,
   note,
   error,
   onConfirm,
   onCancel,
   testid = 'confirm-dialog',
 }: ConfirmDialogProps): React.ReactElement {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  // UX-5: trap focus and default to the safe (Cancel) button.
+  useFocusTrap(dialogRef, { initialFocus: cancelRef });
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onCancel();
@@ -39,8 +52,8 @@ export function ConfirmDialog({
 
   const noteStyle =
     note?.tone === 'danger'
-      ? { background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }
-      : { background: 'var(--color-warning-bg)', color: 'var(--color-warning)' };
+      ? { background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }
+      : { background: 'var(--color-warning-bg)', color: 'var(--color-warning-fg)' };
 
   return (
     <div
@@ -49,6 +62,7 @@ export function ConfirmDialog({
       data-testid={`${testid}-overlay`}
     >
       <div
+        ref={dialogRef}
         role="alertdialog"
         aria-modal="true"
         aria-label={title}
@@ -58,7 +72,7 @@ export function ConfirmDialog({
         {danger ? (
           <div
             className="mb-4 grid h-11 w-11 place-items-center rounded-full text-xl"
-            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
             aria-hidden="true"
           >
             🗑
@@ -84,7 +98,7 @@ export function ConfirmDialog({
         {error ? (
           <div
             className="mb-5 rounded-lg p-3 text-sm"
-            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
             role="alert"
             data-testid={`${testid}-error`}
           >
@@ -93,6 +107,7 @@ export function ConfirmDialog({
         ) : null}
         <div className="flex justify-end gap-3">
           <button
+            ref={cancelRef}
             type="button"
             className="btn btn-secondary"
             data-testid={`${testid}-cancel`}
@@ -104,7 +119,7 @@ export function ConfirmDialog({
             type="button"
             className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
             data-testid={`${testid}-confirm`}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
             onClick={onConfirm}
           >
             {confirmLabel}

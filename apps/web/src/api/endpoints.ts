@@ -24,6 +24,9 @@ export const projectsApi = {
   },
   export: (id: string, format: ArchiveFormat) =>
     apiDownload(`/projects/${encodeURIComponent(id)}/export?format=${format}`),
+  /** UX-8: Excel export goes through the same fetch/blob path as the archives so
+   *  errors and the busy state are handled uniformly (no bare `<a download>`). */
+  exportXlsx: (id: string) => apiDownload(`/projects/${encodeURIComponent(id)}/export.xlsx`),
 };
 
 export const requirementsApi = {
@@ -33,10 +36,10 @@ export const requirementsApi = {
     projectId: string,
     type: RequirementType,
     name: string,
-    excludeId?: string,
+    excludeSlug?: string,
   ): Promise<CheckNameResult> => {
     const params = new URLSearchParams({ type, name });
-    if (excludeId) params.set('excludeId', excludeId);
+    if (excludeSlug) params.set('excludeSlug', excludeSlug);
     return apiRequest(
       `/projects/${encodeURIComponent(projectId)}/requirements/check-name?${params.toString()}`,
     );
@@ -46,17 +49,17 @@ export const requirementsApi = {
       method: 'POST',
       body: input,
     }),
-  update: (projectId: string, rid: string, input: RequirementUpdateInput): Promise<Requirement> =>
+  update: (projectId: string, slug: string, input: RequirementUpdateInput): Promise<Requirement> =>
     apiRequest(
-      `/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(rid)}`,
+      `/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(slug)}`,
       {
         method: 'PUT',
         body: input,
       },
     ),
-  remove: (projectId: string, rid: string): Promise<null> =>
+  remove: (projectId: string, slug: string): Promise<null> =>
     apiRequest(
-      `/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(rid)}`,
+      `/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(slug)}`,
       {
         method: 'DELETE',
       },

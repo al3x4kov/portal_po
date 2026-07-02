@@ -1,6 +1,7 @@
+import { existsSync, readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices, type Project } from '@playwright/test';
 
 /**
  * Playwright config (E7). Boots the REAL application for E2E:
@@ -21,6 +22,51 @@ const BASE_URL = `http://${HOST}:${PORT}`;
 const PROJECTS_ROOT = process.env.E2E_PROJECTS_ROOT ?? path.join(os.tmpdir(), 'po-e2e-projects');
 process.env.E2E_PROJECTS_ROOT = PROJECTS_ROOT;
 
+// Desktop viewport tall enough for the full requirement modal (with the
+// conditional target-date block expanded, ~835px) to render its footer actions.
+const DESKTOP = { width: 1280, height: 1024 } as const;
+
+/**
+ * QA-9 · cross-browser matrix beyond Chromium. WebKit/Firefox are only added
+ * when their browser binaries are actually installed, so `npm run e2e` stays
+ * green on a Chromium-only machine (run `npx playwright install webkit firefox`
+ * to light them up). They run a thin `@smoke` slice, not the full suite.
+ */
+function browserInstalled(prefix: string): boolean {
+  const root =
+    process.env.PLAYWRIGHT_BROWSERS_PATH ||
+    path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright');
+  try {
+    return existsSync(root) && readdirSync(root).some((d) => d.startsWith(prefix));
+  } catch {
+    return false;
+  }
+}
+
+const projects: Project[] = [
+  {
+    name: 'chromium',
+    // Full suite. Viewport override must live in the project `use` to beat the
+    // device preset.
+    use: { ...devices['Desktop Chrome'], viewport: DESKTOP },
+  },
+];
+
+if (browserInstalled('webkit')) {
+  projects.push({
+    name: 'webkit-smoke',
+    use: { ...devices['Desktop Safari'], viewport: DESKTOP },
+    grep: /@smoke/,
+  });
+}
+if (browserInstalled('firefox')) {
+  projects.push({
+    name: 'firefox-smoke',
+    use: { ...devices['Desktop Firefox'], viewport: DESKTOP },
+    grep: /@smoke/,
+  });
+}
+
 export default defineConfig({
   testDir: './e2e/tests',
   globalSetup: './e2e/global-setup.ts',
@@ -29,15 +75,17 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // QA-7: flaky budget is zero — retries must not mask non-determinism. A test
+  // either passes deterministically or it is a defect to fix, not to re-run.
+  retries: 0,
   reporter: [['html', { open: 'never' }], ['list']],
   use: {
     baseURL: BASE_URL,
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects,
   webServer: {
     command: 'npm run build && node apps/server/dist/main.js',
     url: `${BASE_URL}/healthz`,

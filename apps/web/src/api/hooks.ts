@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import type { Requirement } from '@po/core';
+import { useToast } from '../components/Toast';
 import { linksApi, projectsApi, requirementsApi } from './endpoints';
 import type {
   LinkInput,
@@ -59,40 +60,60 @@ function invalidateRequirements(qc: ReturnType<typeof useQueryClient>, projectId
 
 export function useCreateRequirement(projectId: string) {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation<Requirement, Error, RequirementCreateInput>({
     mutationFn: (input) => requirementsApi.create(projectId, input),
-    onSuccess: () => invalidateRequirements(qc, projectId),
+    onSuccess: () => {
+      invalidateRequirements(qc, projectId);
+      toast.show('Требование создано');
+    },
   });
 }
 
 export function useUpdateRequirement(projectId: string) {
   const qc = useQueryClient();
-  return useMutation<Requirement, Error, { rid: string; input: RequirementUpdateInput }>({
-    mutationFn: ({ rid, input }) => requirementsApi.update(projectId, rid, input),
-    onSuccess: () => invalidateRequirements(qc, projectId),
+  const toast = useToast();
+  return useMutation<Requirement, Error, { slug: string; input: RequirementUpdateInput }>({
+    mutationFn: ({ slug, input }) => requirementsApi.update(projectId, slug, input),
+    onSuccess: () => {
+      invalidateRequirements(qc, projectId);
+      toast.show('Требование обновлено');
+    },
   });
 }
 
 export function useDeleteRequirement(projectId: string) {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation<null, Error, string>({
     mutationFn: (rid) => requirementsApi.remove(projectId, rid),
-    onSuccess: () => invalidateRequirements(qc, projectId),
+    onSuccess: () => {
+      invalidateRequirements(qc, projectId);
+      toast.show('Требование удалено');
+    },
   });
 }
 
 export function useCreateLink(projectId: string) {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation<{ ok: true }, Error, LinkInput>({
     mutationFn: (input) => linksApi.create(projectId, input),
-    onSuccess: () => invalidateRequirements(qc, projectId),
+    onSuccess: () => {
+      invalidateRequirements(qc, projectId);
+      toast.show('Связь создана');
+    },
   });
 }
 
 export function useDeleteLink(projectId: string) {
   const qc = useQueryClient();
+  const toast = useToast();
   return useMutation<{ ok: true }, Error, LinkInput>({
     mutationFn: (input) => linksApi.remove(projectId, input),
-    onSuccess: () => invalidateRequirements(qc, projectId),
+    onSuccess: () => {
+      invalidateRequirements(qc, projectId);
+      toast.show('Связь удалена');
+    },
   });
 }

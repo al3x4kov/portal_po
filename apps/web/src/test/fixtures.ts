@@ -1,7 +1,9 @@
 import type { Requirement } from '@po/core';
 import type { ProjectSummary } from '../api/types';
 
-export function makeReq(partial: Partial<Requirement> & { id: string; name: string }): Requirement {
+export function makeReq(
+  partial: Partial<Requirement> & { slug: string; name: string },
+): Requirement {
   return {
     type: 'FUNCTION',
     criticality: 'MEDIUM',
@@ -17,16 +19,16 @@ export function makeReq(partial: Partial<Requirement> & { id: string; name: stri
 /** Parent → child pair wired with PARENT_OF / CHILD_OF inverse links. */
 export function makeHierarchy(): { parent: Requirement; child: Requirement } {
   const parent = makeReq({
-    id: 'p1',
+    slug: 'p1',
     name: 'Платежи',
     criticality: 'CRITICAL',
-    links: [{ type: 'PARENT_OF', targetId: 'c1' }],
+    links: [{ type: 'PARENT_OF', targetSlug: 'c1' }],
   });
   const child = makeReq({
-    id: 'c1',
+    slug: 'c1',
     name: 'Оплата картой',
     criticality: 'HIGH',
-    links: [{ type: 'CHILD_OF', targetId: 'p1' }],
+    links: [{ type: 'CHILD_OF', targetSlug: 'p1' }],
   });
   return { parent, child };
 }

@@ -3,7 +3,6 @@ import {
   addRequirement,
   createProject,
   exportArchive,
-  expandRow,
   importArchive,
   linkRequirements,
   renameRequirement,
@@ -14,6 +13,8 @@ import {
 /**
  * T-701 · End-to-end happy path across the whole DoD (DoD#1, DoD#3):
  * new project → ≥3 FT + ≥1 NFR → link into a tree → edit → export → import.
+ * New UI default mode is "Раскрыть все", so nested children are visible without
+ * a manual expand step.
  */
 test('happy path: create, link, edit, export, re-import', async ({ page }, testInfo) => {
   const project = uniqueName('happy');
@@ -44,13 +45,11 @@ test('happy path: create, link, edit, export, re-import', async ({ page }, testI
   // Build a tree: childA and childB are children of root (FR-7/FR-8).
   await linkRequirements(page, childA, 'CHILD_OF', root);
   await linkRequirements(page, childB, 'CHILD_OF', root);
-  await expandRow(page, root);
   await expect(rowByName(page, childA)).toBeVisible();
   await expect(rowByName(page, childB)).toBeVisible();
 
   // Edit a requirement (with confirmation) — rename childB.
   await renameRequirement(page, childB, renamed);
-  await expandRow(page, root);
   await expect(rowByName(page, renamed)).toBeVisible();
 
   // Export → import under a new name → verify composition is preserved.
@@ -61,7 +60,6 @@ test('happy path: create, link, edit, export, re-import', async ({ page }, testI
   await expect(page.getByTestId('section-nfr')).toContainText('(1)');
   await expect(rowByName(page, root)).toBeVisible();
   await expect(rowByName(page, nfr)).toBeVisible();
-  await expandRow(page, root);
   await expect(rowByName(page, childA)).toBeVisible();
   await expect(rowByName(page, renamed)).toBeVisible();
 });

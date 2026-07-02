@@ -1,0 +1,82 @@
+<!-- Экран: Поиск по «Названию» (B3). Совпадение на потомке показывает и его предков. Активный поиск + пустой результат. Покрывает S26, S29. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Поиск по названию — v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  .crit{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:999px;display:inline-block;flex:none}
+  table.tw{border-collapse:separate;border-spacing:0;width:100%;font-size:14px}
+  .tw thead th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;
+    color:var(--color-text-3);text-align:left;padding:10px 16px;border-bottom:1px solid var(--color-border)}
+  .tw td{padding:9px 16px;border-bottom:1px solid var(--color-border)}
+  .tw tbody tr:last-child td{border-bottom:0}
+  .chev{width:15px;height:15px;flex:none;color:var(--color-text-3)}
+  .search-wrap{position:relative;max-width:360px;width:100%}
+  .search-wrap>svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--color-text-3)}
+  .clear-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--color-text-3);background:none;border:0}
+  mark{background:var(--color-warning-bg);color:var(--color-text);border-radius:3px;padding:0 2px;font-weight:600}
+  /* строка-предок: контекст, не совпадение */
+  .ancestor{opacity:.6}
+  .ancestor .ctx{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--color-text-3);font-weight:600;margin-left:6px}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto px-4 py-8">
+  <div class="flex items-center justify-between mb-1">
+    <h1 class="text-xl font-bold">B3 · Поиск по колонке «Название»</h1>
+    <a href="index.html" class="btn btn-secondary text-sm">← В галерею</a>
+  </div>
+  <p class="t2 text-sm mb-6">Совпадение подсвечивается; предки совпавшего потомка остаются видимыми как контекст (единый слой видимости, A6#4). Ниже — активный поиск и пустой результат.</p>
+
+  <!-- Активный поиск -->
+  <div class="flex items-center gap-3 mb-2 flex-wrap">
+    <div class="search-wrap">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input data-testid="search-input" class="input" style="padding-left:34px;padding-right:30px" value="токен">
+      <button class="clear-btn" data-testid="search-clear" aria-label="Очистить"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <span class="text-xs t3" data-testid="search-count">1 совпадение · показаны предки</span>
+  </div>
+  <section class="card mb-8 overflow-hidden">
+    <table class="tw">
+      <thead><tr><th style="width:55%">Требование</th><th style="width:140px">Критичность</th><th>Реализация</th></tr></thead>
+      <tbody>
+        <!-- предок (контекст) -->
+        <tr class="ancestor"><td><span class="flex items-center gap-2 font-medium"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Платежи<span class="ctx">предок</span></span></td><td><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+        <!-- предок (контекст) -->
+        <tr class="ancestor"><td><span class="flex items-center gap-2" style="padding-left:24px"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Оплата картой<span class="ctx">предок</span></span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+        <!-- совпадение -->
+        <tr><td><span class="flex items-center gap-2" style="padding-left:52px"><span class="dot" style="background:var(--color-text-3)"></span>Сохранение карты (<mark>токен</mark>изация)</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Пустой результат -->
+  <div class="flex items-center gap-3 mb-2 flex-wrap">
+    <div class="search-wrap">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input data-testid="search-input" class="input" style="padding-left:34px;padding-right:30px" value="блокчейн">
+      <button class="clear-btn" data-testid="search-clear" aria-label="Очистить"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <span class="text-xs t3" data-testid="search-count">0 совпадений</span>
+  </div>
+  <section class="card overflow-hidden">
+    <table class="tw">
+      <thead><tr><th style="width:55%">Требование</th><th style="width:140px">Критичность</th><th>Реализация</th></tr></thead>
+    </table>
+    <div class="flex flex-col items-center text-center px-6 py-14" data-testid="search-empty">
+      <div class="grid place-items-center mb-4" style="width:56px;height:56px;border-radius:999px;background:var(--color-surface-2)">
+        <svg width="26" height="26" fill="none" stroke="var(--color-text-3)" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      </div>
+      <p class="font-semibold">Ничего не найдено по запросу «блокчейн»</p>
+      <p class="t3 text-sm mt-1 max-w-sm">Проверьте написание или очистите поиск, чтобы вернуть полное дерево требований.</p>
+      <button class="btn btn-secondary text-sm mt-4" data-testid="search-clear">Очистить поиск</button>
+    </div>
+  </section>
+</div>
+</body>
+</html>

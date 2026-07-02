@@ -1,0 +1,115 @@
+<!-- Экран: Модалка создания/редактирования ФТ/НФТ (B6). Пересмотр композиции и иерархии. Покрывает FR-6, FR-6.6. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Требование — v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  /* сегмент критичности */
+  .crit-seg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .crit-opt{display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 6px;cursor:pointer;
+    border:1px solid var(--color-border);border-radius:var(--radius-sm);font-size:13px;font-weight:600;color:var(--color-text-2)}
+  .crit-opt input{position:absolute;opacity:0}
+  .dot{width:8px;height:8px;border-radius:999px;display:inline-block;flex:none}
+  .crit-opt.on{border-width:2px;color:var(--color-text)}
+  /* сегмент статуса */
+  .impl-seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .impl-opt{display:flex;align-items:center;gap:8px;padding:11px 14px;cursor:pointer;
+    border:1px solid var(--color-border);border-radius:var(--radius-sm);font-size:14px;font-weight:600}
+  .impl-opt.on{border-color:var(--color-primary);background:var(--color-primary-soft);color:var(--color-primary)}
+  .impl-opt input{position:absolute;opacity:0}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="fixed inset-0" style="background:rgba(15,23,42,.5)"></div>
+
+<div class="fixed inset-0 grid place-items-center p-4 overflow-y-auto">
+  <div class="card w-full max-w-2xl p-0 my-8" style="box-shadow:var(--shadow-lg)">
+
+    <!-- Шапка: тип + заголовок + закрытие -->
+    <div class="flex items-center justify-between px-6 py-4" style="border-bottom:1px solid var(--color-border)">
+      <div class="flex items-center gap-3">
+        <span class="badge" style="background:var(--color-info-bg);color:var(--color-info)">Функциональное</span>
+        <h2 class="text-lg font-bold">Новая функция</h2>
+      </div>
+      <a href="main-v2-layout.html" class="btn btn-ghost" aria-label="Закрыть">✕</a>
+    </div>
+
+    <div class="p-6 space-y-6">
+
+      <!-- Блок 1: идентификация -->
+      <div>
+        <label class="label" for="req-name">Название <span style="color:var(--color-danger)">*</span></label>
+        <input id="req-name" data-testid="req-name" class="input" value="Сохранение карты (токенизация)">
+        <p class="text-xs mt-1.5 flex items-center gap-1.5" data-testid="req-name-status" style="color:var(--color-success)">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+          Имя уникально среди функциональных требований
+        </p>
+        <!-- дубликат:
+        <p style="color:var(--color-danger)">Функция с таким именем уже существует</p> -->
+      </div>
+
+      <hr style="border-color:var(--color-border)">
+
+      <!-- Блок 2: классификация -->
+      <div>
+        <label class="label">Критичность <span style="color:var(--color-danger)">*</span></label>
+        <div class="crit-seg" data-testid="req-criticality" role="radiogroup">
+          <label class="crit-opt"><input type="radio" name="crit"><span class="dot" style="background:var(--crit-low)"></span>Low</label>
+          <label class="crit-opt"><input type="radio" name="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</label>
+          <label class="crit-opt on" style="border-color:var(--crit-high)"><input type="radio" name="crit" checked><span class="dot" style="background:var(--crit-high)"></span>High</label>
+          <label class="crit-opt"><input type="radio" name="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</label>
+        </div>
+      </div>
+
+      <!-- Блок 3: статус реализации + условные поля -->
+      <div>
+        <label class="label">Статус реализации</label>
+        <div class="impl-seg" data-testid="req-implemented">
+          <label class="impl-opt"><input type="radio" name="impl">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Реализовано</label>
+          <label class="impl-opt on"><input type="radio" name="impl" checked>
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>Не реализовано</label>
+        </div>
+
+        <!-- появляется только при «Не реализовано» -->
+        <div class="mt-3 p-4 rounded-lg grid sm:grid-cols-2 gap-4" data-testid="req-target" style="background:var(--color-surface-2)">
+          <div class="sm:col-span-2 flex items-center gap-2 text-xs t2">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            Плановый срок — обязателен, пока требование не реализовано
+          </div>
+          <div>
+            <label class="label" for="q">Квартал <span style="color:var(--color-danger)">*</span></label>
+            <select id="q" data-testid="req-quarter" class="input"><option>Q1</option><option>Q2</option><option selected>Q3</option><option>Q4</option></select>
+          </div>
+          <div>
+            <label class="label" for="y">Год <span style="color:var(--color-danger)">*</span></label>
+            <input id="y" data-testid="req-year" class="input" type="number" value="2026" min="2020" max="2100">
+          </div>
+        </div>
+      </div>
+
+      <hr style="border-color:var(--color-border)">
+
+      <!-- Блок 4: описание -->
+      <div>
+        <div class="flex items-center justify-between mb-1.5">
+          <label class="label" for="desc" style="margin:0">Описание</label>
+          <span class="text-xs t3" data-testid="req-desc-count">148 / 5000</span>
+        </div>
+        <textarea id="desc" data-testid="req-description" class="input" rows="5" style="resize:vertical">PCI-DSS токенизация карточных данных, хранение токена вместо PAN. Поворот ключей раз в 90 дней. PAN не пишется в логи.</textarea>
+        <p class="text-xs t3 mt-1">Поддерживается Markdown.</p>
+      </div>
+    </div>
+
+    <!-- Футер действий -->
+    <div class="flex justify-end gap-3 px-6 py-4" style="border-top:1px solid var(--color-border)">
+      <a href="main-v2-layout.html" class="btn btn-secondary" data-testid="req-cancel">Отменить</a>
+      <a href="main-v2-layout.html" class="btn btn-primary" data-testid="req-submit">Сохранить</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

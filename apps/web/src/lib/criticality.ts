@@ -1,12 +1,8 @@
 import type { Criticality } from '@po/core';
 
-/** Display label for a criticality enum value (matches the mockups). */
-export const CRITICALITY_LABEL: Record<Criticality, string> = {
-  LOW: 'Low',
-  MEDIUM: 'Medium',
-  HIGH: 'High',
-  CRITICAL: 'Critical',
-};
+// Display labels live in core (BE-3) so the UI and the Excel export share one
+// source of truth; re-exported here for existing web imports.
+export { CRITICALITY_LABEL } from '@po/core';
 
 /** CSS custom property holding the dot color for each criticality level. */
 export const CRITICALITY_COLOR_VAR: Record<Criticality, string> = {
@@ -14,4 +10,5 @@ export const CRITICALITY_COLOR_VAR: Record<Criticality, string> = {
   MEDIUM: 'var(--crit-medium)',
   HIGH: 'var(--crit-high)',
   CRITICAL: 'var(--crit-critical)',
+  BLOCKER: 'var(--crit-blocker)',
 };

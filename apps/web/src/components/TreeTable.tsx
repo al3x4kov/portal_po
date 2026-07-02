@@ -1,55 +1,116 @@
-import type { Requirement } from '@po/core';
-import { useUiStore } from '../store/ui';
-import { buildForest, flattenVisible, type TreeNode } from '../lib/tree';
+import type { LinkType, Requirement } from '@po/core';
+import type { VisibleRow } from '../lib/visibility';
+import { nestedLabel } from '../lib/plural';
+import { LINK_TYPE_LABEL, describeLink } from '../lib/linkTypes';
 import { CriticalityBadge, ImplementationBadge } from './badges';
+
+/** Link types shown as inline relationship chips (hierarchy is shown by the tree itself). */
+const REL_TYPES: readonly LinkType[] = ['RELATES_TO', 'DEPENDS_ON', 'BLOCKED_BY'];
+
+function relChipStyle(type: LinkType): React.CSSProperties {
+  switch (type) {
+    case 'BLOCKED_BY':
+      return { background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' };
+    case 'DEPENDS_ON':
+      return { background: 'var(--color-warning-bg)', color: 'var(--color-warning-fg)' };
+    default:
+      return { background: 'var(--color-primary-soft)', color: 'var(--color-primary)' };
+  }
+}
 
 interface TreeTableProps {
   title: string;
   addLabel: string;
   testidPrefix: string;
-  requirements: Requirement[];
+  /** Total requirements in this section (for the header counter). */
+  count: number;
+  rows: VisibleRow[];
+  /** Project-wide slug → name map, to render link targets by name. */
+  nameBySlug: Map<string, string>;
+  /** Slugs whose acceptance criterion is missing/incomplete (SA-4/SA-6). */
+  incompleteSet?: ReadonlySet<string>;
   onAdd: () => void;
   onEdit: (req: Requirement) => void;
   onLink: (req: Requirement) => void;
+  /** T4: add an NFR pre-linked to a functional requirement (only wired for the ФТ section). */
+  onAddNfr?: (req: Requirement) => void;
   onDelete: (req: Requirement) => void;
+  onDescExpand: (req: Requirement) => void;
+  /** Expand a collapsed branch (collapse mode chip). */
+  onExpandNode: (slug: string) => void;
+  /**
+   * UX-7: toggle (expand/collapse) a single node via the chevron. Only wired in
+   * collapse mode, where per-node expansion is meaningful.
+   */
+  onToggleNode?: (slug: string) => void;
+  /**
+   * UX-7: when true the chevron is an interactive toggle button; otherwise it is
+   * a purely decorative, non-clickable marker (no false affordance).
+   */
+  interactiveChevron?: boolean;
 }
 
 function Row({
-  node,
+  row,
+  nameBySlug,
+  incomplete,
   onEdit,
   onLink,
+  onAddNfr,
   onDelete,
+  onDescExpand,
+  onExpandNode,
+  onToggleNode,
+  interactiveChevron,
 }: {
-  node: TreeNode;
+  row: VisibleRow;
+  nameBySlug: Map<string, string>;
+  incomplete: boolean;
   onEdit: (r: Requirement) => void;
   onLink: (r: Requirement) => void;
+  onAddNfr?: (r: Requirement) => void;
   onDelete: (r: Requirement) => void;
+  onDescExpand: (r: Requirement) => void;
+  onExpandNode: (slug: string) => void;
+  onToggleNode?: (slug: string) => void;
+  interactiveChevron?: boolean;
 }): React.ReactElement {
-  const req = node.requirement;
-  const hasChildren = node.children.length > 0;
-  const isExpanded = useUiStore((s) => s.expanded.has(req.id));
-  const toggleExpanded = useUiStore((s) => s.toggleExpanded);
+  const req = row.requirement;
+  const isContext = row.kind === 'context';
+  const collapsedBranch = row.hiddenCount > 0;
+  const relLinks = req.links.filter((l) => REL_TYPES.includes(l.type));
+  // T4: only functional requirements can spawn a pre-linked NFR (ФТ BLOCKED_BY НФТ).
+  const canAddNfr = Boolean(onAddNfr) && req.type === 'FUNCTION';
 
   return (
     <tr
       className="group border-b"
-      style={{ borderColor: 'var(--color-border)' }}
-      data-testid={`tree-row-${req.id}`}
+      style={{ borderColor: 'var(--color-border)', opacity: isContext ? 0.6 : 1 }}
+      data-testid={`tree-row-${req.slug}`}
       data-req-name={req.name}
+      data-row-kind={row.kind}
     >
-      <td className="py-2.5 pr-3 align-top">
-        <div className="flex items-start gap-1.5" style={{ paddingLeft: node.depth * 24 }}>
-          {hasChildren ? (
-            <button
-              type="button"
-              className="btn btn-ghost px-1 py-0 text-sm"
-              aria-label={isExpanded ? 'Свернуть' : 'Развернуть'}
-              aria-expanded={isExpanded}
-              data-testid={`tree-toggle-${req.id}`}
-              onClick={() => toggleExpanded(req.id)}
-            >
-              {isExpanded ? '▾' : '▸'}
-            </button>
+      <td className="py-2.5 pr-3 align-middle">
+        <div className="flex min-w-0 items-center gap-1.5" style={{ paddingLeft: row.depth * 24 }}>
+          {row.hasChildren ? (
+            interactiveChevron ? (
+              <button
+                type="button"
+                className="shrink-0 rounded px-0.5 text-sm hover:text-[var(--color-primary)]"
+                style={{ color: 'var(--color-text-3)' }}
+                data-testid="toggle-node"
+                data-slug={req.slug}
+                aria-expanded={!collapsedBranch}
+                aria-label={collapsedBranch ? `Раскрыть «${req.name}»` : `Свернуть «${req.name}»`}
+                onClick={() => onToggleNode?.(req.slug)}
+              >
+                {collapsedBranch ? '▸' : '▾'}
+              </button>
+            ) : (
+              <span className="text-sm" style={{ color: 'var(--color-text-3)' }} aria-hidden="true">
+                {collapsedBranch ? '▸' : '▾'}
+              </span>
+            )
           ) : (
             <span
               className="px-1 text-sm"
@@ -59,34 +120,122 @@ function Row({
               •
             </span>
           )}
+          {/* UX-10: the name is an explicit edit affordance (link-style button). */}
           <button
             type="button"
-            className="text-left font-medium hover:underline"
-            data-testid={`req-name-${req.id}`}
+            className="min-w-0 truncate text-left font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid"
+            data-testid={`req-name-${req.slug}`}
+            title={`Редактировать «${req.name}»`}
+            aria-label={`Редактировать «${req.name}»`}
             onClick={() => onEdit(req)}
           >
             {req.name}
           </button>
+          {isContext ? (
+            <span
+              className="text-[10px] font-semibold uppercase tracking-wide"
+              style={{ color: 'var(--color-text-3)' }}
+              data-testid={`ancestor-label-${req.slug}`}
+            >
+              предок
+            </span>
+          ) : null}
+          {incomplete ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+              style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning-fg)' }}
+              data-testid="incomplete-badge"
+              data-slug={req.slug}
+              title="Нет полного критерия приёмки (сценария WHEN/THEN)"
+              aria-label="Нет полного критерия приёмки"
+            >
+              <span aria-hidden="true">⚠</span> без критерия
+            </span>
+          ) : null}
+          {collapsedBranch ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
+              style={{ background: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}
+              data-testid="expand-node"
+              data-slug={req.slug}
+              onClick={() => onExpandNode(req.slug)}
+            >
+              {nestedLabel(row.hiddenCount)}
+            </button>
+          ) : null}
         </div>
       </td>
-      <td
-        className="max-w-[1px] truncate py-2.5 pr-3 align-top text-sm"
-        style={{ color: 'var(--color-text-2)' }}
-      >
-        {req.description}
-      </td>
-      <td className="py-2.5 pr-3 align-top">
+      <td className="w-[130px] py-2.5 pr-3 align-middle" data-testid="req-criticality-cell">
         <CriticalityBadge criticality={req.criticality} />
       </td>
-      <td className="py-2.5 pr-3 align-top">
+      <td className="w-[140px] py-2.5 pr-3 align-middle" data-testid="req-implemented-cell">
         <ImplementationBadge req={req} />
       </td>
-      <td className="py-2.5 align-top text-right">
-        <div className="inline-flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 max-md:opacity-100">
+      <td className="py-2.5 pr-3 align-top" data-testid="req-links-cell">
+        {relLinks.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {relLinks.map((l) => {
+              const targetName = nameBySlug.get(l.targetSlug) ?? l.targetSlug;
+              return (
+                <span
+                  key={`${l.type}-${l.targetSlug}`}
+                  className="inline-flex max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+                  style={relChipStyle(l.type)}
+                  data-testid={`rel-chip-${req.slug}-${l.targetSlug}`}
+                  data-rel-type={l.type}
+                  title={describeLink(req.name, l.type, targetName)}
+                >
+                  <span className="opacity-70">{LINK_TYPE_LABEL[l.type]}</span>
+                  <span className="truncate">«{targetName}»</span>
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          <span style={{ color: 'var(--color-text-3)' }}>—</span>
+        )}
+      </td>
+      <td className="py-2.5 pr-3 align-middle text-sm">
+        <button
+          type="button"
+          className="flex w-full items-center gap-1.5 text-left hover:text-[var(--color-primary)]"
+          style={{ color: 'var(--color-text-2)' }}
+          data-testid="desc-expand"
+          data-slug={req.slug}
+          onClick={() => onDescExpand(req)}
+          title="Открыть описание"
+          aria-label="Открыть описание"
+        >
+          <span className="block min-w-0 flex-1 truncate">
+            {req.description && req.description.length > 0 ? req.description : '—'}
+          </span>
+        </button>
+      </td>
+      <td className="w-[210px] py-2.5 pr-4 align-middle text-right">
+        {/* UX-1 / UX-9: actions stay fully visible and keyboard-reachable,
+            identical on desktop/mobile. Emphasis on hover/focus comes from the
+            btn-ghost background — never from opacity, which would drop the text
+            below the WCAG AA contrast floor in the resting state (QA-1). */}
+        <div
+          className="inline-flex flex-nowrap justify-end gap-1 whitespace-nowrap"
+          data-testid={`row-actions-${req.slug}`}
+        >
+          {canAddNfr ? (
+            <button
+              type="button"
+              className="btn btn-ghost px-2 py-1 text-xs"
+              data-testid="row-add-nfr"
+              data-slug={req.slug}
+              onClick={() => onAddNfr?.(req)}
+            >
+              + НФТ
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn-ghost px-2 py-1 text-xs"
-            data-testid={`link-btn-${req.id}`}
+            data-testid={`link-btn-${req.slug}`}
             onClick={() => onLink(req)}
           >
             Связать
@@ -95,7 +244,7 @@ function Row({
             type="button"
             className="btn btn-ghost px-2 py-1 text-xs"
             style={{ color: 'var(--color-danger)' }}
-            data-testid={`delete-btn-${req.id}`}
+            data-testid={`delete-btn-${req.slug}`}
             onClick={() => onDelete(req)}
           >
             Удалить
@@ -110,24 +259,28 @@ export function TreeTable({
   title,
   addLabel,
   testidPrefix,
-  requirements,
+  count,
+  rows,
+  nameBySlug,
+  incompleteSet,
   onAdd,
   onEdit,
   onLink,
+  onAddNfr,
   onDelete,
+  onDescExpand,
+  onExpandNode,
+  onToggleNode,
+  interactiveChevron,
 }: TreeTableProps): React.ReactElement {
-  const expanded = useUiStore((s) => s.expanded);
-  const forest = buildForest(requirements);
-  const rows = flattenVisible(forest, expanded);
-
   return (
-    <section className="card mb-6 overflow-hidden" data-testid={`section-${testidPrefix}`}>
+    <section className="card mb-5 overflow-hidden" data-testid={`section-${testidPrefix}`}>
       <div
         className="flex items-center justify-between border-b px-4 py-3"
         style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
       >
         <h2 className="font-bold">
-          {title} <span style={{ color: 'var(--color-text-3)' }}>({requirements.length})</span>
+          {title} <span style={{ color: 'var(--color-text-3)' }}>({count})</span>
         </h2>
         <button
           type="button"
@@ -139,7 +292,7 @@ export function TreeTable({
         </button>
       </div>
 
-      {requirements.length === 0 ? (
+      {count === 0 ? (
         <p
           className="px-4 py-6 text-sm"
           style={{ color: 'var(--color-text-3)' }}
@@ -147,32 +300,50 @@ export function TreeTable({
         >
           Пока нет требований. Нажмите «{addLabel}», чтобы добавить.
         </p>
+      ) : rows.length === 0 ? (
+        <p
+          className="px-4 py-6 text-sm"
+          style={{ color: 'var(--color-text-3)' }}
+          data-testid={`filtered-empty-${testidPrefix}`}
+        >
+          Нет требований, подходящих под фильтры.
+        </p>
       ) : (
-        <table className="w-full text-sm" data-testid={`table-${testidPrefix}`}>
-          <thead>
-            <tr
-              className="text-left text-xs uppercase tracking-wide"
-              style={{ color: 'var(--color-text-3)' }}
-            >
-              <th className="w-[42%] px-4 py-2 font-semibold">Требование</th>
-              <th className="px-4 py-2 font-semibold">Описание</th>
-              <th className="px-4 py-2 font-semibold">Критичность</th>
-              <th className="px-4 py-2 font-semibold">Реализация</th>
-              <th className="px-4 py-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((node) => (
-              <Row
-                key={node.requirement.id}
-                node={node}
-                onEdit={onEdit}
-                onLink={onLink}
-                onDelete={onDelete}
-              />
-            ))}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full table-fixed text-sm" data-testid={`table-${testidPrefix}`}>
+            <thead>
+              <tr
+                className="text-left text-xs uppercase tracking-wide"
+                style={{ color: 'var(--color-text-3)' }}
+              >
+                <th className="w-[26%] px-4 py-2 font-semibold">Требование</th>
+                <th className="w-[130px] px-4 py-2 font-semibold">Критичность</th>
+                <th className="w-[140px] px-4 py-2 font-semibold">Реализация</th>
+                <th className="w-[20%] px-4 py-2 font-semibold">Связи</th>
+                <th className="px-4 py-2 font-semibold">Описание</th>
+                <th className="w-[210px] px-4 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <Row
+                  key={row.requirement.slug}
+                  row={row}
+                  nameBySlug={nameBySlug}
+                  incomplete={incompleteSet?.has(row.requirement.slug) ?? false}
+                  onEdit={onEdit}
+                  onLink={onLink}
+                  onAddNfr={onAddNfr}
+                  onDelete={onDelete}
+                  onDescExpand={onDescExpand}
+                  onExpandNode={onExpandNode}
+                  onToggleNode={onToggleNode}
+                  interactiveChevron={interactiveChevron}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );

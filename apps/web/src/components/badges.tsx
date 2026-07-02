@@ -27,7 +27,7 @@ export function ImplementationBadge({ req }: { req: Requirement }): React.ReactE
     return (
       <span
         className="badge"
-        style={{ background: 'var(--color-success-bg)', color: 'var(--color-success)' }}
+        style={{ background: 'var(--color-success-bg)', color: 'var(--color-success-fg)' }}
         data-testid="implementation-badge"
       >
         Реализовано
@@ -38,7 +38,7 @@ export function ImplementationBadge({ req }: { req: Requirement }): React.ReactE
   return (
     <span
       className="badge"
-      style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning)' }}
+      style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning-fg)' }}
       data-testid="implementation-badge"
     >
       {label}

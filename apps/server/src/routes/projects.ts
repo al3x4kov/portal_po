@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ProjectService } from '../services/ProjectService.js';
+import { createProjectService, type ServiceContext } from '../factory.js';
 import { parseInput } from '../lib/parseInput.js';
 import type { AppDeps } from './deps.js';
 
@@ -12,7 +12,8 @@ const idParam = z.object({ id: z.string().min(1) });
 
 /** Project routes: GET /api/projects, POST /api/projects, GET /api/projects/:id (T-304). */
 export async function projectRoutes(app: FastifyInstance, deps: AppDeps): Promise<void> {
-  const service = new ProjectService(deps.projectsRoot, deps.now);
+  const ctx: ServiceContext = { projectsRoot: deps.projectsRoot, now: deps.now, log: deps.log };
+  const service = createProjectService(ctx);
 
   app.get('/api/projects', async () => {
     return service.list();

@@ -1,0 +1,228 @@
+<!-- Экран: Основной v2. Состояние: новая раскладка ФТ/НФТ (плотность + ширина). База для B3–B5. Покрывает FR-5, FR-7, доработку B2. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>payments-platform — Требования (v2)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  .crit{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:999px;display:inline-block;flex:none}
+  .row:hover{background:var(--color-surface-2)}
+  .row:hover .row-actions{opacity:1}
+  .row-actions{opacity:0;transition:opacity .12s}
+  @media (max-width:768px){.row-actions{opacity:1}}
+  table.tw{border-collapse:separate;border-spacing:0;width:100%;font-size:14px}
+  .tw thead th{position:sticky;top:0;background:var(--color-surface);z-index:1;
+    font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;
+    color:var(--color-text-3);text-align:left;padding:10px 16px;border-bottom:1px solid var(--color-border)}
+  .tw td{padding:9px 16px;border-bottom:1px solid var(--color-border);vertical-align:middle}
+  .tw tbody tr:last-child td{border-bottom:0}
+  .chev{width:15px;height:15px;flex:none;color:var(--color-text-3)}
+  .desc-cell{color:var(--color-text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0}
+  .desc-btn{display:inline-flex;align-items:center;gap:6px;width:100%;text-align:left;cursor:pointer;background:none;border:0;color:inherit}
+  .desc-btn:hover{color:var(--color-primary)}
+  /* сегментированный переключатель вида дерева */
+  .seg{display:inline-flex;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:2px}
+  .seg-btn{padding:6px 12px;font-size:13px;font-weight:600;border-radius:5px;color:var(--color-text-2);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .seg-on{background:var(--color-surface);color:var(--color-text);box-shadow:var(--shadow-sm)}
+  .search-wrap{position:relative;max-width:320px;width:100%}
+  .search-wrap svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--color-text-3)}
+</style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+<!-- TOP: Main Path -->
+<header class="surface sticky top-0 z-20 px-4 py-3 flex items-center justify-between gap-3" style="border-width:0 0 1px">
+  <div class="flex items-center gap-3 min-w-0">
+    <a href="main.html" class="btn btn-ghost shrink-0">←</a>
+    <div class="min-w-0">
+      <p class="text-xs t3">Main Path</p>
+      <p class="mono text-sm truncate">~/Projects/payments-platform</p>
+    </div>
+  </div>
+  <button onclick="document.documentElement.classList.toggle('dark')" class="btn btn-ghost shrink-0">◐</button>
+</header>
+
+<!-- TOOLBAR: единый слой управления видимостью строк (вид дерева + поиск + фильтр критичности) -->
+<div class="surface sticky top-[57px] z-10 px-4 py-2.5 flex flex-wrap items-center gap-3" style="border-width:0 0 1px">
+  <!-- B1: переключатель отображения дерева -->
+  <div class="seg" role="group" aria-label="Отображение дерева">
+    <button data-testid="toggle-collapse" class="seg-btn seg-on" aria-pressed="true">
+      <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
+      Раскрыть все
+    </button>
+    <button class="seg-btn" aria-pressed="false">
+      <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m8 9 4-4 4 4"/><path d="m16 15-4 4-4-4"/></svg>
+      Скрыть зависимости
+    </button>
+  </div>
+
+  <!-- B3: поиск по названию -->
+  <div class="search-wrap">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input data-testid="search-input" class="input" style="padding-left:34px" placeholder="Поиск по названию…">
+  </div>
+
+  <!-- B5: фильтр критичности (мультиселект) -->
+  <button data-testid="criticality-filter" class="btn btn-secondary text-sm">
+    <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M7 12h10M11 18h2"/></svg>
+    Критичность
+  </button>
+
+  <div class="flex-1"></div>
+  <span class="text-xs t3">Показано 11 из 11</span>
+</div>
+
+<!-- MIDDLE: контент во всю ширину монитора, с разумным максимумом -->
+<main class="flex-1 w-full mx-auto px-4 py-5" style="max-width:1600px">
+
+  <!-- Секция: Функциональные требования -->
+  <section class="card mb-5 overflow-hidden">
+    <div class="flex items-center justify-between px-4 py-3" style="background:var(--color-surface-2);border-bottom:1px solid var(--color-border)">
+      <h2 class="font-bold">Функциональные требования <span class="t3 font-normal">(8)</span></h2>
+      <a href="main-v2-modal.html" class="btn btn-primary text-sm py-1.5">+ Функция</a>
+    </div>
+
+    <div class="overflow-x-auto">
+    <table class="tw">
+      <thead>
+        <tr>
+          <th style="width:34%">Требование</th>
+          <th style="width:130px">Критичность</th>
+          <th style="width:140px">Реализация</th>
+          <th>Описание</th>
+          <th style="width:150px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- L0 -->
+        <tr class="row">
+          <td><a href="main-v2-modal.html" class="flex items-center gap-2 font-medium hover:text-[var(--color-primary)]"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Платежи</a></td>
+          <td><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td>
+          <td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td>
+          <td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">Приём и обработка входящих платежей: авторизация, списание, идемпотентность операций.</span></button></td>
+          <td class="text-right"><div class="row-actions inline-flex gap-1"><a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a><a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+        <!-- L1 -->
+        <tr class="row">
+          <td><a href="main-v2-modal.html" class="flex items-center gap-2 hover:text-[var(--color-primary)]" style="padding-left:24px"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Оплата картой</a></td>
+          <td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+          <td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td>
+          <td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">Поддержка Visa/Mastercard/МИР, 3-D Secure 2.0, обработка отказов и повторов.</span></button></td>
+          <td class="text-right"><div class="row-actions inline-flex gap-1"><a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a><a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+        <!-- L2 -->
+        <tr class="row">
+          <td><a href="main-v2-modal.html" class="flex items-center gap-2 hover:text-[var(--color-primary)]" style="padding-left:52px"><span class="dot" style="background:var(--color-text-3)"></span>Сохранение карты (токенизация)</a></td>
+          <td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+          <td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td>
+          <td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">PCI-DSS токенизация карточных данных, хранение токена вместо PAN, поворот ключей.</span></button></td>
+          <td class="text-right"><div class="row-actions inline-flex gap-1"><a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a><a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+        <!-- L2 -->
+        <tr class="row">
+          <td><a href="main-v2-modal.html" class="flex items-center gap-2 hover:text-[var(--color-primary)]" style="padding-left:52px"><span class="dot" style="background:var(--color-text-3)"></span>3-D Secure 2.0</a></td>
+          <td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+          <td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td>
+          <td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">Строгая аутентификация плательщика по протоколу EMV 3DS, frictionless-flow.</span></button></td>
+          <td class="text-right"><div class="row-actions inline-flex gap-1"><a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a><a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+        <!-- L1 -->
+        <tr class="row">
+          <td><a href="main-v2-modal.html" class="flex items-center gap-2 hover:text-[var(--color-primary)]" style="padding-left:24px"><span class="dot" style="background:var(--color-text-3)"></span>Возвраты (refund)</a></td>
+          <td><span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span></td>
+          <td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q4 2026</span></td>
+          <td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">Полный и частичный возврат средств, сверка с исходной транзакцией.</span></button></td>
+          <td class="text-right"><div class="row-actions inline-flex gap-1"><a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a><a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+        <!-- L1 -->
+        <tr class="row">
+          <td><a href="main-v2-modal.html" class="flex items-center gap-2 hover:text-[var(--color-primary)]" style="padding-left:24px"><span class="dot" style="background:var(--color-text-3)"></span>СБП / QR-платежи</a></td>
+          <td><span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span></td>
+          <td><span class="badge" style="background:var(--color-info-bg);color:var(--color-info)">Q1 2027</span></td>
+          <td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">Оплата через Систему быстрых платежей по QR-коду и платёжным ссылкам.</span></button></td>
+          <td class="text-right"><div class="row-actions inline-flex gap-1"><a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a><a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+        <!-- L0 -->
+        <tr class="row">
+          <td><a href="main-v2-modal.html" class="flex items-center gap-2 font-medium hover:text-[var(--color-primary)]"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Выплаты (payouts)</a></td>
+          <td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+          <td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td>
+          <td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">Исходящие выплаты продавцам и партнёрам, расписание и лимиты.</span></button></td>
+          <td class="text-right"><div class="row-actions inline-flex gap-1"><a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a><a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+        <!-- L1 -->
+        <tr class="row">
+          <td><a href="main-v2-modal.html" class="flex items-center gap-2 hover:text-[var(--color-primary)]" style="padding-left:24px"><span class="dot" style="background:var(--color-text-3)"></span>Массовые выплаты</a></td>
+          <td><span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span></td>
+          <td><span class="badge" style="background:var(--color-info-bg);color:var(--color-info)">Q2 2027</span></td>
+          <td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">Пакетная загрузка реестра выплат (CSV), асинхронная обработка, статусы.</span></button></td>
+          <td class="text-right"><div class="row-actions inline-flex gap-1"><a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a><a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- Секция: Нефункциональные требования -->
+  <section class="card mb-5 overflow-hidden">
+    <div class="flex items-center justify-between px-4 py-3" style="background:var(--color-surface-2);border-bottom:1px solid var(--color-border)">
+      <h2 class="font-bold">Нефункциональные требования <span class="t3 font-normal">(3)</span></h2>
+      <a href="main-v2-modal.html" class="btn btn-primary text-sm py-1.5">+ НФТ</a>
+    </div>
+    <div class="overflow-x-auto">
+    <table class="tw">
+      <thead>
+        <tr>
+          <th style="width:34%">Требование</th>
+          <th style="width:130px">Критичность</th>
+          <th style="width:140px">Реализация</th>
+          <th>Описание</th>
+          <th style="width:150px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="row">
+          <td class="font-medium">Время ответа API &lt; 200мс</td>
+          <td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+          <td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td>
+          <td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">p95 &lt; 200мс при 100 RPS на эндпоинтах авторизации и статуса платежа.</span></button></td>
+          <td class="text-right"><div class="row-actions inline-flex gap-1"><a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a><a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+        <tr class="row">
+          <td class="font-medium">Соответствие PCI-DSS</td>
+          <td><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td>
+          <td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td>
+          <td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">Соответствие стандарту PCI-DSS уровня 1, ежегодный аудит QSA.</span></button></td>
+          <td class="text-right"><div class="row-actions inline-flex gap-1"><a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a><a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+        <tr class="row">
+          <td class="font-medium">Доступность 99.95%</td>
+          <td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+          <td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td>
+          <td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">SLA доступности платёжного шлюза 99.95% в месяц, мультизональное развёртывание.</span></button></td>
+          <td class="text-right"><div class="row-actions inline-flex gap-1"><a href="link-modal.html" class="btn btn-ghost text-xs py-1">Связать</a><a href="main-delete.html" class="btn btn-ghost text-xs py-1" style="color:var(--color-danger)">Удалить</a></div></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+</main>
+
+<!-- BOTTOM -->
+<footer class="surface sticky bottom-0 px-4 py-3 flex flex-wrap items-center justify-between gap-3" style="border-width:1px 0 0">
+  <div class="flex gap-2">
+    <a href="main-v2-modal.html" class="btn btn-primary text-sm">+ Функция</a>
+    <a href="main-v2-modal.html" class="btn btn-secondary text-sm">+ НФТ</a>
+  </div>
+  <div class="flex items-center gap-2">
+    <span class="text-xs t3">Экспорт:</span>
+    <button class="btn btn-secondary text-sm">.xlsx</button>
+    <button class="btn btn-secondary text-sm">.zip</button>
+    <button class="btn btn-secondary text-sm">.tar.gz</button>
+  </div>
+</footer>
+</body>
+</html>

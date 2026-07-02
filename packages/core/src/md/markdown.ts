@@ -1,66 +1,204 @@
-import matter from 'gray-matter';
-import yaml from 'js-yaml';
-import type { Requirement } from '../domain/types.js';
+import type {
+  Link,
+  LinkType,
+  Requirement,
+  RequirementType,
+  Scenario,
+  ScenarioKeyword,
+} from '../domain/types.js';
+import { LINK_TYPES, SCENARIO_KEYWORDS } from '../domain/types.js';
 import { ParseError } from '../domain/errors.js';
 import { formatZodError, requirementSchema } from '../validation/schema.js';
+import { checkTargetRule } from '../validation/targetRule.js';
 
 /**
- * Use js-yaml's JSON_SCHEMA so ISO timestamp strings (createdAt/updatedAt) are
- * preserved verbatim as strings instead of being coerced into Date objects.
+ * Context that a requirement's markdown file does NOT carry inline: the `slug`
+ * comes from the file name and the `type` from the containing folder
+ * (`openspec/specs/functions` | `openspec/specs/nfr`), per ADR-001.
  */
-const engines = {
-  yaml: {
-    parse: (input: string): object =>
-      (yaml.load(input, { schema: yaml.JSON_SCHEMA }) ?? {}) as object,
-    stringify: (obj: object): string => yaml.dump(obj, { schema: yaml.JSON_SCHEMA, lineWidth: -1 }),
-  },
-};
+export interface ParseContext {
+  slug: string;
+  type: RequirementType;
+}
 
-/** Serialize a Requirement into a machine-readable `.md` (YAML frontmatter + body). */
+const META_KEYS = ['criticality', 'implemented', 'target', 'createdAt', 'updatedAt'] as const;
+const HEADER_RE = /^###\s+Requirement:\s*(.+?)\s*$/;
+const META_RE = /^-\s+(\w+):\s*(.*)$/;
+const SCENARIO_RE = /^####\s+Scenario:\s*(.+?)\s*$/;
+const LINKS_RE = /^####\s+Links\s*$/;
+const STEP_RE = /^-\s+(GIVEN|WHEN|THEN|AND)\s+(.*)$/;
+const LINK_RE = /^-\s+(\w+):\s*(.+?)\s*$/;
+const TARGET_RE = /^Q([1-4])\s+(\d{4})$/;
+
+/**
+ * Serialize a Requirement into an OpenSpec `.md` document (ADR-001 §3):
+ * `### Requirement:` header, metadata bullets, markdown body, optional
+ * `#### Scenario:` blocks and a `#### Links` section. `slug`/`type` are NOT
+ * emitted — they live in the file name and folder respectively.
+ */
 export function serialize(req: Requirement): string {
-  const data: Record<string, unknown> = {
-    id: req.id,
-    type: req.type,
-    name: req.name,
-    criticality: req.criticality,
-    implemented: req.implemented,
-  };
-  if (req.targetQuarter !== undefined) data.targetQuarter = req.targetQuarter;
-  if (req.targetYear !== undefined) data.targetYear = req.targetYear;
-  data.links = req.links;
-  data.createdAt = req.createdAt;
-  data.updatedAt = req.updatedAt;
+  const lines: string[] = [];
+  lines.push(`### Requirement: ${req.name}`);
+  lines.push(`- criticality: ${req.criticality}`);
+  lines.push(`- implemented: ${String(req.implemented)}`);
+  if (!req.implemented && req.targetQuarter && req.targetYear !== undefined) {
+    lines.push(`- target: ${req.targetQuarter} ${String(req.targetYear)}`);
+  }
+  lines.push(`- createdAt: ${req.createdAt}`);
+  lines.push(`- updatedAt: ${req.updatedAt}`);
 
-  return matter.stringify(req.description ?? '', data, { engines });
-}
-
-function normalizeBody(body: string): string | undefined {
-  const trimmed = body.replace(/^\n+/, '').replace(/\n+$/, '');
-  return trimmed.length === 0 ? undefined : trimmed;
-}
-
-/**
- * Parse a `.md` document back into a validated Requirement.
- * Malformed frontmatter or schema violations raise {@link ParseError}
- * (never an uncaught runtime exception), so callers can flag broken files.
- */
-export function parse(md: string): Requirement {
-  let result: matter.GrayMatterFile<string>;
-  try {
-    result = matter(md, { engines });
-  } catch (err) {
-    throw new ParseError(`Malformed frontmatter: ${(err as Error).message}`);
+  if (req.description !== undefined && req.description.length > 0) {
+    lines.push('');
+    lines.push(req.description);
   }
 
-  const description = normalizeBody(result.content);
-  const candidate: Record<string, unknown> = { ...result.data };
-  if (description !== undefined) {
-    candidate.description = description;
+  for (const scenario of req.scenarios ?? []) {
+    lines.push('');
+    lines.push(`#### Scenario: ${scenario.name}`);
+    for (const step of scenario.steps) {
+      lines.push(`- ${step.keyword} ${step.text}`);
+    }
+  }
+
+  if (req.links.length > 0) {
+    lines.push('');
+    lines.push('#### Links');
+    for (const l of req.links) {
+      lines.push(`- ${l.type}: ${l.targetSlug}`);
+    }
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+function parseBool(raw: string | undefined): boolean {
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  throw new ParseError(
+    `Invalid "implemented" value: "${raw ?? '(missing)'}" (expected true|false).`,
+  );
+}
+
+/**
+ * Parse an OpenSpec `.md` document back into a validated Requirement.
+ * A malformed document (missing header, bad metadata, schema/rule violation)
+ * raises {@link ParseError} — never an uncaught exception — so callers can flag
+ * broken files without aborting a project load.
+ */
+export function parse(md: string, ctx: ParseContext): Requirement {
+  const lines = md.replace(/\r\n/g, '\n').split('\n');
+
+  let i = 0;
+  while (i < lines.length && lines[i]!.trim() === '') i += 1;
+
+  const header = HEADER_RE.exec(lines[i] ?? '');
+  if (!header) {
+    throw new ParseError('Missing "### Requirement: <name>" header.');
+  }
+  const name = header[1]!;
+  i += 1;
+
+  // Metadata bullets directly under the header (contiguous block).
+  const meta: Record<string, string> = {};
+  while (i < lines.length) {
+    const m = META_RE.exec(lines[i]!);
+    if (!m || !(META_KEYS as readonly string[]).includes(m[1]!)) break;
+    meta[m[1]!] = m[2]!.trim();
+    i += 1;
+  }
+
+  const descLines: string[] = [];
+  const scenarios: Scenario[] = [];
+  const links: Link[] = [];
+  let mode: 'desc' | 'scenario' | 'links' = 'desc';
+  let current: Scenario | null = null;
+
+  for (const line of lines.slice(i)) {
+    const scenarioMatch = SCENARIO_RE.exec(line);
+    if (scenarioMatch) {
+      current = { name: scenarioMatch[1]!, steps: [] };
+      scenarios.push(current);
+      mode = 'scenario';
+      continue;
+    }
+    if (LINKS_RE.test(line)) {
+      mode = 'links';
+      current = null;
+      continue;
+    }
+    if (mode === 'desc') {
+      descLines.push(line);
+      continue;
+    }
+    if (mode === 'scenario') {
+      const step = STEP_RE.exec(line);
+      if (step && current) {
+        current.steps.push({ keyword: step[1] as ScenarioKeyword, text: step[2]!.trim() });
+      }
+      continue;
+    }
+    // mode === 'links'
+    const link = LINK_RE.exec(line);
+    if (link) {
+      const type = link[1]!;
+      if (!(LINK_TYPES as readonly string[]).includes(type)) {
+        throw new ParseError(`Unknown link type "${type}".`);
+      }
+      links.push({ type: type as LinkType, targetSlug: link[2]!.trim() });
+    }
+  }
+
+  const description = descLines.join('\n').replace(/^\n+/, '').replace(/\n+$/, '');
+
+  const candidate: Record<string, unknown> = {
+    slug: ctx.slug,
+    type: ctx.type,
+    name,
+    criticality: meta.criticality,
+    implemented: parseBool(meta.implemented),
+    links,
+    createdAt: meta.createdAt,
+    updatedAt: meta.updatedAt,
+  };
+  if (description.length > 0) candidate.description = description;
+  if (scenarios.length > 0) candidate.scenarios = scenarios;
+  if (meta.target !== undefined) {
+    const t = TARGET_RE.exec(meta.target);
+    if (!t) {
+      throw new ParseError(`Invalid "target" value: "${meta.target}" (expected "Q<1-4> <year>").`);
+    }
+    candidate.targetQuarter = `Q${t[1]}`;
+    candidate.targetYear = Number(t[2]);
   }
 
   const parsed = requirementSchema.safeParse(candidate);
   if (!parsed.success) {
     throw new ParseError(formatZodError(parsed.error));
   }
-  return parsed.data;
+  const req = parsed.data;
+
+  // Conditional target rule (2.4, BE-2): required iff not implemented, forbidden otherwise.
+  const violation = checkTargetRule(req);
+  if (violation?.kind === 'unexpected-target') {
+    throw new ParseError('An implemented requirement must not carry a target.');
+  }
+  if (violation?.kind === 'missing-target') {
+    throw new ParseError('A not-implemented requirement requires a target (quarter and year).');
+  }
+
+  return req;
 }
+
+/** True when a scenario is complete (has at least a WHEN and a THEN step). */
+export function isScenarioComplete(scenario: Scenario): boolean {
+  const kinds = new Set<ScenarioKeyword>(scenario.steps.map((s) => s.keyword));
+  return kinds.has('WHEN') && kinds.has('THEN');
+}
+
+/** Names of incomplete scenarios on a requirement (warn flag for S6). */
+export function incompleteScenarios(req: Requirement): string[] {
+  return (req.scenarios ?? []).filter((s) => !isScenarioComplete(s)).map((s) => s.name);
+}
+
+/** Re-exported for tests that assert against the canonical keyword list. */
+export { SCENARIO_KEYWORDS };

@@ -33,17 +33,17 @@ describe('T-204 assertUniqueName', () => {
     expect(() => assertUniqueName(reqs, { type: 'NFR', name: 'Login' })).not.toThrow();
   });
 
-  it('allows self-rename to the same name (own id excluded)', () => {
+  it('S10 allows a self-rename (own id excluded; slug/file/links stay intact)', () => {
     expect(() =>
-      assertUniqueName(reqs, { id: fn.id, type: 'FUNCTION', name: 'login' }),
+      assertUniqueName(reqs, { slug: fn.slug, type: 'FUNCTION', name: 'login' }),
     ).not.toThrow();
   });
 
   it('still rejects renaming onto a different requirement of same type', () => {
     const other = makeReq({ type: 'FUNCTION', name: 'Register' });
     const all = [...reqs, other];
-    expect(() => assertUniqueName(all, { id: other.id, type: 'FUNCTION', name: 'Login' })).toThrow(
-      UniquenessError,
-    );
+    expect(() =>
+      assertUniqueName(all, { slug: other.slug, type: 'FUNCTION', name: 'Login' }),
+    ).toThrow(UniquenessError);
   });
 });

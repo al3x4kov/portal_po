@@ -6,7 +6,7 @@ playwright-report/**
 test-results/**
 package-lock.json
 
-# Pre-existing specification / design artifacts (not maintained by Prettier)
-overview/**
-tasks/**
-uiux/**
+# Project documentation and Claude working artifacts (not maintained by Prettier)
+docs/**
+.dev/**
+CLAUDE.md

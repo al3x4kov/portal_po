@@ -10,10 +10,10 @@ import { FsProjectRepo } from '../src/repositories/FsProjectRepo.js';
 import { FsRequirementRepo } from '../src/repositories/FsRequirementRepo.js';
 import { RequirementService } from '../src/services/RequirementService.js';
 import { LinkService } from '../src/services/LinkService.js';
-import { ConflictError } from '../src/lib/errors.js';
+import { ConflictError, NotFoundError } from '../src/lib/errors.js';
 import { cleanup, fixedNow, makeTmpRoot, reqInput } from './helpers.js';
 
-describe('T-404 LinkService', () => {
+describe('T-805 LinkService (slug-based)', () => {
   let root: string;
   let repo: FsRequirementRepo;
   let reqs: RequirementService;
@@ -34,63 +34,71 @@ describe('T-404 LinkService', () => {
     await cleanup(root);
   });
 
-  const load = async (id: string): Promise<Requirement> => {
+  const load = async (slug: string): Promise<Requirement> => {
     const { requirements } = await repo.loadAll();
-    return requirements.find((r) => r.id === id)!;
+    return requirements.find((r) => r.slug === slug)!;
   };
 
   it('writes a reciprocal pair into both files (FR-8.3)', async () => {
-    await links.create({ sourceId: a.id, type: 'PARENT_OF', targetId: b.id });
-    expect((await load(a.id)).links).toContainEqual({ type: 'PARENT_OF', targetId: b.id });
-    expect((await load(b.id)).links).toContainEqual({ type: 'CHILD_OF', targetId: a.id });
+    await links.create({ sourceSlug: a.slug, type: 'PARENT_OF', targetSlug: b.slug });
+    expect((await load(a.slug)).links).toContainEqual({ type: 'PARENT_OF', targetSlug: b.slug });
+    expect((await load(b.slug)).links).toContainEqual({ type: 'CHILD_OF', targetSlug: a.slug });
   });
 
   it('removing a link clears both sides', async () => {
-    await links.create({ sourceId: a.id, type: 'PARENT_OF', targetId: b.id });
-    await links.remove({ sourceId: a.id, type: 'PARENT_OF', targetId: b.id });
-    expect((await load(a.id)).links).toEqual([]);
-    expect((await load(b.id)).links).toEqual([]);
+    await links.create({ sourceSlug: a.slug, type: 'PARENT_OF', targetSlug: b.slug });
+    await links.remove({ sourceSlug: a.slug, type: 'PARENT_OF', targetSlug: b.slug });
+    expect((await load(a.slug)).links).toEqual([]);
+    expect((await load(b.slug)).links).toEqual([]);
   });
 
   it('rejects self-link (422)', async () => {
     await expect(
-      links.create({ sourceId: a.id, type: 'RELATES_TO', targetId: a.id }),
+      links.create({ sourceSlug: a.slug, type: 'RELATES_TO', targetSlug: a.slug }),
     ).rejects.toBeInstanceOf(SelfLinkError);
   });
 
   it('rejects a hierarchical link across types (422)', async () => {
     const nfr = await reqs.create(reqInput({ name: 'N', type: 'NFR' }));
     await expect(
-      links.create({ sourceId: a.id, type: 'PARENT_OF', targetId: nfr.id }),
+      links.create({ sourceSlug: a.slug, type: 'PARENT_OF', targetSlug: nfr.slug }),
     ).rejects.toBeInstanceOf(TypeMismatchError);
   });
 
   it('rejects a second parent (409)', async () => {
     const c = await reqs.create(reqInput({ name: 'C' }));
-    await links.create({ sourceId: a.id, type: 'PARENT_OF', targetId: b.id }); // b CHILD_OF a
+    await links.create({ sourceSlug: a.slug, type: 'PARENT_OF', targetSlug: b.slug });
     await expect(
-      links.create({ sourceId: c.id, type: 'PARENT_OF', targetId: b.id }),
+      links.create({ sourceSlug: c.slug, type: 'PARENT_OF', targetSlug: b.slug }),
     ).rejects.toBeInstanceOf(MultipleParentError);
   });
 
   it('rejects a cycle (409)', async () => {
-    await links.create({ sourceId: a.id, type: 'PARENT_OF', targetId: b.id });
+    await links.create({ sourceSlug: a.slug, type: 'PARENT_OF', targetSlug: b.slug });
     await expect(
-      links.create({ sourceId: b.id, type: 'PARENT_OF', targetId: a.id }),
+      links.create({ sourceSlug: b.slug, type: 'PARENT_OF', targetSlug: a.slug }),
     ).rejects.toBeInstanceOf(CycleError);
   });
 
   it('rejects a duplicate link (409)', async () => {
-    await links.create({ sourceId: a.id, type: 'RELATES_TO', targetId: b.id });
+    await links.create({ sourceSlug: a.slug, type: 'RELATES_TO', targetSlug: b.slug });
     await expect(
-      links.create({ sourceId: a.id, type: 'RELATES_TO', targetId: b.id }),
+      links.create({ sourceSlug: a.slug, type: 'RELATES_TO', targetSlug: b.slug }),
     ).rejects.toBeInstanceOf(ConflictError);
   });
 
+  it('S16 rejects a link to a nonexistent target (no dangling references, 404)', async () => {
+    await expect(
+      links.create({ sourceSlug: a.slug, type: 'RELATES_TO', targetSlug: 'ghost' }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    // The source file must be untouched — a rejected link leaves no partial edge.
+    expect((await load(a.slug)).links).toEqual([]);
+  });
+
   it('cascade delete removes back-references in other files (FR-9.2)', async () => {
-    await links.create({ sourceId: a.id, type: 'RELATES_TO', targetId: b.id });
-    await reqs.delete(b.id);
-    const remaining = await load(a.id);
+    await links.create({ sourceSlug: a.slug, type: 'RELATES_TO', targetSlug: b.slug });
+    await reqs.delete(b.slug);
+    const remaining = await load(a.slug);
     expect(remaining.links).toEqual([]);
   });
 });

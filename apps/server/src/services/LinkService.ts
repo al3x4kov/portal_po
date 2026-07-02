@@ -5,21 +5,21 @@ import {
   assertSingleParent,
   createLinkPair,
   inverseLinkType,
+  isHierarchyType,
+  sameLink,
   type Link,
   type LinkType,
   type Requirement,
 } from '@po/core';
-import { FsRequirementRepo } from '../repositories/FsRequirementRepo.js';
+import type { RequirementBatchOp, RequirementRepo } from '../repositories/types.js';
+import { withOpLog, type OpLogger } from '../lib/logger.js';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
 
 export interface LinkInput {
-  sourceId: string;
+  sourceSlug: string;
   type: LinkType;
-  targetId: string;
+  targetSlug: string;
 }
-
-const isHierarchy = (t: LinkType): boolean => t === 'PARENT_OF' || t === 'CHILD_OF';
-const sameLink = (a: Link, b: Link): boolean => a.type === b.type && a.targetId === b.targetId;
 
 /**
  * Use-case layer for links (FR-8): a relationship is stored as a mutually-inverse
@@ -27,81 +27,112 @@ const sameLink = (a: Link, b: Link): boolean => a.type === b.type && a.targetId 
  * cycle) run before anything is written.
  */
 export class LinkService {
-  constructor(
-    private readonly repo: FsRequirementRepo,
-    private readonly now: () => string = () => new Date().toISOString(),
-  ) {}
+  private readonly log?: OpLogger;
+  private readonly projectId: string;
 
-  private find(reqs: Requirement[], id: string, role: string): Requirement {
-    const req = reqs.find((r) => r.id === id);
-    if (!req) throw new NotFoundError(`${role} requirement not found: "${id}".`);
+  constructor(
+    private readonly repo: RequirementRepo,
+    private readonly now: () => string = () => new Date().toISOString(),
+    opts: { log?: OpLogger; projectId?: string } = {},
+  ) {
+    this.log = opts.log;
+    this.projectId = opts.projectId ?? '';
+  }
+
+  /** Structured observability for a link mutation (ARCH-7); no-op without a logger. */
+  private record<T>(op: string, slug: string, fn: () => Promise<T>): Promise<T> {
+    return withOpLog(this.log, { op, projectId: this.projectId, slug }, fn);
+  }
+
+  private find(reqs: Requirement[], slug: string, role: string): Requirement {
+    const req = reqs.find((r) => r.slug === slug);
+    if (!req) throw new NotFoundError(`${role} requirement not found: "${slug}".`);
     return req;
   }
 
-  /** Create a link and its inverse, after enforcing all integrity rules. */
-  async create({ sourceId, type, targetId }: LinkInput): Promise<void> {
-    const { requirements } = await this.repo.loadAll();
-    const source = this.find(requirements, sourceId, 'Source');
-    const target = this.find(requirements, targetId, 'Target');
+  /**
+   * Create a link and its inverse, after enforcing all integrity rules.
+   * Runs under the project lock and writes both endpoints as one atomic batch
+   * (ARCH-1/2 / BE-7): a mid-way failure never leaves a one-sided link.
+   */
+  create({ sourceSlug, type, targetSlug }: LinkInput): Promise<void> {
+    return this.record('link', sourceSlug, () =>
+      this.repo.withLock(async () => {
+        const { requirements } = await this.repo.loadAll();
+        const source = this.find(requirements, sourceSlug, 'Source');
+        const target = this.find(requirements, targetSlug, 'Target');
 
-    assertNoSelfLink(sourceId, targetId); // SelfLinkError (422)
+        assertNoSelfLink(sourceSlug, targetSlug); // SelfLinkError (422)
 
-    if (isHierarchy(type)) {
-      assertSameType(source, target); // TypeMismatchError (422)
-      // Determine which node gains a parent and verify it stays single-parent.
-      if (type === 'CHILD_OF') {
-        assertSingleParent(requirements, sourceId, targetId); // MultipleParentError (409)
-      } else {
-        assertSingleParent(requirements, targetId, sourceId);
-      }
-    }
+        if (isHierarchyType(type)) {
+          assertSameType(source, target); // TypeMismatchError (422)
+          if (type === 'CHILD_OF') {
+            assertSingleParent(requirements, sourceSlug, targetSlug); // MultipleParentError (409)
+          } else {
+            assertSingleParent(requirements, targetSlug, sourceSlug);
+          }
+        }
 
-    assertNoCycle(requirements, { sourceId, type, targetId }); // CycleError (409)
+        assertNoCycle(requirements, { sourceSlug, type, targetSlug }); // CycleError (409)
 
-    const pair = createLinkPair(sourceId, type, targetId);
-    if (source.links.some((l) => sameLink(l, pair.source))) {
-      throw new ConflictError(`Link ${type} from "${sourceId}" to "${targetId}" already exists.`);
-    }
+        const pair = createLinkPair(sourceSlug, type, targetSlug);
+        if (source.links.some((l) => sameLink(l, pair.source))) {
+          throw new ConflictError(
+            `Link ${type} from "${sourceSlug}" to "${targetSlug}" already exists.`,
+          );
+        }
 
-    const ts = this.now();
-    source.links.push(pair.source);
-    source.updatedAt = ts;
-    target.links.push(pair.target);
-    target.updatedAt = ts;
+        const ts = this.now();
+        source.links.push(pair.source);
+        source.updatedAt = ts;
+        target.links.push(pair.target);
+        target.updatedAt = ts;
 
-    await this.repo.write(source);
-    await this.repo.write(target);
+        await this.repo.applyBatch([
+          { kind: 'write', req: source },
+          { kind: 'write', req: target },
+        ]);
+      }),
+    );
   }
 
-  /** Remove a link and its inverse from both endpoints (FR-8). */
-  async remove({ sourceId, type, targetId }: LinkInput): Promise<void> {
-    const { requirements } = await this.repo.loadAll();
-    const source = this.find(requirements, sourceId, 'Source');
-    const target = this.find(requirements, targetId, 'Target');
+  /** Remove a link and its inverse from both endpoints (FR-8), atomically. */
+  remove({ sourceSlug, type, targetSlug }: LinkInput): Promise<void> {
+    return this.record('unlink', sourceSlug, () =>
+      this.repo.withLock(async () => {
+        const { requirements } = await this.repo.loadAll();
+        const source = this.find(requirements, sourceSlug, 'Source');
+        const target = this.find(requirements, targetSlug, 'Target');
 
-    const sourceLink: Link = { type, targetId };
-    const targetLink: Link = { type: inverseLinkType(type), targetId: sourceId };
+        const sourceLink: Link = { type, targetSlug };
+        const targetLink: Link = { type: inverseLinkType(type), targetSlug: sourceSlug };
 
-    const newSourceLinks = source.links.filter((l) => !sameLink(l, sourceLink));
-    const newTargetLinks = target.links.filter((l) => !sameLink(l, targetLink));
+        const newSourceLinks = source.links.filter((l) => !sameLink(l, sourceLink));
+        const newTargetLinks = target.links.filter((l) => !sameLink(l, targetLink));
 
-    if (
-      newSourceLinks.length === source.links.length &&
-      newTargetLinks.length === target.links.length
-    ) {
-      throw new NotFoundError(`Link ${type} from "${sourceId}" to "${targetId}" does not exist.`);
-    }
+        if (
+          newSourceLinks.length === source.links.length &&
+          newTargetLinks.length === target.links.length
+        ) {
+          throw new NotFoundError(
+            `Link ${type} from "${sourceSlug}" to "${targetSlug}" does not exist.`,
+          );
+        }
 
-    const ts = this.now();
-    if (newSourceLinks.length !== source.links.length) {
-      source.links = newSourceLinks;
-      source.updatedAt = ts;
-      await this.repo.write(source);
-    }
-    if (newTargetLinks.length !== target.links.length) {
-      target.links = newTargetLinks;
-      target.updatedAt = ts;
-      await this.repo.write(target);
-    }
+        const ts = this.now();
+        const batch: RequirementBatchOp[] = [];
+        if (newSourceLinks.length !== source.links.length) {
+          source.links = newSourceLinks;
+          source.updatedAt = ts;
+          batch.push({ kind: 'write', req: source });
+        }
+        if (newTargetLinks.length !== target.links.length) {
+          target.links = newTargetLinks;
+          target.updatedAt = ts;
+          batch.push({ kind: 'write', req: target });
+        }
+        await this.repo.applyBatch(batch);
+      }),
+    );
   }
 }

@@ -1,0 +1,96 @@
+<!-- Экран: Фильтр «Критичность» — мультиселект (B5). Открытый дропдаун + отфильтрованная таблица с видимыми предками. Покрывает S27. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Фильтр критичности — v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  .crit{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:999px;display:inline-block;flex:none}
+  table.tw{border-collapse:separate;border-spacing:0;width:100%;font-size:14px}
+  .tw thead th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;
+    color:var(--color-text-3);text-align:left;padding:10px 16px;border-bottom:1px solid var(--color-border)}
+  .tw td{padding:9px 16px;border-bottom:1px solid var(--color-border)}
+  .tw tbody tr:last-child td{border-bottom:0}
+  .chev{width:15px;height:15px;flex:none;color:var(--color-text-3)}
+  .ancestor{opacity:.6}
+  .ancestor .ctx{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--color-text-3);font-weight:600;margin-left:6px}
+  /* dropdown-мультиселект */
+  .dd{position:absolute;top:calc(100% + 6px);left:0;width:250px;z-index:20;
+    background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius);box-shadow:var(--shadow-lg);overflow:hidden}
+  .dd-opt{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;font-size:14px}
+  .dd-opt:hover{background:var(--color-surface-2)}
+  .cbx{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--color-border);display:grid;place-items:center;flex:none}
+  .cbx-on{background:var(--color-primary);border-color:var(--color-primary);color:#fff}
+  .filter-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;
+    border-radius:999px;background:var(--color-primary);color:#fff;font-size:11px;font-weight:700}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto px-4 py-8">
+  <div class="flex items-center justify-between mb-1">
+    <h1 class="text-xl font-bold">B5 · Фильтр «Критичность» (мультиселект)</h1>
+    <a href="index.html" class="btn btn-secondary text-sm">← В галерею</a>
+  </div>
+  <p class="t2 text-sm mb-6">Мультиселект по колонке критичности. Выбраны <b>High</b> и <b>Critical</b>; в дереве остаются совпадения и их предки (единый слой видимости, A6#4). Предки, не прошедшие фильтр, показаны как контекст.</p>
+
+  <!-- Тулбар с открытым дропдауном -->
+  <div class="flex items-center gap-3 mb-2 relative" style="z-index:20">
+    <div class="relative">
+      <button data-testid="criticality-filter" class="btn btn-secondary text-sm" style="border-color:var(--color-primary)">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M7 12h10M11 18h2"/></svg>
+        Критичность <span class="filter-badge">2</span>
+        <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+
+      <!-- открытый мультиселект -->
+      <div class="dd" data-testid="criticality-dropdown">
+        <div class="px-3 py-2 text-xs t3" style="border-bottom:1px solid var(--color-border)">Показывать критичность</div>
+        <label class="dd-opt" data-testid="crit-opt-low">
+          <span class="cbx"></span>
+          <span class="crit"><span class="dot" style="background:var(--crit-low)"></span>Low</span>
+        </label>
+        <label class="dd-opt" data-testid="crit-opt-medium">
+          <span class="cbx"></span>
+          <span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span>
+        </label>
+        <label class="dd-opt" data-testid="crit-opt-high">
+          <span class="cbx cbx-on"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>
+          <span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span>
+        </label>
+        <label class="dd-opt" data-testid="crit-opt-critical">
+          <span class="cbx cbx-on"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>
+          <span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span>
+        </label>
+        <div class="flex items-center justify-between px-3 py-2" style="border-top:1px solid var(--color-border)">
+          <button class="btn btn-ghost text-xs py-1" data-testid="crit-reset">Сбросить</button>
+          <button class="btn btn-primary text-xs py-1" data-testid="crit-apply">Применить</button>
+        </div>
+      </div>
+    </div>
+    <span class="text-xs t3">Показано 4 из 11 · включая предков</span>
+  </div>
+
+  <!-- Отфильтрованная таблица -->
+  <section class="card overflow-hidden" style="position:relative;z-index:1">
+    <table class="tw">
+      <thead><tr><th style="width:55%">Требование</th><th style="width:140px">Критичность</th><th>Реализация</th></tr></thead>
+      <tbody>
+        <!-- совпадение Critical -->
+        <tr><td><span class="flex items-center gap-2 font-medium"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Платежи</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+        <!-- совпадение High -->
+        <tr><td><span class="flex items-center gap-2" style="padding-left:24px"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Оплата картой</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+        <!-- совпадения High под «Оплата картой» -->
+        <tr><td><span class="flex items-center gap-2" style="padding-left:52px"><span class="dot" style="background:var(--color-text-3)"></span>Сохранение карты (токенизация)</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td></tr>
+        <tr><td><span class="flex items-center gap-2" style="padding-left:52px"><span class="dot" style="background:var(--color-text-3)"></span>3-D Secure 2.0</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td></tr>
+        <!-- совпадение High (другой корень) -->
+        <tr><td><span class="flex items-center gap-2 font-medium"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Выплаты (payouts)</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+  <p class="text-xs t3 mt-4">«Возвраты», «СБП/QR», «Массовые выплаты» (Medium) скрыты. «Оплата картой» и «Выплаты» проходят фильтр сами (High); если бы предок не проходил — он бы остался тускло-серым как контекст (см. B3).</p>
+</div>
+</body>
+</html>

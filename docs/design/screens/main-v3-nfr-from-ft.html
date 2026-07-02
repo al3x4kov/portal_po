@@ -1,0 +1,114 @@
+<!-- Экран: T4 · «+ НФТ» из строки ФТ. Компактное действие в строке ФТ + модалка создания НФТ с плашкой предустановленной связи ФТ BLOCKED_BY новое НФТ. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>T4 · Добавить НФТ из строки ФТ — v3</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  .crit{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:999px;display:inline-block;flex:none}
+  table.tw{border-collapse:separate;border-spacing:0;width:100%;font-size:14px}
+  .tw thead th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;
+    color:var(--color-text-3);text-align:left;padding:10px 16px;border-bottom:1px solid var(--color-border)}
+  .tw td{padding:9px 16px;border-bottom:1px solid var(--color-border)}
+  .tw tbody tr:last-child td{border-bottom:0}
+  .chev{width:15px;height:15px;flex:none;color:var(--color-text-3)}
+  .row:hover{background:var(--color-surface-2)}
+  .row-actions{display:inline-flex;gap:4px;align-items:center}
+  .row-highlight{background:var(--color-primary-soft)}
+  .impl-seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .impl-opt{display:flex;align-items:center;gap:8px;padding:11px 14px;cursor:pointer;
+    border:1px solid var(--color-border);border-radius:var(--radius-sm);font-size:14px;font-weight:600}
+  .impl-opt.on{border-color:var(--color-primary);background:var(--color-primary-soft);color:var(--color-primary)}
+  .crit-seg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .crit-opt{display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 6px;cursor:pointer;
+    border:1px solid var(--color-border);border-radius:var(--radius-sm);font-size:13px;font-weight:600;color:var(--color-text-2)}
+  .crit-opt.on{border-width:2px;color:var(--color-text)}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-4xl mx-auto px-4 py-8">
+  <div class="flex items-center justify-between mb-1">
+    <h1 class="text-xl font-bold">T4 · «+ НФТ» из строки ФТ</h1>
+    <a href="../index.html" class="btn btn-secondary text-sm">← В галерею</a>
+  </div>
+  <p class="t2 text-sm mb-6">В строке ФТ появляется компактное действие <b>«+ НФТ»</b> (рядом со «Связать»/«Удалить»). По клику открывается модалка создания НФТ с плашкой о предустановленной связи: ФТ <span class="mono">BLOCKED_BY</span> новое НФТ. После сохранения НФТ появляется в своей секции и сразу связано с этой ФТ.</p>
+
+  <!-- Таблица ФТ с действием «+ НФТ» в строке -->
+  <section class="card overflow-hidden mb-8">
+    <div class="flex items-center justify-between px-4 py-3" style="background:var(--color-surface-2);border-bottom:1px solid var(--color-border)">
+      <h2 class="font-bold">Функциональные требования</h2>
+    </div>
+    <table class="tw">
+      <thead><tr><th style="width:40%">Требование</th><th style="width:120px">Критичность</th><th style="width:120px">Реализация</th><th></th></tr></thead>
+      <tbody>
+        <tr class="row"><td><span class="flex items-center gap-2 font-medium"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Платежи</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td>
+          <td class="text-right"><div class="row-actions"><button class="btn btn-ghost text-xs py-1" data-testid="row-add-nfr">+ НФТ</button><button class="btn btn-ghost text-xs py-1">Связать</button></div></td></tr>
+        <!-- строка, из которой создаём НФТ (подсвечена) -->
+        <tr class="row row-highlight"><td><span class="flex items-center gap-2" style="padding-left:24px"><span class="dot" style="background:var(--color-text-3)"></span>Оплата картой</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td>
+          <td class="text-right"><div class="row-actions"><button class="btn btn-primary text-xs py-1" data-testid="row-add-nfr">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>НФТ</button><button class="btn btn-ghost text-xs py-1">Связать</button></div></td></tr>
+        <tr class="row"><td><span class="flex items-center gap-2" style="padding-left:24px"><span class="dot" style="background:var(--color-text-3)"></span>Возвраты (refund)</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q4 2026</span></td>
+          <td class="text-right"><div class="row-actions"><button class="btn btn-ghost text-xs py-1" data-testid="row-add-nfr">+ НФТ</button><button class="btn btn-ghost text-xs py-1">Связать</button></div></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Модалка создания НФТ (показана инлайн, как карточка) -->
+  <h3 class="font-semibold mb-2 text-sm t2">Модалка создания НФТ (открыта из строки «Оплата картой»)</h3>
+  <div class="card p-0" style="box-shadow:var(--shadow-lg)">
+    <div class="flex items-center justify-between px-6 py-4" style="border-bottom:1px solid var(--color-border)">
+      <div class="flex items-center gap-3">
+        <span class="badge" style="background:var(--color-primary-soft);color:var(--color-primary)">Нефункциональное</span>
+        <h2 class="text-lg font-bold">Новое НФТ</h2>
+      </div>
+      <button class="btn btn-ghost" aria-label="Закрыть">✕</button>
+    </div>
+
+    <div class="p-6 space-y-6">
+      <!-- ПЛАШКА предустановленной связи -->
+      <div class="flex items-start gap-3 p-3 rounded-lg" data-testid="nfr-from-ft-hint" style="background:var(--color-info-bg);color:var(--color-info)">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="flex:none;margin-top:1px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <p class="text-sm">Будет связано: <b>«Оплата картой»</b> <i>блокируется</i> этим НФТ <span class="mono" style="opacity:.8">(BLOCKED_BY)</span>. Тип связи предустановлен; на стороне НФТ появится реципрокная <span class="mono">DEPENDS_ON</span>.</p>
+      </div>
+
+      <div>
+        <label class="label" for="req-name">Название <span style="color:var(--color-danger)">*</span></label>
+        <input id="req-name" data-testid="req-name" class="input" placeholder="напр. Соответствие PCI-DSS" value="Соответствие PCI-DSS">
+      </div>
+
+      <div>
+        <label class="label">Критичность <span style="color:var(--color-danger)">*</span></label>
+        <div class="crit-seg" role="radiogroup">
+          <label class="crit-opt"><span class="dot" style="background:var(--crit-low)"></span>Low</label>
+          <label class="crit-opt"><span class="dot" style="background:var(--crit-medium)"></span>Medium</label>
+          <label class="crit-opt"><span class="dot" style="background:var(--crit-high)"></span>High</label>
+          <label class="crit-opt on" style="border-color:var(--crit-critical)"><span class="dot" style="background:var(--crit-critical)"></span>Critical</label>
+        </div>
+      </div>
+
+      <div>
+        <label class="label">Статус реализации</label>
+        <div class="impl-seg">
+          <label class="impl-opt"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Реализовано</label>
+          <label class="impl-opt on"><svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>Не реализовано</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between gap-3 px-6 py-4" style="border-top:1px solid var(--color-border)">
+      <span class="text-xs t3 flex items-center gap-1.5">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+        После сохранения связь создастся автоматически
+      </span>
+      <div class="flex gap-3">
+        <button class="btn btn-secondary">Отменить</button>
+        <button class="btn btn-primary" data-testid="nfr-from-ft-save">Создать и связать</button>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

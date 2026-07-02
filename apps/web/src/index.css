@@ -15,7 +15,8 @@
   --color-border: #e2e8f0;
   --color-text: #0f172a;
   --color-text-2: #475569;
-  --color-text-3: #94a3b8;
+  /* UX-9: darkened from #94a3b8 (AA fail ~2.9:1) to clear 4.5:1 on surfaces. */
+  --color-text-3: #5b6675;
 
   --color-success: #16a34a;
   --color-success-bg: #dcfce7;
@@ -25,11 +26,20 @@
   --color-danger-bg: #fee2e2;
   --color-info: #0284c7;
   --color-info-bg: #e0f2fe;
+  /* UX-9: dedicated text-on-tint tokens. The base semantic colours (used for
+     solid buttons / dots / focus rings) are too light on their own tinted
+     backgrounds (e.g. #16a34a on #dcfce7 = 3:1); these darker variants clear
+     WCAG AA 4.5:1 on the matching *-bg. */
+  --color-success-fg: #166534;
+  --color-warning-fg: #92400e;
+  --color-danger-fg: #b91c1c;
+  --color-info-fg: #075985;
 
   --crit-low: #16a34a;
   --crit-medium: #d97706;
   --crit-high: #ea580c;
   --crit-critical: #dc2626;
+  --crit-blocker: #a21caf;
 
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Inter, Arial, sans-serif;
@@ -55,12 +65,18 @@ html.dark {
   --color-border: #334155;
   --color-text: #f1f5f9;
   --color-text-2: #cbd5e1;
-  --color-text-3: #64748b;
+  /* UX-9: brightened from #64748b (AA fail on dark surfaces) to clear 4.5:1. */
+  --color-text-3: #94a3b8;
 
   --color-success-bg: #052e16;
   --color-warning-bg: #451a03;
   --color-danger-bg: #450a0a;
   --color-info-bg: #082f49;
+  /* UX-9: lighter -fg text on the dark tinted backgrounds (all ≥4.5:1). */
+  --color-success-fg: #4ade80;
+  --color-warning-fg: #fbbf24;
+  --color-danger-fg: #fca5a5;
+  --color-info-fg: #7dd3fc;
 }
 
 @layer base {

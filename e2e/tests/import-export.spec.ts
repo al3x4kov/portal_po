@@ -3,20 +3,25 @@ import {
   addRequirement,
   createProject,
   exportArchive,
-  expandRow,
+  expandNode,
   importArchive,
   linkRequirements,
   rowByName,
+  setTreeMode,
   uniqueName,
   writeBrokenArchive,
 } from './helpers/app.js';
 
 /**
  * T-504 · Round-trip export → import (FR-3, FR-10, DoD#3).
+ * S17 (zip round-trip) and S20 (tar.gz round-trip) from the situation matrix.
  */
 test.describe('T-504 import/export', () => {
   for (const format of ['zip', 'targz'] as const) {
-    test(`round-trip preserves requirements and links (.${format})`, async ({ page }, testInfo) => {
+    const sid = format === 'zip' ? 'S17' : 'S20';
+    test(`${sid} round-trip preserves requirements and links (.${format})`, async ({
+      page,
+    }, testInfo) => {
       const parent = uniqueName('RT-parent');
       const child = uniqueName('RT-child');
       const nfr = uniqueName('RT-nfr');
@@ -38,9 +43,12 @@ test.describe('T-504 import/export', () => {
       await expect(rowByName(page, parent)).toBeVisible();
       await expect(rowByName(page, nfr)).toBeVisible();
 
-      // Links identical: the parent/child hierarchy is intact.
+      // Links identical: the parent/child hierarchy is intact. In "Раскрыть все"
+      // the child is visible; collapsing hides it, and the chip re-expands it.
+      await expect(rowByName(page, child)).toBeVisible();
+      await setTreeMode(page, 'collapse');
       await expect(rowByName(page, child)).toBeHidden();
-      await expandRow(page, parent);
+      await expandNode(page, parent);
       await expect(rowByName(page, child)).toBeVisible();
     });
   }

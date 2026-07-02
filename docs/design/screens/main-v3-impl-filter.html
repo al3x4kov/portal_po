@@ -1,0 +1,117 @@
+<!-- Экран: T1 · Фильтр по колонке «Реализация» (мультиселект). Открытый дропдаун + отфильтрованная таблица (совпадения + предки-контекст). Единый слой видимости (A6#4). -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>T1 · Фильтр «Реализация» — v3</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  .crit{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:999px;display:inline-block;flex:none}
+  table.tw{border-collapse:separate;border-spacing:0;width:100%;font-size:14px}
+  .tw thead th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;
+    color:var(--color-text-3);text-align:left;padding:10px 16px;border-bottom:1px solid var(--color-border)}
+  .tw td{padding:9px 16px;border-bottom:1px solid var(--color-border)}
+  .tw tbody tr:last-child td{border-bottom:0}
+  .chev{width:15px;height:15px;flex:none;color:var(--color-text-3)}
+  .ancestor{opacity:.6}
+  .ctx{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--color-text-3);font-weight:600;margin-left:6px}
+  /* dropdown-мультиселект */
+  .dd{position:absolute;top:calc(100% + 6px);left:0;width:260px;z-index:20;
+    background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius);box-shadow:var(--shadow-lg);overflow:hidden}
+  .dd-opt{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;font-size:14px}
+  .dd-opt:hover{background:var(--color-surface-2)}
+  .cbx{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--color-border);display:grid;place-items:center;flex:none}
+  .cbx-on{background:var(--color-primary);border-color:var(--color-primary);color:#fff}
+  .filter-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;
+    border-radius:999px;background:var(--color-primary);color:#fff;font-size:11px;font-weight:700}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto px-4 py-8">
+  <div class="flex items-center justify-between mb-1">
+    <h1 class="text-xl font-bold">T1 · Фильтр «Реализация» (мультиселект)</h1>
+    <a href="../index.html" class="btn btn-secondary text-sm">← В галерею</a>
+  </div>
+  <p class="t2 text-sm mb-6">Новый мультиселект в тулбаре рядом с «Критичность». Выбрано <b>«Не реализовано»</b> — в дереве остаются только плановые требования и их предки-контекст (единый слой видимости, тот же, что у поиска и критичности). Предки, не прошедшие фильтр («Реализовано»), показаны приглушённо с меткой «предок».</p>
+
+  <!-- Тулбар: два фильтра рядом -->
+  <div class="flex items-center gap-3 mb-2 relative" style="z-index:20">
+    <!-- существующий фильтр критичности (закрыт) -->
+    <button class="btn btn-secondary text-sm">
+      <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M7 12h10M11 18h2"/></svg>
+      Критичность
+      <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+
+    <!-- НОВЫЙ фильтр «Реализация» (открыт) -->
+    <div class="relative">
+      <button data-testid="impl-filter" class="btn btn-secondary text-sm" style="border-color:var(--color-primary)">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+        Реализация <span class="filter-badge">1</span>
+        <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+
+      <!-- открытый мультиселект -->
+      <div class="dd" data-testid="impl-dropdown">
+        <div class="px-3 py-2 text-xs t3" style="border-bottom:1px solid var(--color-border)">Показывать по статусу реализации</div>
+        <label class="dd-opt" data-testid="impl-opt-done">
+          <span class="cbx"></span>
+          <span class="flex items-center gap-2"><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></span>
+        </label>
+        <label class="dd-opt" data-testid="impl-opt-planned">
+          <span class="cbx cbx-on"><svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span>
+          <span class="flex items-center gap-2"><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Не реализовано</span><span class="text-xs t3">плановые (квартал/год)</span></span>
+        </label>
+        <div class="flex items-center justify-between px-3 py-2" style="border-top:1px solid var(--color-border)">
+          <button class="btn btn-ghost text-xs py-1" data-testid="impl-reset">Сбросить</button>
+          <button class="btn btn-primary text-xs py-1" data-testid="impl-apply">Применить</button>
+        </div>
+      </div>
+    </div>
+    <span class="text-xs t3">Показано 8 из 11 · включая предков</span>
+  </div>
+
+  <!-- Отфильтрованная таблица: ФТ -->
+  <section class="card overflow-hidden mb-5" style="position:relative;z-index:1">
+    <div class="flex items-center justify-between px-4 py-3" style="background:var(--color-surface-2);border-bottom:1px solid var(--color-border)">
+      <h2 class="font-bold">Функциональные требования</h2>
+    </div>
+    <table class="tw">
+      <thead><tr><th style="width:48%">Требование</th><th style="width:140px">Критичность</th><th>Реализация</th></tr></thead>
+      <tbody>
+        <!-- предок-контекст (сам «Реализовано») -->
+        <tr class="ancestor"><td><span class="flex items-center gap-2 font-medium"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Платежи<span class="ctx">предок</span></span></td><td><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+        <!-- предок-контекст -->
+        <tr class="ancestor"><td><span class="flex items-center gap-2" style="padding-left:24px"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Оплата картой<span class="ctx">предок</span></span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+        <!-- совпадение: плановое -->
+        <tr><td><span class="flex items-center gap-2" style="padding-left:52px"><span class="dot" style="background:var(--color-text-3)"></span>Сохранение карты (токенизация)</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td></tr>
+        <tr><td><span class="flex items-center gap-2" style="padding-left:52px"><span class="dot" style="background:var(--color-text-3)"></span>3-D Secure 2.0</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td></tr>
+        <!-- совпадения под «Платежи» -->
+        <tr><td><span class="flex items-center gap-2" style="padding-left:24px"><span class="dot" style="background:var(--color-text-3)"></span>Возвраты (refund)</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q4 2026</span></td></tr>
+        <tr><td><span class="flex items-center gap-2" style="padding-left:24px"><span class="dot" style="background:var(--color-text-3)"></span>СБП / QR-платежи</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span></td><td><span class="badge" style="background:var(--color-info-bg);color:var(--color-info)">Q1 2027</span></td></tr>
+        <!-- предок-контекст (другой корень) -->
+        <tr class="ancestor"><td><span class="flex items-center gap-2 font-medium"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Выплаты (payouts)<span class="ctx">предок</span></span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+        <tr><td><span class="flex items-center gap-2" style="padding-left:24px"><span class="dot" style="background:var(--color-text-3)"></span>Массовые выплаты</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span></td><td><span class="badge" style="background:var(--color-info-bg);color:var(--color-info)">Q2 2027</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Отфильтрованная таблица: НФТ -->
+  <section class="card overflow-hidden" style="position:relative;z-index:1">
+    <div class="flex items-center justify-between px-4 py-3" style="background:var(--color-surface-2);border-bottom:1px solid var(--color-border)">
+      <h2 class="font-bold">Нефункциональные требования</h2>
+    </div>
+    <table class="tw">
+      <thead><tr><th style="width:48%">Требование</th><th style="width:140px">Критичность</th><th>Реализация</th></tr></thead>
+      <tbody>
+        <tr><td class="font-medium">Соответствие PCI-DSS</td><td><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <p class="text-xs t3 mt-4">«Реализовано» требования (Время ответа API, Доступность 99.95%, реализованные ФТ) скрыты. Комбинируется с фильтром критичности и поиском через общий <span class="mono">computeVisibleRows</span> — без «сирот». Сброс возвращает все 11 строк. Пустой результат → явный empty-state.</p>
+</div>
+</body>
+</html>
