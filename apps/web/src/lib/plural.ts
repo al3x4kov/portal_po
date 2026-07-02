@@ -7,9 +7,13 @@ export function plural(n: number, one: string, few: string, many: string): strin
   return many;
 }
 
-/** "N зависимость / зависимости / зависимостей". */
-export function dependenciesLabel(n: number): string {
-  return `${n} ${plural(n, 'зависимость', 'зависимости', 'зависимостей')}`;
+/**
+ * "N подпункт / подпункта / подпунктов" — count of nested tree children hidden
+ * under a collapsed node (UX-7). Deliberately NOT «зависимости», which is the
+ * DEPENDS_ON relationship term and would be ambiguous.
+ */
+export function nestedLabel(n: number): string {
+  return `${n} ${plural(n, 'подпункт', 'подпункта', 'подпунктов')}`;
 }
 
 /** "N совпадение / совпадения / совпадений". */

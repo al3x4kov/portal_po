@@ -45,6 +45,23 @@ describe('DescPanel (T-1104, FR-7.4)', () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
+  it('UX-10: closes on a scrim click (read-only drawer policy)', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    const req = makeReq({ slug: 'r1', name: 'Req', description: 'x' });
+    renderWithProviders(
+      <DescPanel
+        requirement={req}
+        path={[]}
+        onClose={onClose}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByTestId('desc-panel-scrim'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('wires edit and delete actions', async () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();

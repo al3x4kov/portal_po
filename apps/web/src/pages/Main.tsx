@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import type { Requirement } from '@po/core';
 import { useProject, useRequirements, useDeleteRequirement } from '../api/hooks';
-import { projectsApi, type ArchiveFormat } from '../api/endpoints';
+import { projectsApi } from '../api/endpoints';
 import { ApiError, errorMessage } from '../api/client';
 import { useUiStore } from '../store/ui';
 import { ancestorNamesOf, buildForest, childCountOf } from '../lib/tree';
@@ -15,6 +15,9 @@ import { DescPanel } from '../components/DescPanel';
 import { RequirementModal } from '../components/RequirementModal';
 import { LinkModal } from '../components/LinkModal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+
+/** Export formats offered in the footer (archives + Excel), UX-8. */
+type ExportFormat = 'xlsx' | 'zip' | 'targz';
 
 export function Main(): React.ReactElement {
   const { id = '' } = useParams<{ id: string }>();
@@ -36,6 +39,7 @@ export function Main(): React.ReactElement {
   const deleteMut = useDeleteRequirement(id);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<ExportFormat | null>(null);
   const [descReq, setDescReq] = useState<Requirement | null>(null);
 
   const requirements = reqQuery.data?.requirements ?? [];
@@ -90,10 +94,13 @@ export function Main(): React.ReactElement {
   // UX-6: empty purely because of the criticality/implementation filters (no search).
   const filtersEmpty = !searchActive && filtersActive && shown === 0 && total > 0;
 
-  const onExport = async (format: ArchiveFormat): Promise<void> => {
+  const onExport = async (format: ExportFormat): Promise<void> => {
+    if (exporting) return; // one export at a time (buttons are disabled meanwhile)
     setExportError(null);
+    setExporting(format);
     try {
-      const { blob, filename } = await projectsApi.export(id, format);
+      const { blob, filename } =
+        format === 'xlsx' ? await projectsApi.exportXlsx(id) : await projectsApi.export(id, format);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -104,6 +111,8 @@ export function Main(): React.ReactElement {
       URL.revokeObjectURL(url);
     } catch (err) {
       setExportError(errorMessage(err));
+    } finally {
+      setExporting(null);
     }
   };
 
@@ -314,6 +323,8 @@ export function Main(): React.ReactElement {
               onDelete={onDelete}
               onDescExpand={setDescReq}
               onExpandNode={toggleExpanded}
+              onToggleNode={toggleExpanded}
+              interactiveChevron={collapsed}
             />
             <TreeTable
               title="Нефункциональные требования"
@@ -329,6 +340,8 @@ export function Main(): React.ReactElement {
               onDelete={onDelete}
               onDescExpand={setDescReq}
               onExpandNode={toggleExpanded}
+              onToggleNode={toggleExpanded}
+              interactiveChevron={collapsed}
             />
           </>
         )}
@@ -371,18 +384,32 @@ export function Main(): React.ReactElement {
           <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
             Экспорт:
           </span>
-          <a
+          {exporting ? (
+            <span
+              className="text-xs"
+              role="status"
+              style={{ color: 'var(--color-text-3)' }}
+              data-testid="export-busy"
+            >
+              Экспорт…
+            </span>
+          ) : null}
+          {/* UX-8: xlsx now shares the archives' fetch/blob path — errors surface in
+              `export-error` and all three buttons are disabled while exporting. */}
+          <button
+            type="button"
             className="btn btn-secondary text-sm"
-            href={`/api/projects/${encodeURIComponent(id)}/export.xlsx`}
             data-testid="export-xlsx"
-            download
+            disabled={exporting !== null}
+            onClick={() => void onExport('xlsx')}
           >
             Excel (.xlsx)
-          </a>
+          </button>
           <button
             type="button"
             className="btn btn-secondary text-sm"
             data-testid="export-zip"
+            disabled={exporting !== null}
             onClick={() => void onExport('zip')}
           >
             .zip
@@ -391,6 +418,7 @@ export function Main(): React.ReactElement {
             type="button"
             className="btn btn-secondary text-sm"
             data-testid="export-targz"
+            disabled={exporting !== null}
             onClick={() => void onExport('targz')}
           >
             .tar.gz

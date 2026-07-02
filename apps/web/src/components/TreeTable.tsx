@@ -1,6 +1,6 @@
 import type { LinkType, Requirement } from '@po/core';
 import type { VisibleRow } from '../lib/visibility';
-import { dependenciesLabel } from '../lib/plural';
+import { nestedLabel } from '../lib/plural';
 import { LINK_TYPE_LABEL, describeLink } from '../lib/linkTypes';
 import { CriticalityBadge, ImplementationBadge } from './badges';
 
@@ -38,6 +38,16 @@ interface TreeTableProps {
   onDescExpand: (req: Requirement) => void;
   /** Expand a collapsed branch (collapse mode chip). */
   onExpandNode: (slug: string) => void;
+  /**
+   * UX-7: toggle (expand/collapse) a single node via the chevron. Only wired in
+   * collapse mode, where per-node expansion is meaningful.
+   */
+  onToggleNode?: (slug: string) => void;
+  /**
+   * UX-7: when true the chevron is an interactive toggle button; otherwise it is
+   * a purely decorative, non-clickable marker (no false affordance).
+   */
+  interactiveChevron?: boolean;
 }
 
 function Row({
@@ -50,6 +60,8 @@ function Row({
   onDelete,
   onDescExpand,
   onExpandNode,
+  onToggleNode,
+  interactiveChevron,
 }: {
   row: VisibleRow;
   nameBySlug: Map<string, string>;
@@ -60,6 +72,8 @@ function Row({
   onDelete: (r: Requirement) => void;
   onDescExpand: (r: Requirement) => void;
   onExpandNode: (slug: string) => void;
+  onToggleNode?: (slug: string) => void;
+  interactiveChevron?: boolean;
 }): React.ReactElement {
   const req = row.requirement;
   const isContext = row.kind === 'context';
@@ -79,9 +93,24 @@ function Row({
       <td className="py-2.5 pr-3 align-middle">
         <div className="flex min-w-0 items-center gap-1.5" style={{ paddingLeft: row.depth * 24 }}>
           {row.hasChildren ? (
-            <span className="text-sm" style={{ color: 'var(--color-text-3)' }} aria-hidden="true">
-              {collapsedBranch ? '▸' : '▾'}
-            </span>
+            interactiveChevron ? (
+              <button
+                type="button"
+                className="shrink-0 rounded px-0.5 text-sm hover:text-[var(--color-primary)]"
+                style={{ color: 'var(--color-text-3)' }}
+                data-testid="toggle-node"
+                data-slug={req.slug}
+                aria-expanded={!collapsedBranch}
+                aria-label={collapsedBranch ? `Раскрыть «${req.name}»` : `Свернуть «${req.name}»`}
+                onClick={() => onToggleNode?.(req.slug)}
+              >
+                {collapsedBranch ? '▸' : '▾'}
+              </button>
+            ) : (
+              <span className="text-sm" style={{ color: 'var(--color-text-3)' }} aria-hidden="true">
+                {collapsedBranch ? '▸' : '▾'}
+              </span>
+            )
           ) : (
             <span
               className="px-1 text-sm"
@@ -91,11 +120,13 @@ function Row({
               •
             </span>
           )}
+          {/* UX-10: the name is an explicit edit affordance (link-style button). */}
           <button
             type="button"
-            className="min-w-0 truncate text-left font-medium hover:underline"
+            className="min-w-0 truncate text-left font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid"
             data-testid={`req-name-${req.slug}`}
-            title={req.name}
+            title={`Редактировать «${req.name}»`}
+            aria-label={`Редактировать «${req.name}»`}
             onClick={() => onEdit(req)}
           >
             {req.name}
@@ -130,7 +161,7 @@ function Row({
               data-slug={req.slug}
               onClick={() => onExpandNode(req.slug)}
             >
-              {dependenciesLabel(row.hiddenCount)}
+              {nestedLabel(row.hiddenCount)}
             </button>
           ) : null}
         </div>
@@ -174,6 +205,7 @@ function Row({
           data-slug={req.slug}
           onClick={() => onDescExpand(req)}
           title="Открыть описание"
+          aria-label="Открыть описание"
         >
           <span className="block min-w-0 flex-1 truncate">
             {req.description && req.description.length > 0 ? req.description : '—'}
@@ -237,6 +269,8 @@ export function TreeTable({
   onDelete,
   onDescExpand,
   onExpandNode,
+  onToggleNode,
+  interactiveChevron,
 }: TreeTableProps): React.ReactElement {
   return (
     <section className="card mb-5 overflow-hidden" data-testid={`section-${testidPrefix}`}>
@@ -302,6 +336,8 @@ export function TreeTable({
                   onDelete={onDelete}
                   onDescExpand={onDescExpand}
                   onExpandNode={onExpandNode}
+                  onToggleNode={onToggleNode}
+                  interactiveChevron={interactiveChevron}
                 />
               ))}
             </tbody>

@@ -64,4 +64,75 @@ describe('LinkModal (T-606, FR-8)', () => {
     await user.click(screen.getByTestId('link-submit'));
     expect(await screen.findByTestId('link-error')).toHaveTextContent('Cycle detected');
   });
+
+  // ── UX-4 · prevent incompatible hierarchical targets ─────────────────────────
+  it('UX-4: for CHILD_OF a different-type target is disabled with a reason', async () => {
+    const user = userEvent.setup();
+    const fn = makeReq({ slug: 'fn', name: 'Функция источник', type: 'FUNCTION' });
+    const nfr = makeReq({ slug: 'nfr', name: 'НФТ доступность', type: 'NFR' });
+    renderWithProviders(
+      <LinkModal projectId="p1" source={fn} requirements={[fn, nfr]} onClose={vi.fn()} />,
+    );
+    // default type is CHILD_OF
+    await user.type(screen.getByTestId('link-search'), 'НФТ');
+    const target = screen.getByTestId('link-result-nfr');
+    expect(target).toBeDisabled();
+    expect(screen.getByTestId('link-result-reason-nfr')).toHaveTextContent(/тип/i);
+  });
+
+  it('UX-4: for CHILD_OF a target that would create a cycle is disabled', async () => {
+    const user = userEvent.setup();
+    const parent = makeReq({
+      slug: 'p',
+      name: 'Родитель узел',
+      links: [{ type: 'PARENT_OF', targetSlug: 'c' }],
+    });
+    const child = makeReq({
+      slug: 'c',
+      name: 'Дочерний узел',
+      links: [{ type: 'CHILD_OF', targetSlug: 'p' }],
+    });
+    renderWithProviders(
+      <LinkModal projectId="p1" source={parent} requirements={[parent, child]} onClose={vi.fn()} />,
+    );
+    await user.type(screen.getByTestId('link-search'), 'Дочерний');
+    expect(screen.getByTestId('link-result-c')).toBeDisabled();
+    expect(screen.getByTestId('link-result-reason-c')).toHaveTextContent(/цикл/i);
+  });
+
+  it('UX-4: for CHILD_OF a second parent is disabled when the source already has one', async () => {
+    const user = userEvent.setup();
+    const p1 = makeReq({
+      slug: 'p1',
+      name: 'Первый родитель',
+      links: [{ type: 'PARENT_OF', targetSlug: 'c' }],
+    });
+    const c = makeReq({
+      slug: 'c',
+      name: 'Ребёнок узел',
+      links: [{ type: 'CHILD_OF', targetSlug: 'p1' }],
+    });
+    const p2 = makeReq({ slug: 'p2', name: 'Второй родитель' });
+    renderWithProviders(
+      <LinkModal projectId="p1" source={c} requirements={[p1, c, p2]} onClose={vi.fn()} />,
+    );
+    await user.type(screen.getByTestId('link-search'), 'Второй');
+    expect(screen.getByTestId('link-result-p2')).toBeDisabled();
+    expect(screen.getByTestId('link-result-reason-p2')).toHaveTextContent(/родител/i);
+  });
+
+  it('UX-4: RELATES_TO is softer — a different-type target stays selectable', async () => {
+    const user = userEvent.setup();
+    const fn = makeReq({ slug: 'fn', name: 'Функция источник', type: 'FUNCTION' });
+    const nfr = makeReq({ slug: 'nfr', name: 'НФТ доступность', type: 'NFR' });
+    renderWithProviders(
+      <LinkModal projectId="p1" source={fn} requirements={[fn, nfr]} onClose={vi.fn()} />,
+    );
+    await user.selectOptions(screen.getByTestId('link-type'), 'RELATES_TO');
+    await user.type(screen.getByTestId('link-search'), 'НФТ');
+    const target = screen.getByTestId('link-result-nfr');
+    expect(target).not.toBeDisabled();
+    await user.click(target);
+    expect(screen.getByTestId('link-submit')).not.toBeDisabled();
+  });
 });

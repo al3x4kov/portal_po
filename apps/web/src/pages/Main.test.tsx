@@ -9,11 +9,14 @@ import { makeReq } from '../test/fixtures';
 
 const getProject = vi.fn();
 const listRequirements = vi.fn();
+const exportArchive = vi.fn();
+const exportXlsx = vi.fn();
 
 vi.mock('../api/endpoints', () => ({
   projectsApi: {
     get: (...a: unknown[]) => getProject(...a),
-    export: vi.fn(),
+    export: (...a: unknown[]) => exportArchive(...a),
+    exportXlsx: (...a: unknown[]) => exportXlsx(...a),
   },
   requirementsApi: {
     list: (...a: unknown[]) => listRequirements(...a),
@@ -56,6 +59,8 @@ describe('Main page (E11 integration)', () => {
   beforeEach(() => {
     getProject.mockReset();
     listRequirements.mockReset();
+    exportArchive.mockReset();
+    exportXlsx.mockReset();
     getProject.mockResolvedValue({
       id: 'proj-1',
       name: 'payments',
@@ -73,11 +78,35 @@ describe('Main page (E11 integration)', () => {
     });
   });
 
-  it('offers an Excel export item pointing at the .xlsx endpoint (D7)', async () => {
+  it('UX-8: Excel export is a button routed through the same fetch/blob path (D7)', async () => {
+    // never resolves during the assertion window → keeps the busy state on
+    exportXlsx.mockReturnValue(new Promise(() => {}));
+    const user = userEvent.setup();
     renderMain();
     const xlsx = await screen.findByTestId('export-xlsx');
-    expect(xlsx).toHaveAttribute('href', '/api/projects/proj-1/export.xlsx');
-    expect(xlsx).toHaveAttribute('download');
+    expect(xlsx.tagName).toBe('BUTTON');
+    expect(xlsx).not.toHaveAttribute('href');
+    await user.click(xlsx);
+    expect(exportXlsx).toHaveBeenCalledWith('proj-1');
+  });
+
+  it('UX-8: an xlsx export error is surfaced like the archive exports', async () => {
+    exportXlsx.mockRejectedValueOnce(new Error('Не удалось собрать Excel'));
+    const user = userEvent.setup();
+    renderMain();
+    await user.click(await screen.findByTestId('export-xlsx'));
+    expect(await screen.findByTestId('export-error')).toHaveTextContent('Не удалось собрать Excel');
+  });
+
+  it('UX-8: all three export buttons are disabled while an export is in flight', async () => {
+    exportXlsx.mockReturnValue(new Promise(() => {})); // stays pending
+    const user = userEvent.setup();
+    renderMain();
+    await user.click(await screen.findByTestId('export-xlsx'));
+    expect(await screen.findByTestId('export-busy')).toBeInTheDocument();
+    expect(screen.getByTestId('export-xlsx')).toBeDisabled();
+    expect(screen.getByTestId('export-zip')).toBeDisabled();
+    expect(screen.getByTestId('export-targz')).toBeDisabled();
   });
 
   it('renders both requirement sections after loading', async () => {

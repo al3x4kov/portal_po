@@ -3,6 +3,7 @@ import { LINK_TYPES, type LinkType, type Requirement } from '@po/core';
 import { useCreateLink } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import { LINK_TYPE_OPTIONS, describeLink } from '../lib/linkTypes';
+import { linkCandidateStatus } from '../lib/linkRules';
 import { Modal } from './Modal';
 
 interface LinkModalProps {
@@ -25,16 +26,23 @@ export function LinkModal({
 
   const createMut = useCreateLink(projectId);
 
+  // UX-4: name-filter the candidates, then annotate each with a compatibility
+  // status derived from the core integrity predicates (same rules the server
+  // enforces). Incompatible targets stay visible but disabled with a reason.
   const results = useMemo(() => {
     const q = search.trim().toLowerCase();
     return requirements
       .filter((r) => r.slug !== source.slug)
       .filter((r) => (q.length === 0 ? true : r.name.toLowerCase().includes(q)))
-      .slice(0, 25);
-  }, [requirements, search, source.slug]);
+      .slice(0, 25)
+      .map((r) => ({ req: r, status: linkCandidateStatus(requirements, source, type, r) }));
+  }, [requirements, search, source, type]);
+
+  // The chosen target may become incompatible after the link type changes.
+  const targetOk = target != null && linkCandidateStatus(requirements, source, type, target).ok;
 
   const submit = async (): Promise<void> => {
-    if (!target) return;
+    if (!target || !targetOk) return;
     setApiError(null);
     try {
       await createMut.mutateAsync({ sourceSlug: source.slug, type, targetSlug: target.slug });
@@ -58,7 +66,7 @@ export function LinkModal({
         type="button"
         className="btn btn-primary"
         data-testid="link-submit"
-        disabled={!target || createMut.isPending}
+        disabled={!target || !targetOk || createMut.isPending}
         onClick={() => void submit()}
       >
         Связать
@@ -126,24 +134,39 @@ export function LinkModal({
               Ничего не найдено.
             </p>
           ) : (
-            results.map((r) => (
+            results.map(({ req: r, status }) => (
               <button
                 key={r.slug}
                 type="button"
-                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm"
+                disabled={!status.ok}
+                aria-disabled={!status.ok}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm disabled:cursor-not-allowed disabled:opacity-60"
                 style={
                   target?.slug === r.slug ? { background: 'var(--color-surface-2)' } : undefined
                 }
                 data-testid={`link-result-${r.slug}`}
+                data-disabled={status.ok ? undefined : 'true'}
+                title={status.ok ? undefined : status.reason}
                 onClick={() => {
+                  if (!status.ok) return;
                   setTarget(r);
                   setSearch(r.name);
                 }}
               >
-                <span>{r.name}</span>
-                <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
-                  {r.type}
-                </span>
+                <span className="min-w-0 truncate">{r.name}</span>
+                {status.ok ? (
+                  <span className="shrink-0 text-xs" style={{ color: 'var(--color-text-3)' }}>
+                    {r.type}
+                  </span>
+                ) : (
+                  <span
+                    className="shrink-0 text-xs"
+                    style={{ color: 'var(--color-danger)' }}
+                    data-testid={`link-result-reason-${r.slug}`}
+                  >
+                    {status.reason}
+                  </span>
+                )}
               </button>
             ))
           )}

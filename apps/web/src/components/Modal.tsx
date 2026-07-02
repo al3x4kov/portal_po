@@ -12,7 +12,15 @@ interface ModalProps {
   badge?: string;
 }
 
-/** Accessible modal shell: dimmed overlay, Esc to close, focus-trapped card. */
+/**
+ * Accessible modal shell: dimmed overlay, Esc to close, focus-trapped card.
+ *
+ * Scrim policy (UX-10): form-bearing dialogs (this Modal and ConfirmDialog) do
+ * NOT close on a backdrop click — an accidental click must never discard typed
+ * data; users close via Esc or the explicit ✕ / Cancel controls. Read-only
+ * overlays (DescPanel drawer, ServiceScreen) DO close on scrim click, since
+ * there is nothing to lose. Keep this split consistent across overlays.
+ */
 export function Modal({
   title,
   onClose,

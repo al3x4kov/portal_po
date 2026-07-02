@@ -62,7 +62,9 @@ describe('TreeTable (T-1102, FR-7)', () => {
     expect(screen.queryByTestId('tree-row-c1')).not.toBeInTheDocument();
     const chips = screen.getAllByTestId('expand-node');
     expect(chips.length).toBeGreaterThan(0);
-    expect(chips[0]).toHaveTextContent('зависимост');
+    // UX-7: nested children are «подпункты», not «зависимости».
+    expect(chips[0]).toHaveTextContent('подпункт');
+    expect(chips[0]).not.toHaveTextContent('зависимост');
   });
 
   it('shows criticality and implementation badges', () => {
@@ -303,6 +305,47 @@ describe('TreeTable (T-1102, FR-7)', () => {
   it('SA-6: renders no incomplete-badge when the slug is not flagged', () => {
     renderTree(false);
     expect(screen.queryByTestId('incomplete-badge')).not.toBeInTheDocument();
+  });
+
+  it('UX-7: an interactive chevron toggles the node in collapse mode', async () => {
+    const onToggleNode = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <TreeTable
+        title="Ф"
+        addLabel="+"
+        testidPrefix="function"
+        count={3}
+        rows={rowsFor(true)}
+        nameBySlug={new Map()}
+        onAdd={vi.fn()}
+        onEdit={vi.fn()}
+        onLink={vi.fn()}
+        onDelete={vi.fn()}
+        onDescExpand={vi.fn()}
+        onExpandNode={vi.fn()}
+        onToggleNode={onToggleNode}
+        interactiveChevron
+      />,
+    );
+    const chevron = screen.getAllByTestId('toggle-node')[0];
+    expect(chevron.tagName).toBe('BUTTON');
+    expect(chevron).toHaveAttribute('aria-expanded', 'false');
+    await user.click(chevron);
+    expect(onToggleNode).toHaveBeenCalledWith('p1');
+  });
+
+  it('UX-7: the chevron is a non-clickable marker when not interactive (no false affordance)', () => {
+    renderTree(false); // expand-all, interactiveChevron not set
+    expect(screen.queryByTestId('toggle-node')).not.toBeInTheDocument();
+  });
+
+  it('UX-10: the name is an explicit edit affordance and description an expand affordance', () => {
+    renderTree(false);
+    const name = screen.getByTestId('req-name-p1');
+    expect(name).toHaveAttribute('aria-label', expect.stringContaining('Редактировать'));
+    const desc = screen.getAllByTestId('desc-expand')[0];
+    expect(desc).toHaveAttribute('aria-label', 'Открыть описание');
   });
 
   it('T4: does not show "+ НФТ" on NFR rows', () => {

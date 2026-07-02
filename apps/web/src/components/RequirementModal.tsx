@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useQuery } from '@tanstack/react-query';
 import {
   CRITICALITIES,
   TARGET_QUARTERS,
@@ -11,7 +10,6 @@ import {
   type RequirementType,
 } from '@po/core';
 import { requirementFormSchema, type RequirementFormValues } from '../lib/requirementForm';
-import { requirementsApi } from '../api/endpoints';
 import {
   useCreateLink,
   useCreateRequirement,
@@ -20,9 +18,9 @@ import {
 } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import { CRITICALITY_COLOR_VAR, CRITICALITY_LABEL } from '../lib/criticality';
-import { LINK_TYPE_LABEL } from '../lib/linkTypes';
-import { useDebounce } from '../lib/useDebounce';
+import { useNameCheck } from '../hooks/useNameCheck';
 import { Modal } from './Modal';
+import { LinkList } from './LinkList';
 import { ConfirmDialog } from './ConfirmDialog';
 
 interface RequirementModalProps {
@@ -111,16 +109,8 @@ export function RequirementModal({
     }
   }, [implemented, setValue]);
 
-  // Real-time uniqueness check (FR-6.6): debounced GET .../check-name.
-  const debouncedName = useDebounce((name ?? '').trim(), 350);
-  const nameQuery = useQuery({
-    queryKey: ['checkName', projectId, reqType, debouncedName, requirement?.slug ?? null],
-    queryFn: () => requirementsApi.checkName(projectId, reqType, debouncedName, requirement?.slug),
-    enabled: debouncedName.length > 0,
-  });
-
-  const nameTaken = nameQuery.data?.available === false;
-  const nameOk = nameQuery.data?.available === true;
+  // Real-time uniqueness check (FR-6.6), extracted to a hook (BE-5).
+  const { nameTaken, nameOk } = useNameCheck(projectId, reqType, name ?? '', requirement?.slug);
 
   const busy = createMut.isPending || updateMut.isPending;
   const submitDisabled = busy || nameTaken || (name ?? '').trim().length === 0;
@@ -481,108 +471,15 @@ export function RequirementModal({
         {isEdit ? (
           <>
             <hr style={{ borderColor: 'var(--color-border)' }} />
-            <div>
-              <span className="label">
-                Связи{' '}
-                <span className="font-normal" style={{ color: 'var(--color-text-3)' }}>
-                  ({links.length})
-                </span>
-              </span>
-              {links.length === 0 ? (
-                <p
-                  className="rounded-lg px-3 py-4 text-center text-sm"
-                  style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-3)' }}
-                  data-testid="req-links-empty"
-                >
-                  Связей нет
-                </p>
-              ) : (
-                <div className="space-y-1.5" data-testid="req-links">
-                  {links.map((l) => {
-                    const targetName = nameBySlug?.get(l.targetSlug) ?? l.targetSlug;
-                    const isPending =
-                      pendingDelete?.type === l.type && pendingDelete?.targetSlug === l.targetSlug;
-                    return (
-                      <div
-                        key={`${l.type}-${l.targetSlug}`}
-                        data-testid={`req-link-${l.targetSlug}`}
-                        data-link-type={l.type}
-                      >
-                        {isPending ? (
-                          <div
-                            className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5"
-                            style={{ background: 'var(--color-danger-bg)' }}
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p
-                                className="text-sm font-medium"
-                                style={{ color: 'var(--color-danger)' }}
-                              >
-                                Удалить связь «{LINK_TYPE_LABEL[l.type]} «{targetName}»»?
-                              </p>
-                              <p className="text-xs" style={{ color: 'var(--color-danger)' }}>
-                                Связь исчезнет у обоих требований.
-                              </p>
-                            </div>
-                            <div className="flex flex-none items-center gap-2">
-                              <button
-                                type="button"
-                                className="btn btn-secondary py-1 text-xs"
-                                data-testid="req-link-del-cancel"
-                                onClick={() => setPendingDelete(null)}
-                              >
-                                Отменить
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-danger py-1 text-xs"
-                                data-testid="req-link-del-confirm"
-                                disabled={deleteLinkMut.isPending}
-                                onClick={() => void confirmDeleteLink()}
-                              >
-                                Удалить
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div
-                            className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5"
-                            style={{ borderColor: 'var(--color-border)' }}
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm">
-                                <span style={{ color: 'var(--color-text-3)' }}>
-                                  {LINK_TYPE_LABEL[l.type]}
-                                </span>{' '}
-                                <span className="font-medium">«{targetName}»</span>
-                              </p>
-                              <p
-                                className="text-[11px] uppercase tracking-wide"
-                                style={{ color: 'var(--color-text-3)' }}
-                              >
-                                {l.type}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              className="btn btn-ghost flex-none px-2 py-1 text-xs"
-                              style={{ color: 'var(--color-danger)' }}
-                              data-testid={`req-link-del-${l.targetSlug}`}
-                              aria-label={`Удалить связь «${targetName}»`}
-                              onClick={() =>
-                                setPendingDelete({ type: l.type, targetSlug: l.targetSlug })
-                              }
-                            >
-                              Удалить
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            <LinkList
+              links={links}
+              nameBySlug={nameBySlug}
+              pendingDelete={pendingDelete}
+              deleting={deleteLinkMut.isPending}
+              onRequestDelete={(l) => setPendingDelete({ type: l.type, targetSlug: l.targetSlug })}
+              onCancelDelete={() => setPendingDelete(null)}
+              onConfirmDelete={() => void confirmDeleteLink()}
+            />
           </>
         ) : null}
       </form>

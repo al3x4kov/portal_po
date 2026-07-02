@@ -165,7 +165,7 @@ export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElem
           data-testid="toggle-collapse"
           onClick={() => setTreeMode(treeMode === 'collapse' ? 'expand-all' : 'collapse')}
         >
-          Скрыть зависимости
+          Свернуть вложенные
         </button>
       </div>
 

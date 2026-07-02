@@ -24,6 +24,9 @@ export const projectsApi = {
   },
   export: (id: string, format: ArchiveFormat) =>
     apiDownload(`/projects/${encodeURIComponent(id)}/export?format=${format}`),
+  /** UX-8: Excel export goes through the same fetch/blob path as the archives so
+   *  errors and the busy state are handled uniformly (no bare `<a download>`). */
+  exportXlsx: (id: string) => apiDownload(`/projects/${encodeURIComponent(id)}/export.xlsx`),
 };
 
 export const requirementsApi = {
