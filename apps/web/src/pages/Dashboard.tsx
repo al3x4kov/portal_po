@@ -244,7 +244,7 @@ export function Dashboard(): React.ReactElement {
           mainPath={projectQuery.data?.mainPath ?? ''}
         />
 
-        <main className="mx-auto w-full max-w-4xl flex-1 space-y-6 p-6">
+        <main className="w-full flex-1 space-y-6 p-6">
         <h1 className="text-xl font-bold">Дашборд проекта</h1>
 
         {isLoading ? (
