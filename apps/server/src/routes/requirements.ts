@@ -1,6 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { CRITICALITIES, REQUIREMENT_TYPES, TARGET_QUARTERS } from '@po/core';
+import {
+  CRITICALITIES,
+  REQUIREMENT_TYPES,
+  TARGET_QUARTERS,
+  serialize,
+  type Requirement,
+  type RequirementType,
+} from '@po/core';
 import { RequirementService } from '../services/RequirementService.js';
 import { FsRequirementRepo } from '../repositories/FsRequirementRepo.js';
 import { FsProjectRepo } from '../repositories/FsProjectRepo.js';
@@ -8,7 +15,8 @@ import { parseInput } from '../lib/parseInput.js';
 import { NotFoundError } from '../lib/errors.js';
 import type { AppDeps } from './deps.js';
 
-const createBody = z.object({
+/** Request body for creating a requirement (also documented in OpenAPI, E14). */
+export const createBody = z.object({
   type: z.enum(REQUIREMENT_TYPES),
   name: z.string(),
   criticality: z.enum(CRITICALITIES),
@@ -18,13 +26,40 @@ const createBody = z.object({
   targetYear: z.number().int().optional(),
 });
 
-const updateBody = createBody.omit({ type: true });
+/** Request body for updating a requirement (type is immutable, ADR-001). */
+export const updateBody = createBody.omit({ type: true });
 
-const checkNameQuery = z.object({
+/** Query for the name-availability check (E14 documented). */
+export const checkNameQuery = z.object({
   type: z.enum(REQUIREMENT_TYPES),
   name: z.string(),
-  excludeId: z.string().optional(),
+  excludeSlug: z.string().optional(),
 });
+
+/** Query for the requirements listing endpoint. */
+export const listQuery = z.object({
+  /** `openspec` returns concatenated OpenSpec markdown; otherwise the JSON list (T-1001). */
+  format: z.enum(['json', 'openspec']).optional(),
+});
+
+const FOLDER_LABEL: Record<RequirementType, string> = { FUNCTION: 'functions', NFR: 'nfr' };
+
+/**
+ * Concatenate every requirement of a project into a single OpenSpec markdown
+ * document for AI agents (T-1001): a top-level project heading followed by one
+ * `## <folder>` section per requirement type, each holding the serialized
+ * `### Requirement:` fragments (ADR-001).
+ */
+function toOpenSpecText(projectId: string, requirements: readonly Requirement[]): string {
+  const parts: string[] = [`# OpenSpec: ${projectId}`];
+  for (const type of REQUIREMENT_TYPES) {
+    const reqs = requirements.filter((r) => r.type === type);
+    if (reqs.length === 0) continue;
+    parts.push('', `## ${FOLDER_LABEL[type]}`);
+    for (const r of reqs) parts.push('', serialize(r).trimEnd());
+  }
+  return `${parts.join('\n')}\n`;
+}
 
 /** Requirement CRUD + name check routes (T-403). */
 export async function requirementRoutes(app: FastifyInstance, deps: AppDeps): Promise<void> {
@@ -37,17 +72,23 @@ export async function requirementRoutes(app: FastifyInstance, deps: AppDeps): Pr
     return new RequirementService(new FsRequirementRepo(deps.projectsRoot, projectId), deps.now);
   };
 
-  app.get('/api/projects/:id/requirements', async (req) => {
+  app.get('/api/projects/:id/requirements', async (req, reply) => {
     const { id } = req.params as { id: string };
+    const { format } = parseInput(listQuery, req.query);
     const service = await serviceFor(id);
-    return service.list();
+    const result = await service.list();
+    if (format === 'openspec') {
+      reply.header('content-type', 'text/markdown; charset=utf-8');
+      return toOpenSpecText(id, result.requirements);
+    }
+    return result;
   });
 
   app.get('/api/projects/:id/requirements/check-name', async (req) => {
     const { id } = req.params as { id: string };
-    const { type, name, excludeId } = parseInput(checkNameQuery, req.query);
+    const { type, name, excludeSlug } = parseInput(checkNameQuery, req.query);
     const service = await serviceFor(id);
-    return { available: await service.checkName(type, name, excludeId) };
+    return service.checkName(type, name, excludeSlug);
   });
 
   app.post('/api/projects/:id/requirements', async (req, reply) => {
@@ -59,17 +100,17 @@ export async function requirementRoutes(app: FastifyInstance, deps: AppDeps): Pr
     return created;
   });
 
-  app.put('/api/projects/:id/requirements/:rid', async (req) => {
-    const { id, rid } = req.params as { id: string; rid: string };
+  app.put('/api/projects/:id/requirements/:slug', async (req) => {
+    const { id, slug } = req.params as { id: string; slug: string };
     const body = parseInput(updateBody, req.body);
     const service = await serviceFor(id);
-    return service.update(rid, body);
+    return service.update(slug, body);
   });
 
-  app.delete('/api/projects/:id/requirements/:rid', async (req, reply) => {
-    const { id, rid } = req.params as { id: string; rid: string };
+  app.delete('/api/projects/:id/requirements/:slug', async (req, reply) => {
+    const { id, slug } = req.params as { id: string; slug: string };
     const service = await serviceFor(id);
-    await service.delete(rid);
+    await service.delete(slug);
     reply.code(204);
     return null;
   });

@@ -83,27 +83,30 @@ describe('T-301/T-304/T-403/T-503 HTTP integration', () => {
       payload: { type: 'FUNCTION', name: 'Login', criticality: 'HIGH', implemented: true },
     });
     expect(create.statusCode).toBe(201);
-    const rid = create.json().id as string;
+    const slug = create.json().slug as string;
+    expect(slug).toBe('login');
 
     const check = await app.inject({
       method: 'GET',
       url: '/api/projects/P/requirements/check-name?type=FUNCTION&name=Login',
     });
-    expect(check.json()).toEqual({ available: false });
+    expect(check.json()).toEqual({ available: false, slug: 'login-2' });
 
     const checkFree = await app.inject({
       method: 'GET',
-      url: `/api/projects/P/requirements/check-name?type=FUNCTION&name=Login&excludeId=${rid}`,
+      url: `/api/projects/P/requirements/check-name?type=FUNCTION&name=Login&excludeSlug=${slug}`,
     });
-    expect(checkFree.json()).toEqual({ available: true });
+    expect(checkFree.json()).toEqual({ available: true, slug: 'login' });
 
     const update = await app.inject({
       method: 'PUT',
-      url: `/api/projects/P/requirements/${rid}`,
+      url: `/api/projects/P/requirements/${slug}`,
       payload: { name: 'Login v2', criticality: 'LOW', implemented: true },
     });
     expect(update.statusCode).toBe(200);
     expect(update.json().name).toBe('Login v2');
+    // slug is immutable on rename (ADR-001).
+    expect(update.json().slug).toBe('login');
 
     // implemented=false without quarter/year → 422
     const bad = await app.inject({
@@ -114,7 +117,7 @@ describe('T-301/T-304/T-403/T-503 HTTP integration', () => {
     expect(bad.statusCode).toBe(422);
     expect(bad.json().code).toBe('VALIDATION');
 
-    const del = await app.inject({ method: 'DELETE', url: `/api/projects/P/requirements/${rid}` });
+    const del = await app.inject({ method: 'DELETE', url: `/api/projects/P/requirements/${slug}` });
     expect(del.statusCode).toBe(204);
   });
 
@@ -135,7 +138,7 @@ describe('T-301/T-304/T-403/T-503 HTTP integration', () => {
         url: '/api/projects/L/requirements',
         payload: { type: 'FUNCTION', name, criticality: 'LOW', implemented: true },
       });
-      return r.json().id as string;
+      return r.json().slug as string;
     };
     const a = await mk('A');
     const b = await mk('B');
@@ -143,14 +146,14 @@ describe('T-301/T-304/T-403/T-503 HTTP integration', () => {
     const link = await app.inject({
       method: 'POST',
       url: '/api/projects/L/links',
-      payload: { sourceId: a, type: 'PARENT_OF', targetId: b },
+      payload: { sourceSlug: a, type: 'PARENT_OF', targetSlug: b },
     });
     expect(link.statusCode).toBe(201);
 
     const cycle = await app.inject({
       method: 'POST',
       url: '/api/projects/L/links',
-      payload: { sourceId: b, type: 'PARENT_OF', targetId: a },
+      payload: { sourceSlug: b, type: 'PARENT_OF', targetSlug: a },
     });
     expect(cycle.statusCode).toBe(409);
     expect(cycle.json().code).toBe('CYCLE');
@@ -159,7 +162,7 @@ describe('T-301/T-304/T-403/T-503 HTTP integration', () => {
     const unlink = await app.inject({
       method: 'DELETE',
       url: '/api/projects/L/links',
-      payload: { sourceId: a, type: 'PARENT_OF', targetId: b },
+      payload: { sourceSlug: a, type: 'PARENT_OF', targetSlug: b },
     });
     expect(unlink.statusCode).toBe(200);
   });
@@ -195,5 +198,29 @@ describe('T-301/T-304/T-403/T-503 HTTP integration', () => {
     const reqs = await app.inject({ method: 'GET', url: '/api/projects/Imported/requirements' });
     expect(reqs.json().requirements).toHaveLength(1);
     expect(reqs.json().requirements[0].name).toBe('Feature');
+  });
+
+  it('exports a project as .xlsx (T-902, S18): 200, xlsx headers, PK signature', async () => {
+    await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Xl' } });
+    await app.inject({
+      method: 'POST',
+      url: '/api/projects/Xl/requirements',
+      payload: { type: 'FUNCTION', name: 'Feature', criticality: 'LOW', implemented: true },
+    });
+
+    const res = await app.inject({ method: 'GET', url: '/api/projects/Xl/export.xlsx' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    expect(String(res.headers['content-disposition'])).toContain('attachment');
+    expect(String(res.headers['content-disposition'])).toContain('Xl.xlsx');
+    // Valid xlsx = zip container → starts with "PK\x03\x04".
+    expect(res.rawPayload.subarray(0, 4)).toEqual(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+  });
+
+  it('xlsx export of a missing project → 404', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/projects/ghost/export.xlsx' });
+    expect(res.statusCode).toBe(404);
   });
 });

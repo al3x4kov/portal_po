@@ -67,8 +67,8 @@ export function useCreateRequirement(projectId: string) {
 
 export function useUpdateRequirement(projectId: string) {
   const qc = useQueryClient();
-  return useMutation<Requirement, Error, { rid: string; input: RequirementUpdateInput }>({
-    mutationFn: ({ rid, input }) => requirementsApi.update(projectId, rid, input),
+  return useMutation<Requirement, Error, { slug: string; input: RequirementUpdateInput }>({
+    mutationFn: ({ slug, input }) => requirementsApi.update(projectId, slug, input),
     onSuccess: () => invalidateRequirements(qc, projectId),
   });
 }

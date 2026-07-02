@@ -5,8 +5,10 @@ import { expect, test } from '@playwright/test';
 import {
   addRequirement,
   createProject,
+  deleteRequirement,
   expectDeleteBlocked,
   linkRequirements,
+  rowByName,
   uniqueName,
   writeBrokenArchive,
 } from './helpers/app.js';
@@ -28,15 +30,32 @@ test.describe('T-702 edge cases', () => {
     await expect(page.getByTestId('newproject-error')).toBeVisible();
   });
 
-  test('duplicate requirement name is blocked (2.4.1)', async ({ page }) => {
+  test('S22 project name with OS-forbidden characters is rejected', async ({ page }) => {
+    // A name made solely of reserved/path characters sanitizes to empty ⇒ the
+    // server rejects it (ValidationError) and the UI surfaces newproject-error.
+    await page.goto('/');
+    await page.getByTestId('start-new').click();
+    await page.getByTestId('newproject-name').fill('<>:"/\\|?*');
+    await page.getByTestId('newproject-submit').click();
+    await expect(page.getByTestId('newproject-error')).toBeVisible();
+    // Still on the new-project screen; no project was created.
+    await expect(page.getByTestId('newproject-page')).toBeVisible();
+  });
+
+  test('S8 duplicate requirement name in the same type is blocked (2.4.1)', async ({ page }) => {
     await createProject(page, uniqueName('dup-req'));
     const dup = uniqueName('FT');
     await addRequirement(page, { kind: 'function', name: dup });
 
     await page.getByTestId('add-function').click();
-    await page.getByTestId('req-name-input').fill(dup);
-    await expect(page.getByTestId('req-name-error')).toBeVisible();
-    await expect(page.getByTestId('req-apply')).toBeDisabled();
+    await page.getByTestId('req-name').fill(dup);
+    // Live check (case-insensitive uniqueness) flags the name as taken…
+    await expect(page.getByTestId('req-name-status')).toHaveAttribute('data-state', 'taken');
+    // …and the same name upper-cased is still rejected (case-insensitive).
+    await page.getByTestId('req-name').fill(dup.toUpperCase());
+    await expect(page.getByTestId('req-name-status')).toHaveAttribute('data-state', 'taken');
+    // Submit stays disabled while the name is taken.
+    await expect(page.getByTestId('req-submit')).toBeDisabled();
     await page.getByTestId('requirement-modal-close').click();
   });
 
@@ -77,6 +96,21 @@ test.describe('T-702 edge cases', () => {
     await expect(page.getByTestId('import-page')).toBeVisible();
   });
 
+  test('S19 importing an .xlsx is not supported (rejected client-side)', async ({
+    page,
+  }, testInfo) => {
+    // Excel is export-only; the import dropzone accepts .zip/.tar.gz/.tgz only.
+    const xlsx = testInfo.outputPath('requirements.xlsx');
+    await fs.writeFile(xlsx, Buffer.from('PK not really a workbook'));
+    await page.goto('/');
+    await page.getByTestId('start-import').click();
+    await page.getByTestId('import-file').setInputFiles(xlsx);
+    await expect(page.getByTestId('import-error')).toBeVisible();
+    // The chosen file is rejected: no file chip, submit stays disabled.
+    await expect(page.getByTestId('import-file-name')).toHaveCount(0);
+    await expect(page.getByTestId('import-submit')).toBeDisabled();
+  });
+
   test('unknown archive format is rejected client-side (§5)', async ({ page }, testInfo) => {
     const txt = testInfo.outputPath('notanarchive.txt');
     await fs.writeFile(txt, 'plain text');
@@ -86,7 +120,7 @@ test.describe('T-702 edge cases', () => {
     await expect(page.getByTestId('import-error')).toBeVisible();
   });
 
-  test('deleting a node with children is blocked (FR-9.3)', async ({ page }) => {
+  test('S15 deleting a node with children is blocked with a hint (FR-9.3)', async ({ page }) => {
     await createProject(page, uniqueName('has-children'));
     const parent = uniqueName('F-parent');
     const child = uniqueName('F-child');
@@ -97,7 +131,34 @@ test.describe('T-702 edge cases', () => {
     await expectDeleteBlocked(page, parent);
   });
 
-  test('Projects/ is recreated automatically when missing (DoD#4, FR-2.3)', async ({ page }) => {
+  test('S14 deleting a requirement cleans up reverse links', async ({ page }) => {
+    await createProject(page, uniqueName('reverse-links'));
+    const parent = uniqueName('F-parent');
+    const child = uniqueName('F-child');
+    await addRequirement(page, { kind: 'function', name: parent });
+    await addRequirement(page, { kind: 'function', name: child });
+    // child CHILD_OF parent ⇒ parent gains a PARENT_OF reverse link.
+    await linkRequirements(page, child, 'CHILD_OF', parent);
+
+    // While the link exists, parent is treated as having children (delete blocked).
+    await expectDeleteBlocked(page, parent);
+
+    // Delete the leaf child; this must cascade-clean parent's PARENT_OF link.
+    await deleteRequirement(page, child);
+
+    // Parent now has no children: its delete dialog reports it is safe and succeeds,
+    // proving the reverse PARENT_OF link was cleaned up.
+    await rowByName(page, parent).locator('[data-testid^="delete-btn-"]').click();
+    await expect(page.getByTestId('delete-dialog')).toBeVisible();
+    await expect(page.getByTestId('delete-dialog-note')).toContainText('нет дочерних');
+    await page.getByTestId('delete-dialog-confirm').click();
+    await expect(page.getByTestId('delete-dialog')).toBeHidden();
+    await expect(rowByName(page, parent)).toBeHidden();
+  });
+
+  test('S23 Projects/ is recreated automatically when missing (DoD#4, FR-2.3)', async ({
+    page,
+  }) => {
     // Remove the portal directory out from under the running server.
     await fs.rm(PROJECTS_ROOT, { recursive: true, force: true });
     expect(await fs.stat(PROJECTS_ROOT).catch(() => null)).toBeNull();

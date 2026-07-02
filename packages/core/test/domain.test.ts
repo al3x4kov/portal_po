@@ -26,7 +26,7 @@ describe('T-201 newId / ULID', () => {
 describe('T-201 enums', () => {
   it('exposes the spec enum members', () => {
     expect(REQUIREMENT_TYPES).toEqual(['FUNCTION', 'NFR']);
-    expect(CRITICALITIES).toEqual(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
+    expect(CRITICALITIES).toEqual(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL', 'BLOCKER']);
     expect(LINK_TYPES).toEqual(['PARENT_OF', 'CHILD_OF', 'RELATES_TO', 'DEPENDS_ON', 'BLOCKED_BY']);
   });
 });
@@ -52,8 +52,8 @@ describe('T-201 requirementSchema', () => {
     expect(requirementSchema.safeParse(req).success).toBe(false);
   });
 
-  it('rejects a missing required field (id)', () => {
-    const { id: _id, ...rest } = makeReq();
+  it('rejects a missing required field (slug)', () => {
+    const { slug: _slug, ...rest } = makeReq();
     expect(requirementSchema.safeParse(rest).success).toBe(false);
   });
 
@@ -67,14 +67,14 @@ describe('T-201 requirementSchema', () => {
 
 describe('T-201 linkSchema', () => {
   it('accepts a valid link', () => {
-    expect(linkSchema.safeParse({ type: 'CHILD_OF', targetId: newId() }).success).toBe(true);
+    expect(linkSchema.safeParse({ type: 'CHILD_OF', targetSlug: 'parent-req' }).success).toBe(true);
   });
 
   it('rejects an unknown link type', () => {
-    expect(linkSchema.safeParse({ type: 'OWNS', targetId: newId() }).success).toBe(false);
+    expect(linkSchema.safeParse({ type: 'OWNS', targetSlug: 'parent-req' }).success).toBe(false);
   });
 
-  it('rejects an empty targetId', () => {
-    expect(linkSchema.safeParse({ type: 'CHILD_OF', targetId: '' }).success).toBe(false);
+  it('rejects an empty targetSlug', () => {
+    expect(linkSchema.safeParse({ type: 'CHILD_OF', targetSlug: '' }).success).toBe(false);
   });
 });

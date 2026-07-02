@@ -13,13 +13,13 @@ import { FsRequirementRepo } from '../repositories/FsRequirementRepo.js';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
 
 export interface LinkInput {
-  sourceId: string;
+  sourceSlug: string;
   type: LinkType;
-  targetId: string;
+  targetSlug: string;
 }
 
 const isHierarchy = (t: LinkType): boolean => t === 'PARENT_OF' || t === 'CHILD_OF';
-const sameLink = (a: Link, b: Link): boolean => a.type === b.type && a.targetId === b.targetId;
+const sameLink = (a: Link, b: Link): boolean => a.type === b.type && a.targetSlug === b.targetSlug;
 
 /**
  * Use-case layer for links (FR-8): a relationship is stored as a mutually-inverse
@@ -32,35 +32,36 @@ export class LinkService {
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
-  private find(reqs: Requirement[], id: string, role: string): Requirement {
-    const req = reqs.find((r) => r.id === id);
-    if (!req) throw new NotFoundError(`${role} requirement not found: "${id}".`);
+  private find(reqs: Requirement[], slug: string, role: string): Requirement {
+    const req = reqs.find((r) => r.slug === slug);
+    if (!req) throw new NotFoundError(`${role} requirement not found: "${slug}".`);
     return req;
   }
 
   /** Create a link and its inverse, after enforcing all integrity rules. */
-  async create({ sourceId, type, targetId }: LinkInput): Promise<void> {
+  async create({ sourceSlug, type, targetSlug }: LinkInput): Promise<void> {
     const { requirements } = await this.repo.loadAll();
-    const source = this.find(requirements, sourceId, 'Source');
-    const target = this.find(requirements, targetId, 'Target');
+    const source = this.find(requirements, sourceSlug, 'Source');
+    const target = this.find(requirements, targetSlug, 'Target');
 
-    assertNoSelfLink(sourceId, targetId); // SelfLinkError (422)
+    assertNoSelfLink(sourceSlug, targetSlug); // SelfLinkError (422)
 
     if (isHierarchy(type)) {
       assertSameType(source, target); // TypeMismatchError (422)
-      // Determine which node gains a parent and verify it stays single-parent.
       if (type === 'CHILD_OF') {
-        assertSingleParent(requirements, sourceId, targetId); // MultipleParentError (409)
+        assertSingleParent(requirements, sourceSlug, targetSlug); // MultipleParentError (409)
       } else {
-        assertSingleParent(requirements, targetId, sourceId);
+        assertSingleParent(requirements, targetSlug, sourceSlug);
       }
     }
 
-    assertNoCycle(requirements, { sourceId, type, targetId }); // CycleError (409)
+    assertNoCycle(requirements, { sourceSlug, type, targetSlug }); // CycleError (409)
 
-    const pair = createLinkPair(sourceId, type, targetId);
+    const pair = createLinkPair(sourceSlug, type, targetSlug);
     if (source.links.some((l) => sameLink(l, pair.source))) {
-      throw new ConflictError(`Link ${type} from "${sourceId}" to "${targetId}" already exists.`);
+      throw new ConflictError(
+        `Link ${type} from "${sourceSlug}" to "${targetSlug}" already exists.`,
+      );
     }
 
     const ts = this.now();
@@ -74,13 +75,13 @@ export class LinkService {
   }
 
   /** Remove a link and its inverse from both endpoints (FR-8). */
-  async remove({ sourceId, type, targetId }: LinkInput): Promise<void> {
+  async remove({ sourceSlug, type, targetSlug }: LinkInput): Promise<void> {
     const { requirements } = await this.repo.loadAll();
-    const source = this.find(requirements, sourceId, 'Source');
-    const target = this.find(requirements, targetId, 'Target');
+    const source = this.find(requirements, sourceSlug, 'Source');
+    const target = this.find(requirements, targetSlug, 'Target');
 
-    const sourceLink: Link = { type, targetId };
-    const targetLink: Link = { type: inverseLinkType(type), targetId: sourceId };
+    const sourceLink: Link = { type, targetSlug };
+    const targetLink: Link = { type: inverseLinkType(type), targetSlug: sourceSlug };
 
     const newSourceLinks = source.links.filter((l) => !sameLink(l, sourceLink));
     const newTargetLinks = target.links.filter((l) => !sameLink(l, targetLink));
@@ -89,7 +90,9 @@ export class LinkService {
       newSourceLinks.length === source.links.length &&
       newTargetLinks.length === target.links.length
     ) {
-      throw new NotFoundError(`Link ${type} from "${sourceId}" to "${targetId}" does not exist.`);
+      throw new NotFoundError(
+        `Link ${type} from "${sourceSlug}" to "${targetSlug}" does not exist.`,
+      );
     }
 
     const ts = this.now();

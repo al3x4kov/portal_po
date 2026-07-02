@@ -16,8 +16,8 @@ import { link, makeReq } from './fixtures.js';
 describe('T-205 createLinkPair / inverseLinkType', () => {
   it('maps PARENT_OF to a reciprocal CHILD_OF pair', () => {
     const pair = createLinkPair('A', 'PARENT_OF', 'B');
-    expect(pair.source).toEqual({ type: 'PARENT_OF', targetId: 'B' });
-    expect(pair.target).toEqual({ type: 'CHILD_OF', targetId: 'A' });
+    expect(pair.source).toEqual({ type: 'PARENT_OF', targetSlug: 'B' });
+    expect(pair.target).toEqual({ type: 'CHILD_OF', targetSlug: 'A' });
   });
 
   it('maps DEPENDS_ON to BLOCKED_BY and back', () => {
@@ -56,34 +56,34 @@ describe('T-205 assertSameType', () => {
 
 describe('T-205 assertSingleParent', () => {
   it('allows adding a first parent', () => {
-    const child = makeReq({ id: 'C', links: [] });
+    const child = makeReq({ slug: 'C', links: [] });
     expect(() => assertSingleParent([child], 'C', 'P1')).not.toThrow();
   });
 
   it('rejects adding a second, different parent', () => {
-    const child = makeReq({ id: 'C', links: [link('CHILD_OF', 'P1')] });
+    const child = makeReq({ slug: 'C', links: [link('CHILD_OF', 'P1')] });
     expect(() => assertSingleParent([child], 'C', 'P2')).toThrow(MultipleParentError);
   });
 
   it('allows re-adding the same parent (idempotent)', () => {
-    const child = makeReq({ id: 'C', links: [link('CHILD_OF', 'P1')] });
+    const child = makeReq({ slug: 'C', links: [link('CHILD_OF', 'P1')] });
     expect(() => assertSingleParent([child], 'C', 'P1')).not.toThrow();
   });
 
   it('rejects a requirement that already has two parents', () => {
-    const child = makeReq({ id: 'C', links: [link('CHILD_OF', 'P1'), link('CHILD_OF', 'P2')] });
+    const child = makeReq({ slug: 'C', links: [link('CHILD_OF', 'P1'), link('CHILD_OF', 'P2')] });
     expect(() => assertSingleParent([child], 'C')).toThrow(MultipleParentError);
   });
 });
 
 describe('T-205 assertNoCycle', () => {
   it('rejects a hierarchy cycle and reports the path', () => {
-    const a = makeReq({ id: 'A', links: [link('PARENT_OF', 'B')] });
-    const b = makeReq({ id: 'B', links: [link('PARENT_OF', 'C')] });
-    const c = makeReq({ id: 'C', links: [] });
+    const a = makeReq({ slug: 'A', links: [link('PARENT_OF', 'B')] });
+    const b = makeReq({ slug: 'B', links: [link('PARENT_OF', 'C')] });
+    const c = makeReq({ slug: 'C', links: [] });
     let captured: CycleError | undefined;
     try {
-      assertNoCycle([a, b, c], { sourceId: 'C', type: 'PARENT_OF', targetId: 'A' });
+      assertNoCycle([a, b, c], { sourceSlug: 'C', type: 'PARENT_OF', targetSlug: 'A' });
     } catch (err) {
       captured = err as CycleError;
     }
@@ -96,36 +96,36 @@ describe('T-205 assertNoCycle', () => {
   });
 
   it('detects a cycle expressed via CHILD_OF too', () => {
-    const a = makeReq({ id: 'A', links: [link('PARENT_OF', 'B')] });
-    const b = makeReq({ id: 'B', links: [] });
+    const a = makeReq({ slug: 'A', links: [link('PARENT_OF', 'B')] });
+    const b = makeReq({ slug: 'B', links: [] });
     // Adding A CHILD_OF B closes A->B->A.
-    expect(() => assertNoCycle([a, b], { sourceId: 'A', type: 'CHILD_OF', targetId: 'B' })).toThrow(
-      CycleError,
-    );
+    expect(() =>
+      assertNoCycle([a, b], { sourceSlug: 'A', type: 'CHILD_OF', targetSlug: 'B' }),
+    ).toThrow(CycleError);
   });
 
   it('allows an acyclic hierarchy addition', () => {
-    const a = makeReq({ id: 'A', links: [link('PARENT_OF', 'B')] });
-    const b = makeReq({ id: 'B', links: [] });
-    const c = makeReq({ id: 'C', links: [] });
+    const a = makeReq({ slug: 'A', links: [link('PARENT_OF', 'B')] });
+    const b = makeReq({ slug: 'B', links: [] });
+    const c = makeReq({ slug: 'C', links: [] });
     expect(() =>
-      assertNoCycle([a, b, c], { sourceId: 'B', type: 'PARENT_OF', targetId: 'C' }),
+      assertNoCycle([a, b, c], { sourceSlug: 'B', type: 'PARENT_OF', targetSlug: 'C' }),
     ).not.toThrow();
   });
 
   it('rejects a DEPENDS_ON cycle', () => {
-    const a = makeReq({ id: 'A', links: [link('DEPENDS_ON', 'B')] });
-    const b = makeReq({ id: 'B', links: [] });
+    const a = makeReq({ slug: 'A', links: [link('DEPENDS_ON', 'B')] });
+    const b = makeReq({ slug: 'B', links: [] });
     expect(() =>
-      assertNoCycle([a, b], { sourceId: 'B', type: 'DEPENDS_ON', targetId: 'A' }),
+      assertNoCycle([a, b], { sourceSlug: 'B', type: 'DEPENDS_ON', targetSlug: 'A' }),
     ).toThrow(CycleError);
   });
 
   it('ignores RELATES_TO (symmetric, no cycle constraint)', () => {
-    const a = makeReq({ id: 'A', links: [link('RELATES_TO', 'B')] });
-    const b = makeReq({ id: 'B', links: [link('RELATES_TO', 'A')] });
+    const a = makeReq({ slug: 'A', links: [link('RELATES_TO', 'B')] });
+    const b = makeReq({ slug: 'B', links: [link('RELATES_TO', 'A')] });
     expect(() =>
-      assertNoCycle([a, b], { sourceId: 'B', type: 'RELATES_TO', targetId: 'A' }),
+      assertNoCycle([a, b], { sourceSlug: 'B', type: 'RELATES_TO', targetSlug: 'A' }),
     ).not.toThrow();
   });
 });

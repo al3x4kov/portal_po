@@ -1,5 +1,10 @@
-import { newId } from '../src/index.js';
 import type { Link, Requirement } from '../src/index.js';
+
+let counter = 0;
+const nextId = (): string => {
+  counter += 1;
+  return String(counter).padStart(4, '0');
+};
 
 let clock = 0;
 const stamp = (): string => {
@@ -10,10 +15,11 @@ const stamp = (): string => {
 /** Build a valid Requirement with sensible defaults, overridable per field. */
 export function makeReq(overrides: Partial<Requirement> = {}): Requirement {
   const ts = stamp();
+  const id = nextId();
   return {
-    id: newId(),
+    slug: `req-${id}`,
     type: 'FUNCTION',
-    name: `Requirement ${newId().slice(-6)}`,
+    name: `Requirement ${id}`,
     criticality: 'MEDIUM',
     implemented: true,
     links: [],
@@ -23,4 +29,4 @@ export function makeReq(overrides: Partial<Requirement> = {}): Requirement {
   };
 }
 
-export const link = (type: Link['type'], targetId: string): Link => ({ type, targetId });
+export const link = (type: Link['type'], targetSlug: string): Link => ({ type, targetSlug });

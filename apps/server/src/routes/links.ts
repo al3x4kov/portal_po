@@ -8,10 +8,11 @@ import { parseInput } from '../lib/parseInput.js';
 import { NotFoundError } from '../lib/errors.js';
 import type { AppDeps } from './deps.js';
 
-const linkBody = z.object({
-  sourceId: z.string().min(1),
+/** Request body for creating/removing a link (also documented in OpenAPI, E14). */
+export const linkBody = z.object({
+  sourceSlug: z.string().min(1),
   type: z.enum(LINK_TYPES),
-  targetId: z.string().min(1),
+  targetSlug: z.string().min(1),
 });
 
 /** Link create/delete routes (T-404): POST/DELETE /api/projects/:id/links. */

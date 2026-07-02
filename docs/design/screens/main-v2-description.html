@@ -1,0 +1,95 @@
+<!-- Экран: Показ длинного «Описания» (B4). Решение — боковая панель (drawer) справа. Закрывает FR-7.4 / S30. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Описание требования — v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  .crit{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:999px;display:inline-block;flex:none}
+  table.tw{border-collapse:separate;border-spacing:0;width:100%;font-size:14px}
+  .tw thead th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;
+    color:var(--color-text-3);text-align:left;padding:10px 16px;border-bottom:1px solid var(--color-border)}
+  .tw td{padding:9px 16px;border-bottom:1px solid var(--color-border)}
+  .tw tbody tr:last-child td{border-bottom:0}
+  .chev{width:15px;height:15px;flex:none;color:var(--color-text-3)}
+  .desc-cell{color:var(--color-text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0}
+  .desc-btn{display:inline-flex;align-items:center;gap:6px;width:100%;text-align:left;cursor:pointer;background:none;border:0;color:inherit}
+  .desc-btn:hover{color:var(--color-primary)}
+  .row-open{background:var(--color-primary-soft)}
+  /* Drawer */
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:420px;max-width:92vw;z-index:40;
+    background:var(--color-surface);border-left:1px solid var(--color-border);box-shadow:var(--shadow-lg);
+    display:flex;flex-direction:column}
+  .scrim{position:fixed;inset:0;background:rgba(15,23,42,.35);z-index:30}
+  .prose p{margin:0 0 12px} .prose ul{margin:0 0 12px;padding-left:18px;list-style:disc}
+  .prose li{margin:4px 0} .prose code{font-family:var(--font-mono);font-size:12px;background:var(--color-surface-2);padding:1px 5px;border-radius:4px}
+  .prose h4{font-weight:700;margin:16px 0 6px}
+</style>
+</head>
+<body class="min-h-screen">
+<!-- Шапка-подпись макета -->
+<div class="max-w-6xl mx-auto px-4 pt-6">
+  <div class="flex items-center justify-between mb-1">
+    <h1 class="text-xl font-bold">B4 · Описание — боковая панель (drawer)</h1>
+    <a href="index.html" class="btn btn-secondary text-sm">← В галерею</a>
+  </div>
+  <p class="t2 text-sm mb-5">В таблице описание — одна строка с усечением (…). Клик по ячейке или её тексту открывает <b>правую панель</b> с полным описанием (Markdown, до 5000 символов), не теряя контекст таблицы. Панель прокручивается и содержит быстрые действия.</p>
+</div>
+
+<!-- Таблица (под drawer) -->
+<div class="max-w-6xl mx-auto px-4 pb-24">
+  <section class="card overflow-hidden">
+    <div class="flex items-center justify-between px-4 py-3" style="background:var(--color-surface-2);border-bottom:1px solid var(--color-border)">
+      <h2 class="font-bold">Функциональные требования</h2>
+    </div>
+    <table class="tw">
+      <thead><tr><th style="width:32%">Требование</th><th style="width:130px">Критичность</th><th style="width:130px">Реализация</th><th>Описание</th></tr></thead>
+      <tbody>
+        <tr><td><span class="flex items-center gap-2 font-medium"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Платежи</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td><td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">Приём и обработка входящих платежей: авторизация, списание, идемпотентность.</span></button></td></tr>
+        <!-- открытая строка -->
+        <tr class="row-open"><td><span class="flex items-center gap-2" style="padding-left:24px"><span class="dot" style="background:var(--color-text-3)"></span>Сохранение карты (токенизация)</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td><td><button class="desc-btn" data-testid="desc-expand" style="color:var(--color-primary)"><span class="desc-cell">PCI-DSS токенизация карточных данных, хранение токена вместо PAN…</span><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="flex:none"><path d="M15 3h6v6M10 14 21 3M21 14v7H3V3h7"/></svg></button></td></tr>
+        <tr><td><span class="flex items-center gap-2" style="padding-left:24px"><span class="dot" style="background:var(--color-text-3)"></span>Возвраты (refund)</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q4 2026</span></td><td><button class="desc-btn" data-testid="desc-expand"><span class="desc-cell">Полный и частичный возврат средств, сверка с исходной транзакцией.</span></button></td></tr>
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<!-- Scrim + Drawer (открытое состояние) -->
+<div class="scrim"></div>
+<aside class="drawer" data-testid="desc-panel" role="dialog" aria-label="Описание требования">
+  <div class="flex items-start justify-between px-5 py-4" style="border-bottom:1px solid var(--color-border)">
+    <div class="min-w-0">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="badge" style="background:var(--color-info-bg);color:var(--color-info)">ФТ</span>
+        <span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span>
+        <span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span>
+      </div>
+      <h3 class="font-bold text-base truncate">Сохранение карты (токенизация)</h3>
+      <p class="text-xs t3 mono truncate">Платежи / Оплата картой</p>
+    </div>
+    <button class="btn btn-ghost shrink-0" data-testid="desc-panel-close" aria-label="Закрыть"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </div>
+
+  <div class="flex-1 overflow-y-auto px-5 py-4 prose text-sm t2">
+    <p>PCI-DSS токенизация карточных данных: вместо реального номера карты (PAN) в системе хранится <code>token</code>, полученный от токен-провайдера. Это снижает область соответствия PCI-DSS.</p>
+    <h4>Правила</h4>
+    <ul>
+      <li>PAN не сохраняется ни в БД, ни в логах.</li>
+      <li>Токен привязан к покупателю и мерчанту.</li>
+      <li>Поворот ключей шифрования — раз в 90 дней.</li>
+    </ul>
+    <h4>Сценарии</h4>
+    <p>WHEN покупатель отмечает «запомнить карту», THEN система запрашивает токен и сохраняет его вместо PAN. WHEN токен-провайдер недоступен, THEN оплата проходит без сохранения карты (graceful degradation).</p>
+    <p>Ограничение по хранению — до 5000 символов, поддерживается Markdown-разметка.</p>
+  </div>
+
+  <div class="flex justify-between gap-2 px-5 py-3" style="border-top:1px solid var(--color-border)">
+    <a href="main-delete.html" class="btn btn-ghost text-sm" style="color:var(--color-danger)">Удалить</a>
+    <a href="main-v2-modal.html" class="btn btn-primary text-sm">Редактировать</a>
+  </div>
+</aside>
+</body>
+</html>

@@ -23,6 +23,8 @@ export interface RequirementListResult {
 /** GET /api/projects/:id/requirements/check-name response. */
 export interface CheckNameResult {
   available: boolean;
+  /** Slug a new requirement with this name would receive (deduped within its type). */
+  slug: string;
 }
 
 /** Body for POST /api/projects/:id/requirements. */
@@ -41,9 +43,9 @@ export type RequirementUpdateInput = Omit<RequirementCreateInput, 'type'>;
 
 /** Body for POST/DELETE /api/projects/:id/links. */
 export interface LinkInput {
-  sourceId: string;
+  sourceSlug: string;
   type: LinkType;
-  targetId: string;
+  targetSlug: string;
 }
 
 /** Unified server error envelope: { code, message, details }. */

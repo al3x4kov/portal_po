@@ -1,6 +1,7 @@
 // Domain
 export * from './domain/types.js';
 export * from './domain/ids.js';
+export * from './domain/slug.js';
 export * from './domain/errors.js';
 
 // Validation
@@ -9,6 +10,7 @@ export * from './validation/rules.js';
 
 // Markdown serialization
 export * from './md/markdown.js';
+export * from './md/manifest.js';
 
 // Graph / integrity
 export * from './graph/uniqueness.js';

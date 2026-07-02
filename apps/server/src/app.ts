@@ -4,6 +4,7 @@ import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { CycleError, DomainError, HasChildrenError } from '@po/core';
 import { httpStatusForCode } from './lib/errors.js';
+import { registerOpenApi } from './openapi/plugin.js';
 import { projectRoutes } from './routes/projects.js';
 import { requirementRoutes } from './routes/requirements.js';
 import { linkRoutes } from './routes/links.js';
@@ -67,6 +68,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
+
+  // OpenAPI docs: GET /openapi.json (spec) + GET /docs (Swagger UI) — E14.
+  await registerOpenApi(app);
 
   await app.register(projectRoutes, deps);
   await app.register(requirementRoutes, deps);

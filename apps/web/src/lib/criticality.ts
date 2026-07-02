@@ -6,6 +6,7 @@ export const CRITICALITY_LABEL: Record<Criticality, string> = {
   MEDIUM: 'Medium',
   HIGH: 'High',
   CRITICAL: 'Critical',
+  BLOCKER: 'Blocker',
 };
 
 /** CSS custom property holding the dot color for each criticality level. */
@@ -14,4 +15,5 @@ export const CRITICALITY_COLOR_VAR: Record<Criticality, string> = {
   MEDIUM: 'var(--crit-medium)',
   HIGH: 'var(--crit-high)',
   CRITICAL: 'var(--crit-critical)',
+  BLOCKER: 'var(--crit-blocker)',
 };

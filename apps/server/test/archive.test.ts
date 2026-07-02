@@ -41,20 +41,20 @@ describe('T-501/T-502 import-export', () => {
   });
 
   /** Build a project "Source" with two linked requirements. */
-  async function seedSource(): Promise<{ ids: string[] }> {
+  async function seedSource(): Promise<{ slugs: string[] }> {
     await svc.create('Source');
     const repo = new FsRequirementRepo(root, 'Source');
     const reqs = new RequirementService(repo, fixedNow);
     const links = new LinkService(repo, fixedNow);
     const a = await reqs.create(reqInput({ name: 'Parent' }));
     const b = await reqs.create(reqInput({ name: 'Child' }));
-    await links.create({ sourceId: a.id, type: 'PARENT_OF', targetId: b.id });
-    return { ids: [a.id, b.id].sort() };
+    await links.create({ sourceSlug: a.slug, type: 'PARENT_OF', targetSlug: b.slug });
+    return { slugs: [a.slug, b.slug].sort() };
   }
 
   for (const format of ['zip', 'targz'] as ArchiveFormat[]) {
     it(`round-trips export(${format}) -> import preserving requirements and links`, async () => {
-      const { ids } = await seedSource();
+      const { slugs } = await seedSource();
       const exported = await svc.export('Source', format);
       const file = await bodyToFile(exported, scratch);
 
@@ -62,11 +62,11 @@ describe('T-501/T-502 import-export', () => {
       const repo = new FsRequirementRepo(root, imported.id);
       const { requirements, broken } = await repo.loadAll();
       expect(broken).toEqual([]);
-      expect(requirements.map((r) => r.id).sort()).toEqual(ids);
+      expect(requirements.map((r) => r.slug).sort()).toEqual(slugs);
       const parent = requirements.find((r) => r.name === 'Parent')!;
       expect(parent.links).toContainEqual({
         type: 'PARENT_OF',
-        targetId: requirements.find((r) => r.name === 'Child')!.id,
+        targetSlug: requirements.find((r) => r.name === 'Child')!.slug,
       });
     });
   }
@@ -81,11 +81,7 @@ describe('T-501/T-502 import-export', () => {
 
   it('rolls back a broken archive: no target dir, temp cleaned (FR-3.4)', async () => {
     const zip = new AdmZip();
-    zip.addFile(
-      'project.json',
-      Buffer.from(JSON.stringify({ name: 'X', schemaVersion: 1, createdAt: 'now' })),
-    );
-    zip.addFile('requirements/bad.md', Buffer.from('---\nbroken: true\n---\noops'));
+    zip.addFile('openspec/specs/functions/bad.md', Buffer.from('no header, this is broken'));
     const file = path.join(scratch, 'broken.zip');
     await fs.writeFile(file, zip.toBuffer());
 

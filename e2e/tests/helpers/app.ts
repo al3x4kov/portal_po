@@ -43,36 +43,62 @@ export async function openExistingProject(page: Page, name: string): Promise<voi
   await expect(page.getByTestId('main-page')).toBeVisible();
 }
 
-/** Locate a requirement row by its (type-unique) name. */
+/** Locate a requirement row by its (type-unique) name (new UI: data-req-name on <tr>). */
 export function rowByName(page: Page, name: string): Locator {
   return page.locator(`tr[data-req-name="${name}"]`);
 }
 
-/** Add a functional or non-functional requirement via the modal (FR-6). */
+/**
+ * Add a functional or non-functional requirement via the modal (FR-6).
+ * New UI: name input testid `req-name`, criticality is a radiogroup
+ * (`req-criticality-<low..critical>`), submit is `req-submit`, and conditional
+ * target fields live under `req-target`.
+ */
 export async function addRequirement(page: Page, opts: RequirementOptions): Promise<void> {
   const implemented = opts.implemented ?? true;
   await page.getByTestId(`add-${opts.kind}`).click();
   const modal = page.getByTestId('requirement-modal');
   await expect(modal).toBeVisible();
 
-  await page.getByTestId('req-name-input').fill(opts.name);
-  if (opts.criticality) await page.getByTestId('req-criticality').selectOption(opts.criticality);
+  await page.getByTestId('req-name').fill(opts.name);
+  if (opts.criticality) {
+    await page.getByTestId(`req-criticality-${opts.criticality.toLowerCase()}`).click();
+  }
 
   if (implemented) {
     await page.getByTestId('req-implemented-yes').click();
-    await expect(page.getByTestId('req-target-fields')).toBeHidden();
+    await expect(page.getByTestId('req-target')).toBeHidden();
   } else {
     await page.getByTestId('req-implemented-no').click();
-    await expect(page.getByTestId('req-target-fields')).toBeVisible();
+    await expect(page.getByTestId('req-target')).toBeVisible();
     await page.getByTestId('req-quarter').selectOption(opts.quarter ?? 'Q1');
     await page.getByTestId('req-year').fill(String(opts.year ?? 2027));
   }
 
   if (opts.description) await page.getByTestId('req-description').fill(opts.description);
 
-  await page.getByTestId('req-apply').click();
+  await page.getByTestId('req-submit').click();
   await expect(modal).toBeHidden();
   await expect(rowByName(page, opts.name)).toBeVisible();
+}
+
+/**
+ * Resolve the stable `slug` of a requirement from its row's `tree-row-<slug>`
+ * testid. Several E15 testids are keyed by slug (`req-link-<slug>`,
+ * `req-link-del-<slug>`, `rel-chip-<src>-<tgt>`), so tests need the slug.
+ */
+export async function slugOf(page: Page, name: string): Promise<string> {
+  const testid = await rowByName(page, name).getAttribute('data-testid');
+  if (!testid) throw new Error(`No row found for requirement "${name}"`);
+  return testid.replace(/^tree-row-/, '');
+}
+
+/** Open the edit modal for a requirement by clicking its name button. */
+export async function openEdit(page: Page, name: string): Promise<Locator> {
+  await rowByName(page, name).locator('[data-testid^="req-name-"]').click();
+  const modal = page.getByTestId('requirement-modal');
+  await expect(modal).toBeVisible();
+  return modal;
 }
 
 /** Edit an existing requirement's name, going through the save confirmation. */
@@ -81,11 +107,9 @@ export async function renameRequirement(
   oldName: string,
   newName: string,
 ): Promise<void> {
-  await rowByName(page, oldName).locator('[data-testid^="req-name-"]').click();
-  const modal = page.getByTestId('requirement-modal');
-  await expect(modal).toBeVisible();
-  await page.getByTestId('req-name-input').fill(newName);
-  await page.getByTestId('req-apply').click();
+  const modal = await openEdit(page, oldName);
+  await page.getByTestId('req-name').fill(newName);
+  await page.getByTestId('req-submit').click();
   // Editing requires explicit confirmation (FR-6.5).
   await expect(page.getByTestId('req-save-confirm')).toBeVisible();
   await page.getByTestId('req-save-confirm-confirm').click();
@@ -121,12 +145,22 @@ export async function linkRequirements(
   await expect(modal).toBeHidden();
 }
 
-/** Expand a tree node so its children become visible. */
-export async function expandRow(page: Page, name: string): Promise<void> {
-  const toggle = rowByName(page, name).locator('[data-testid^="tree-toggle-"]');
-  await expect(toggle).toBeVisible();
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+/** Switch the tree toolbar display mode (B1). */
+export async function setTreeMode(page: Page, mode: 'expand-all' | 'collapse'): Promise<void> {
+  const testid = mode === 'expand-all' ? 'toggle-expand-all' : 'toggle-collapse';
+  const btn = page.getByTestId(testid);
+  await btn.click();
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+}
+
+/**
+ * In "Скрыть зависимости" (collapse) mode, expand a collapsed branch by clicking
+ * its "N зависимостей" chip (`expand-node`) inside the parent's row.
+ */
+export async function expandNode(page: Page, parentName: string): Promise<void> {
+  const chip = rowByName(page, parentName).getByTestId('expand-node');
+  await expect(chip).toBeVisible();
+  await chip.click();
 }
 
 /** Delete a leaf requirement through the confirmation dialog (FR-9). */
@@ -153,7 +187,7 @@ export async function expectDeleteBlocked(page: Page, name: string): Promise<voi
   await expect(rowByName(page, name)).toBeVisible();
 }
 
-/** Download an export archive and return the saved file path. */
+/** Download a .zip / .tar.gz export archive and return the saved file path. */
 export async function exportArchive(
   page: Page,
   format: 'zip' | 'targz',

@@ -37,7 +37,15 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      // Desktop viewport tall enough for the full requirement modal (with the
+      // conditional target-date block expanded, ~835px) to render its footer
+      // actions. Must live in the project `use` to override the device preset.
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 1024 } },
+    },
+  ],
   webServer: {
     command: 'npm run build && node apps/server/dist/main.js',
     url: `${BASE_URL}/healthz`,

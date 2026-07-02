@@ -7,6 +7,8 @@ interface ModalProps {
   footer?: React.ReactNode;
   widthClass?: string;
   testid?: string;
+  /** Optional pill shown before the title (e.g. requirement type). */
+  badge?: string;
 }
 
 /** Accessible modal shell: dimmed overlay, Esc to close, focus-trapped card. */
@@ -17,6 +19,7 @@ export function Modal({
   footer,
   widthClass = 'max-w-xl',
   testid = 'modal',
+  badge,
 }: ModalProps): React.ReactElement {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -37,13 +40,24 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         data-testid={testid}
-        className={`card w-full ${widthClass} p-0 shadow-lg`}
+        className={`card flex max-h-[90vh] w-full ${widthClass} flex-col p-0 shadow-lg`}
       >
         <header
-          className="flex items-center justify-between border-b px-6 py-4"
+          className="flex shrink-0 items-center justify-between border-b px-6 py-4"
           style={{ borderColor: 'var(--color-border)' }}
         >
-          <h2 className="text-lg font-bold">{title}</h2>
+          <div className="flex items-center gap-3">
+            {badge ? (
+              <span
+                className="badge"
+                style={{ background: 'var(--color-info-bg)', color: 'var(--color-info)' }}
+                data-testid={`${testid}-badge`}
+              >
+                {badge}
+              </span>
+            ) : null}
+            <h2 className="text-lg font-bold">{title}</h2>
+          </div>
           <button
             type="button"
             className="btn btn-ghost"
@@ -54,10 +68,10 @@ export function Modal({
             ✕
           </button>
         </header>
-        <div className="space-y-5 p-6">{children}</div>
+        <div className="flex-1 space-y-5 overflow-y-auto p-6">{children}</div>
         {footer ? (
           <footer
-            className="flex justify-end gap-3 border-t px-6 py-4"
+            className="flex shrink-0 justify-end gap-3 border-t px-6 py-4"
             style={{ borderColor: 'var(--color-border)' }}
           >
             {footer}

@@ -4,12 +4,19 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import AdmZip from 'adm-zip';
 import * as tar from 'tar';
-import { inverseLinkType, parse, type Requirement } from '@po/core';
+import {
+  inverseLinkType,
+  parse,
+  serializeManifest,
+  type ProjectManifest,
+  type Requirement,
+  type RequirementType,
+} from '@po/core';
 import { ensureDir } from '../lib/ensureDir.js';
 import { resolveSafe } from '../lib/pathSafe.js';
 import { sanitizeProjectName } from '../lib/projectName.js';
 import { ArchiveError, ConflictError } from '../lib/errors.js';
-import { ProjectManifest, SCHEMA_VERSION } from './types.js';
+import { SCHEMA_VERSION } from './types.js';
 
 export type ArchiveFormat = 'zip' | 'targz';
 
@@ -19,8 +26,9 @@ export interface ExportResult {
   contentType: string;
 }
 
-const MANIFEST = 'project.json';
-const REQUIREMENTS_DIR = 'requirements';
+const MANIFEST = path.join('openspec', 'project.md');
+const SPECS_DIR = path.join('openspec', 'specs');
+const FOLDER: Record<RequirementType, string> = { FUNCTION: 'functions', NFR: 'nfr' };
 const IMPORT_TMP = '.import-tmp';
 
 /** Detect archive format from the leading magic bytes. */
@@ -95,7 +103,7 @@ export class ArchiveRepo {
         /* no manifest */
       }
       try {
-        const stat = await fs.stat(path.join(dir, REQUIREMENTS_DIR));
+        const stat = await fs.stat(path.join(dir, SPECS_DIR));
         return stat.isDirectory();
       } catch {
         return false;
@@ -113,52 +121,82 @@ export class ArchiveRepo {
     return tmpDir;
   }
 
-  /** Parse + integrity-validate every requirement in the extracted content root. */
-  private async validate(contentRoot: string): Promise<void> {
-    const reqDir = path.join(contentRoot, REQUIREMENTS_DIR);
+  private async readTypeFolder(contentRoot: string, type: RequirementType): Promise<Requirement[]> {
+    const dir = path.join(contentRoot, SPECS_DIR, FOLDER[type]);
     let files: string[];
     try {
-      files = (await fs.readdir(reqDir)).filter((f) => f.endsWith('.md'));
+      files = (await fs.readdir(dir)).filter((f) => f.endsWith('.md'));
     } catch {
-      throw new ArchiveError('Archive has no requirements/ directory.');
+      return [];
     }
-
     const reqs: Requirement[] = [];
     for (const f of files) {
-      const raw = await fs.readFile(path.join(reqDir, f), 'utf8');
+      const raw = await fs.readFile(path.join(dir, f), 'utf8');
+      const slug = f.slice(0, -'.md'.length);
       try {
-        reqs.push(parse(raw));
+        reqs.push(parse(raw, { slug, type }));
       } catch (err) {
-        throw new ArchiveError(`Invalid requirement file "${f}": ${(err as Error).message}`);
+        throw new ArchiveError(
+          `Invalid requirement file "${path.join(FOLDER[type], f)}": ${(err as Error).message}`,
+        );
       }
     }
+    return reqs;
+  }
 
-    const byId = new Map(reqs.map((r) => [r.id, r]));
+  /** Parse + integrity-validate every requirement in the extracted content root. */
+  private async validate(contentRoot: string): Promise<void> {
+    const specsDir = path.join(contentRoot, SPECS_DIR);
+    try {
+      const stat = await fs.stat(specsDir);
+      if (!stat.isDirectory()) throw new Error('not a dir');
+    } catch {
+      throw new ArchiveError('Archive has no openspec/specs directory.');
+    }
+
+    const reqs = [
+      ...(await this.readTypeFolder(contentRoot, 'FUNCTION')),
+      ...(await this.readTypeFolder(contentRoot, 'NFR')),
+    ];
+
+    // Links target a slug; hierarchical links are within a single type, so index by type+slug.
+    const key = (type: RequirementType, slug: string): string => `${type}:${slug}`;
+    const bySlug = new Map<string, Requirement>();
+    for (const r of reqs) bySlug.set(key(r.type, r.slug), r);
 
     for (const req of reqs) {
       let parents = 0;
-      for (const link of req.links) {
-        if (link.targetId === req.id) {
-          throw new ArchiveError(`Requirement "${req.id}" links to itself.`);
+      for (const linkRef of req.links) {
+        if (linkRef.targetSlug === req.slug) {
+          // A self-reference within the same type is invalid.
+          const self = bySlug.get(key(req.type, linkRef.targetSlug));
+          if (self === req) {
+            throw new ArchiveError(`Requirement "${req.slug}" links to itself.`);
+          }
         }
-        const other = byId.get(link.targetId);
+        // Resolve the target: same type first (hierarchy), then any type (associations).
+        const other =
+          bySlug.get(key(req.type, linkRef.targetSlug)) ??
+          reqs.find((r) => r.slug === linkRef.targetSlug && r !== req);
         if (!other) {
           throw new ArchiveError(
-            `Dangling link: "${req.id}" references missing "${link.targetId}".`,
+            `Dangling link: "${req.slug}" references missing "${linkRef.targetSlug}".`,
           );
         }
-        const inverse = inverseLinkType(link.type);
-        const reciprocated = other.links.some((l) => l.type === inverse && l.targetId === req.id);
+        const inverse = inverseLinkType(linkRef.type);
+        const reciprocated = other.links.some(
+          (l) => l.type === inverse && l.targetSlug === req.slug,
+        );
         if (!reciprocated) {
           throw new ArchiveError(
-            `Link from "${req.id}" to "${link.targetId}" is missing its inverse on the target.`,
+            `Link from "${req.slug}" to "${linkRef.targetSlug}" is missing its inverse on the target.`,
           );
         }
-        if (link.type === 'CHILD_OF') parents += 1;
+        if (linkRef.type === 'CHILD_OF') parents += 1;
       }
       if (parents > 1) {
         throw new ArchiveError(
-          `Requirement "${req.id}" has ${parents} parents (only one allowed).`,
+          `Requirement "${req.slug}" has ${parents} parents (only one allowed).`,
         );
       }
     }
@@ -175,7 +213,8 @@ export class ArchiveRepo {
         schemaVersion: SCHEMA_VERSION,
         createdAt: new Date().toISOString(),
       };
-      await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+      await ensureDir(path.dirname(manifestPath));
+      await fs.writeFile(manifestPath, serializeManifest(manifest));
     }
   }
 

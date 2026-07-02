@@ -1,9 +1,4 @@
-/** On-disk manifest stored as `project.json` in each project directory. */
-export interface ProjectManifest {
-  name: string;
-  schemaVersion: number;
-  createdAt: string;
-}
+export { SCHEMA_VERSION, type ProjectManifest } from '@po/core';
 
 /** Project descriptor returned by the API (id === sanitized directory name). */
 export interface ProjectSummary {
@@ -13,6 +8,3 @@ export interface ProjectSummary {
   mainPath: string;
   createdAt: string;
 }
-
-/** Current manifest schema version. */
-export const SCHEMA_VERSION = 1;

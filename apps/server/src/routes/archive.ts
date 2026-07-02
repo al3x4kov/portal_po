@@ -6,18 +6,25 @@ import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ProjectService } from '../services/ProjectService.js';
+import { ExcelExportService } from '../services/ExcelExportService.js';
+import { FsRequirementRepo } from '../repositories/FsRequirementRepo.js';
+import { FsProjectRepo } from '../repositories/FsProjectRepo.js';
 import { parseInput } from '../lib/parseInput.js';
-import { ArchiveError } from '../lib/errors.js';
+import { ArchiveError, NotFoundError } from '../lib/errors.js';
 import type { ArchiveFormat } from '../repositories/ArchiveRepo.js';
 import type { AppDeps } from './deps.js';
 
-const exportQuery = z.object({
+const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/** Query for archive export; also documented in OpenAPI (E14). */
+export const exportQuery = z.object({
   format: z.enum(['zip', 'targz']).default('zip'),
 });
 
 /** Import/export routes (T-503): POST /api/projects/import, GET /api/projects/:id/export. */
 export async function archiveRoutes(app: FastifyInstance, deps: AppDeps): Promise<void> {
   const service = new ProjectService(deps.projectsRoot, deps.now);
+  const projectRepo = new FsProjectRepo(deps.projectsRoot);
 
   app.post('/api/projects/import', async (req, reply) => {
     let uploadPath: string | undefined;
@@ -52,5 +59,20 @@ export async function archiveRoutes(app: FastifyInstance, deps: AppDeps): Promis
     reply.header('content-type', result.contentType);
     reply.header('content-disposition', `attachment; filename="${result.filename}"`);
     return reply.send(result.body);
+  });
+
+  // Excel export (T-902): export-only workbook of requirements + links.
+  app.get('/api/projects/:id/export.xlsx', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    if (!(await projectRepo.exists(id))) {
+      throw new NotFoundError(`Project not found: "${id}".`);
+    }
+    const repo = new FsRequirementRepo(deps.projectsRoot, id);
+    const { requirements } = await repo.loadAll();
+    const buffer = await ExcelExportService.buildWorkbook(requirements);
+
+    reply.header('content-type', XLSX_CONTENT_TYPE);
+    reply.header('content-disposition', `attachment; filename="${id}.xlsx"`);
+    return reply.send(buffer);
   });
 }

@@ -1,0 +1,131 @@
+<!-- Экран: T2 · Блок «Связи» в модалке редактирования ФТ/НФТ. Список текущих связей (человекочитаемо) + пустое состояние «Связей нет». -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>T2 · Связи в карточке — v3</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  .dot{width:8px;height:8px;border-radius:999px;display:inline-block;flex:none}
+  /* блок связей */
+  .link-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--color-border);
+    border-radius:var(--radius-sm);background:var(--color-surface)}
+  .link-row + .link-row{margin-top:8px}
+  .link-ico{width:30px;height:30px;border-radius:var(--radius-sm);display:grid;place-items:center;flex:none}
+  .link-type{font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:700;color:var(--color-text-3)}
+  .link-del{opacity:0;transition:opacity .12s}
+  .link-row:hover .link-del{opacity:1}
+  @media (max-width:768px){.link-del{opacity:1}}
+  .empty{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;
+    padding:22px;border:1px dashed var(--color-border);border-radius:var(--radius);color:var(--color-text-3)}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-3xl mx-auto px-4 py-8">
+  <div class="flex items-center justify-between mb-1">
+    <h1 class="text-xl font-bold">T2 · Связи в карточке требования</h1>
+    <a href="../index.html" class="btn btn-secondary text-sm">← В галерею</a>
+  </div>
+  <p class="t2 text-sm mb-6">В модалке редактирования ФТ/НФТ добавлен блок <b>«Связи»</b>: список текущих связей требования, каждая — человекочитаемой формулировкой (тип + название цели). Данные уже есть (<span class="mono">requirement.links</span> + карта slug→имя). Ниже — вариант с пустым состоянием.</p>
+
+  <!-- Модалка (показана инлайн, как карточка) с блоком Связи -->
+  <div class="card p-0 mb-8" style="box-shadow:var(--shadow-lg)">
+    <div class="flex items-center justify-between px-6 py-4" style="border-bottom:1px solid var(--color-border)">
+      <div class="flex items-center gap-3">
+        <span class="badge" style="background:var(--color-info-bg);color:var(--color-info)">Функциональное</span>
+        <h2 class="text-lg font-bold">Редактирование: «Оплата картой»</h2>
+      </div>
+      <button class="btn btn-ghost" aria-label="Закрыть">✕</button>
+    </div>
+
+    <div class="p-6 space-y-6">
+      <!-- (сокращённо — идентификация) -->
+      <div>
+        <label class="label" for="req-name">Название <span style="color:var(--color-danger)">*</span></label>
+        <input id="req-name" data-testid="req-name" class="input" value="Оплата картой">
+      </div>
+
+      <hr style="border-color:var(--color-border)">
+
+      <!-- НОВЫЙ блок: Связи -->
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <label class="label" style="margin:0">Связи <span class="t3 font-normal">(3)</span></label>
+          <a href="link-modal.html" class="btn btn-secondary text-xs py-1" data-testid="req-link-add">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Добавить связь
+          </a>
+        </div>
+
+        <div data-testid="req-links">
+          <!-- BLOCKED_BY -->
+          <div class="link-row" data-testid="req-link-pci-dss">
+            <span class="link-ico" style="background:var(--color-danger-bg);color:var(--color-danger)">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm"><span class="t2">блокируется</span> <b>«Соответствие PCI-DSS»</b></p>
+              <p class="link-type">BLOCKED_BY · НФТ</p>
+            </div>
+            <button class="btn btn-ghost link-del" style="color:var(--color-danger);padding:6px" data-testid="req-link-del-pci-dss" aria-label="Удалить связь">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>
+            </button>
+          </div>
+
+          <!-- RELATES_TO -->
+          <div class="link-row" data-testid="req-link-3d-secure">
+            <span class="link-ico" style="background:var(--color-info-bg);color:var(--color-info)">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm"><span class="t2">связана с</span> <b>«3-D Secure 2.0»</b></p>
+              <p class="link-type">RELATES_TO · ФТ</p>
+            </div>
+            <button class="btn btn-ghost link-del" style="color:var(--color-danger);padding:6px" data-testid="req-link-del-3d-secure" aria-label="Удалить связь">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>
+            </button>
+          </div>
+
+          <!-- CHILD_OF -->
+          <div class="link-row" data-testid="req-link-platezhi">
+            <span class="link-ico" style="background:var(--color-surface-2);color:var(--color-text-2)">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-5"/></svg>
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm"><span class="t2">является дочерней для</span> <b>«Платежи»</b></p>
+              <p class="link-type">CHILD_OF · ФТ</p>
+            </div>
+            <button class="btn btn-ghost link-del" style="color:var(--color-danger);padding:6px" data-testid="req-link-del-platezhi" aria-label="Удалить связь">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex justify-end gap-3 px-6 py-4" style="border-top:1px solid var(--color-border)">
+      <button class="btn btn-secondary">Отменить</button>
+      <button class="btn btn-primary">Сохранить</button>
+    </div>
+  </div>
+
+  <!-- Пустое состояние -->
+  <h3 class="font-semibold mb-2 text-sm t2">Пустое состояние (у требования нет связей)</h3>
+  <div class="card p-6">
+    <div class="flex items-center justify-between mb-3">
+      <label class="label" style="margin:0">Связи <span class="t3 font-normal">(0)</span></label>
+      <a href="link-modal.html" class="btn btn-secondary text-xs py-1" data-testid="req-link-add">
+        <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        Добавить связь
+      </a>
+    </div>
+    <div class="empty" data-testid="req-links-empty">
+      <svg width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+      <p class="text-sm font-medium" style="color:var(--color-text-2)">Связей нет</p>
+      <p class="text-xs">Нажмите «Добавить связь», чтобы связать это требование с другим.</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

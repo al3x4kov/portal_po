@@ -6,9 +6,9 @@ export interface TreeNode {
   depth: number;
 }
 
-/** Parent id of a requirement, derived from its CHILD_OF link (FR-7). */
-export function parentIdOf(req: Requirement): string | undefined {
-  return req.links.find((l) => l.type === 'CHILD_OF')?.targetId;
+/** Parent slug of a requirement, derived from its CHILD_OF link (FR-7). */
+export function parentSlugOf(req: Requirement): string | undefined {
+  return req.links.find((l) => l.type === 'CHILD_OF')?.targetSlug;
 }
 
 /** Number of direct children a requirement has (PARENT_OF links). */
@@ -21,16 +21,16 @@ export function childCountOf(req: Requirement): number {
  * Roots are requirements with no (in-set) parent. Cycle-safe via a visited set.
  */
 export function buildForest(requirements: Requirement[]): TreeNode[] {
-  const byId = new Map(requirements.map((r) => [r.id, r]));
+  const bySlug = new Map(requirements.map((r) => [r.slug, r]));
   const childrenOf = new Map<string, Requirement[]>();
   const roots: Requirement[] = [];
 
   for (const req of requirements) {
-    const parentId = parentIdOf(req);
-    if (parentId && byId.has(parentId)) {
-      const list = childrenOf.get(parentId) ?? [];
+    const parentSlug = parentSlugOf(req);
+    if (parentSlug && bySlug.has(parentSlug)) {
+      const list = childrenOf.get(parentSlug) ?? [];
       list.push(req);
-      childrenOf.set(parentId, list);
+      childrenOf.set(parentSlug, list);
     } else {
       roots.push(req);
     }
@@ -39,9 +39,9 @@ export function buildForest(requirements: Requirement[]): TreeNode[] {
   const byName = (a: Requirement, b: Requirement): number => a.name.localeCompare(b.name, 'ru');
 
   const build = (req: Requirement, depth: number, seen: Set<string>): TreeNode => {
-    seen.add(req.id);
-    const kids = (childrenOf.get(req.id) ?? [])
-      .filter((c) => !seen.has(c.id))
+    seen.add(req.slug);
+    const kids = (childrenOf.get(req.slug) ?? [])
+      .filter((c) => !seen.has(c.slug))
       .sort(byName)
       .map((c) => build(c, depth + 1, seen));
     return { requirement: req, children: kids, depth };
@@ -50,12 +50,30 @@ export function buildForest(requirements: Requirement[]): TreeNode[] {
   return roots.sort(byName).map((r) => build(r, 0, new Set()));
 }
 
-/** Flatten a forest into rows, honoring the set of expanded node ids. */
+/**
+ * Ancestor names (root → parent) of a requirement, following CHILD_OF links.
+ * Used for the description drawer breadcrumb. Cycle-safe.
+ */
+export function ancestorNamesOf(req: Requirement, requirements: Requirement[]): string[] {
+  const bySlug = new Map(requirements.map((r) => [r.slug, r]));
+  const names: string[] = [];
+  const seen = new Set<string>([req.slug]);
+  let parentSlug = parentSlugOf(req);
+  while (parentSlug && bySlug.has(parentSlug) && !seen.has(parentSlug)) {
+    seen.add(parentSlug);
+    const parent = bySlug.get(parentSlug) as Requirement;
+    names.unshift(parent.name);
+    parentSlug = parentSlugOf(parent);
+  }
+  return names;
+}
+
+/** Flatten a forest into rows, honoring the set of expanded node slugs. */
 export function flattenVisible(forest: TreeNode[], expanded: ReadonlySet<string>): TreeNode[] {
   const out: TreeNode[] = [];
   const walk = (node: TreeNode): void => {
     out.push(node);
-    if (node.children.length > 0 && expanded.has(node.requirement.id)) {
+    if (node.children.length > 0 && expanded.has(node.requirement.slug)) {
       node.children.forEach(walk);
     }
   };

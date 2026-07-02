@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { ServicesSection } from '../components/ServicesSection';
 
 interface ActionCard {
   to: string;
@@ -76,6 +77,10 @@ export function Start(): React.ReactElement {
               </span>
             </Link>
           ))}
+        </div>
+
+        <div className="mt-4 text-left">
+          <ServicesSection />
         </div>
       </main>
     </div>

@@ -1,11 +1,16 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parseManifest, SCHEMA_VERSION } from '@po/core';
 import { FsProjectRepo } from '../src/repositories/FsProjectRepo.js';
 import { ConflictError, NotFoundError } from '../src/lib/errors.js';
 import { cleanup, fixedNow, makeTmpRoot } from './helpers.js';
 
-describe('T-303 FsProjectRepo / ProjectService', () => {
+const MANIFEST = path.join('openspec', 'project.md');
+const FUNCTIONS = path.join('openspec', 'specs', 'functions');
+const NFR = path.join('openspec', 'specs', 'nfr');
+
+describe('T-804 FsProjectRepo (OpenSpec layout)', () => {
   let root: string;
   let repo: FsProjectRepo;
 
@@ -22,9 +27,14 @@ describe('T-303 FsProjectRepo / ProjectService', () => {
     expect(p.id).toBe('My Project');
     expect(p.name).toBe('My Project');
     expect(p.mainPath).toBe(path.join(root, 'My Project'));
-    const manifest = JSON.parse(await fs.readFile(path.join(p.mainPath, 'project.json'), 'utf8'));
-    expect(manifest).toMatchObject({ name: 'My Project', schemaVersion: 1, createdAt: fixedNow() });
-    expect((await fs.stat(path.join(p.mainPath, 'requirements'))).isDirectory()).toBe(true);
+    const manifest = parseManifest(await fs.readFile(path.join(p.mainPath, MANIFEST), 'utf8'));
+    expect(manifest).toMatchObject({
+      name: 'My Project',
+      schemaVersion: SCHEMA_VERSION,
+      createdAt: fixedNow(),
+    });
+    expect((await fs.stat(path.join(p.mainPath, FUNCTIONS))).isDirectory()).toBe(true);
+    expect((await fs.stat(path.join(p.mainPath, NFR))).isDirectory()).toBe(true);
   });
 
   it('recreates Projects/ if it was deleted (FR-2.3)', async () => {

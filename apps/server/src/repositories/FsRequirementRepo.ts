@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { parse, serialize, type Requirement } from '@po/core';
+import { parse, serialize, type Requirement, type RequirementType } from '@po/core';
 import { atomicWrite } from '../lib/atomicWrite.js';
 import { ensureDir } from '../lib/ensureDir.js';
 import { resolveSafe } from '../lib/pathSafe.js';
@@ -18,57 +18,76 @@ export interface LoadResult {
   broken: BrokenRequirement[];
 }
 
+/** Folder name (under openspec/specs) that holds requirements of a given type. */
+const FOLDER: Record<RequirementType, string> = {
+  FUNCTION: 'functions',
+  NFR: 'nfr',
+};
+
+const SPECS_DIR = path.join('openspec', 'specs');
+
 /**
- * Filesystem repository for requirement `.md` files of a single project
- * (`<project>/requirements/<id>.md`). Reads tolerate corrupt files by flagging
- * them; writes go through atomicWrite + core serialize.
+ * Filesystem repository for the OpenSpec requirement files of a single project
+ * (`openspec/specs/{functions|nfr}/<slug>.md`, ADR-001). The type is derived
+ * from the folder and the slug from the file name. Reads tolerate corrupt files
+ * by flagging them; writes go through atomicWrite + core serialize.
  */
 export class FsRequirementRepo {
-  private readonly reqDir: string;
+  private readonly specsDir: string;
 
   constructor(projectsRoot: string, projectId: string) {
-    this.reqDir = resolveSafe(projectsRoot, projectId, 'requirements');
+    this.specsDir = resolveSafe(projectsRoot, projectId, SPECS_DIR);
   }
 
-  private fileOf(id: string): string {
-    // Guard against ids containing path separators.
-    return resolveSafe(this.reqDir, `${id}.md`);
+  private dirOf(type: RequirementType): string {
+    return resolveSafe(this.specsDir, FOLDER[type]);
   }
 
-  /** Read and parse all requirement files; corrupt files are reported, never thrown (§2.5, FR-6.4). */
+  private fileOf(type: RequirementType, slug: string): string {
+    // Guard against slugs containing path separators / traversal (S21).
+    return resolveSafe(this.dirOf(type), `${slug}.md`);
+  }
+
+  /** Read + parse every requirement in both type folders; corrupt files are reported (§2.5). */
   async loadAll(): Promise<LoadResult> {
-    await ensureDir(this.reqDir);
-    const entries = await fs.readdir(this.reqDir, { withFileTypes: true });
     const requirements: Requirement[] = [];
     const broken: BrokenRequirement[] = [];
 
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
-      const full = path.join(this.reqDir, entry.name);
-      try {
-        const raw = await fs.readFile(full, 'utf8');
-        requirements.push(parse(raw));
-      } catch (err) {
-        broken.push({ file: entry.name, error: (err as Error).message });
+    for (const type of ['FUNCTION', 'NFR'] as RequirementType[]) {
+      const dir = this.dirOf(type);
+      await ensureDir(dir);
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+        const slug = entry.name.slice(0, -'.md'.length);
+        const full = path.join(dir, entry.name);
+        try {
+          const raw = await fs.readFile(full, 'utf8');
+          requirements.push(parse(raw, { slug, type }));
+        } catch (err) {
+          broken.push({ file: path.join(FOLDER[type], entry.name), error: (err as Error).message });
+        }
       }
     }
-    requirements.sort((a, b) => a.id.localeCompare(b.id));
+
+    requirements.sort((a, b) =>
+      a.type === b.type ? a.slug.localeCompare(b.slug) : a.type.localeCompare(b.type),
+    );
     return { requirements, broken };
   }
 
   /** Create or overwrite a single requirement file atomically. */
   async write(req: Requirement): Promise<void> {
-    await ensureDir(this.reqDir);
-    await atomicWrite(this.fileOf(req.id), serialize(req));
+    await ensureDir(this.dirOf(req.type));
+    await atomicWrite(this.fileOf(req.type, req.slug), serialize(req));
   }
 
-  /** Delete a requirement file. */
-  async delete(id: string): Promise<void> {
-    const file = this.fileOf(id);
+  /** Delete a requirement file (identified by type + slug). */
+  async delete(type: RequirementType, slug: string): Promise<void> {
     try {
-      await fs.rm(file);
+      await fs.rm(this.fileOf(type, slug));
     } catch {
-      throw new NotFoundError(`Requirement file not found: "${id}".`);
+      throw new NotFoundError(`Requirement file not found: "${slug}" (${type}).`);
     }
   }
 }

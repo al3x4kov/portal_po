@@ -1,0 +1,125 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Route, Routes } from 'react-router-dom';
+import { Main } from './Main';
+import { renderWithProviders } from '../test/utils';
+import { useUiStore } from '../store/ui';
+import { makeReq } from '../test/fixtures';
+
+const getProject = vi.fn();
+const listRequirements = vi.fn();
+
+vi.mock('../api/endpoints', () => ({
+  projectsApi: {
+    get: (...a: unknown[]) => getProject(...a),
+    export: vi.fn(),
+  },
+  requirementsApi: {
+    list: (...a: unknown[]) => listRequirements(...a),
+    checkName: vi.fn().mockResolvedValue({ available: true, slug: 'x' }),
+    create: vi.fn(),
+    update: vi.fn(),
+    remove: vi.fn(),
+  },
+  linksApi: { create: vi.fn(), remove: vi.fn() },
+}));
+
+const requirements = [
+  makeReq({
+    slug: 'pay',
+    name: 'Платежи',
+    criticality: 'CRITICAL',
+    description: 'Приём и обработка входящих платежей.',
+    links: [{ type: 'PARENT_OF', targetSlug: 'token' }],
+  }),
+  makeReq({
+    slug: 'token',
+    name: 'Сохранение карты токенизация',
+    criticality: 'HIGH',
+    description: 'PCI-DSS токенизация: хранение токена вместо PAN. ' + 'Длинный текст. '.repeat(30),
+    links: [{ type: 'CHILD_OF', targetSlug: 'pay' }],
+  }),
+  makeReq({ slug: 'sla', type: 'NFR', name: 'Доступность 99.95%', criticality: 'HIGH' }),
+];
+
+function renderMain(): void {
+  renderWithProviders(
+    <Routes>
+      <Route path="/p/:id" element={<Main />} />
+    </Routes>,
+    { route: '/p/proj-1' },
+  );
+}
+
+describe('Main page (E11 integration)', () => {
+  beforeEach(() => {
+    getProject.mockReset();
+    listRequirements.mockReset();
+    getProject.mockResolvedValue({
+      id: 'proj-1',
+      name: 'payments',
+      mainPath: '/Projects/payments',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    listRequirements.mockResolvedValue({ requirements, broken: [] });
+    useUiStore.setState({
+      treeMode: 'expand-all',
+      search: '',
+      criticalityFilter: new Set(),
+      expanded: new Set(),
+      modal: null,
+    });
+  });
+
+  it('offers an Excel export item pointing at the .xlsx endpoint (D7)', async () => {
+    renderMain();
+    const xlsx = await screen.findByTestId('export-xlsx');
+    expect(xlsx).toHaveAttribute('href', '/api/projects/proj-1/export.xlsx');
+    expect(xlsx).toHaveAttribute('download');
+  });
+
+  it('renders both requirement sections after loading', async () => {
+    renderMain();
+    await screen.findByTestId('section-function');
+    expect(screen.getByTestId('tree-row-pay')).toBeInTheDocument();
+    expect(screen.getByTestId('tree-row-token')).toBeInTheDocument();
+    expect(screen.getByTestId('tree-row-sla')).toBeInTheDocument();
+  });
+
+  it('search keeps a deep match with its ancestor context (T-1103)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await screen.findByTestId('section-function');
+    await user.type(screen.getByTestId('search-input'), 'токенизация');
+    await waitFor(() => expect(screen.getByTestId('search-count')).toBeInTheDocument());
+    expect(screen.getByTestId('tree-row-token')).toBeInTheDocument();
+    // Ancestor kept as context.
+    expect(screen.getByTestId('tree-row-pay')).toHaveAttribute('data-row-kind', 'context');
+    // Unrelated NFR filtered out.
+    expect(screen.queryByTestId('tree-row-sla')).not.toBeInTheDocument();
+  });
+
+  it('shows the empty state when nothing matches (T-1103, S29)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await screen.findByTestId('section-function');
+    await user.type(screen.getByTestId('search-input'), 'блокчейн');
+    expect(await screen.findByTestId('search-empty')).toBeInTheDocument();
+    expect(screen.queryByTestId('section-function')).not.toBeInTheDocument();
+  });
+
+  it('opens the description drawer on demand and closes it (T-1104)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await screen.findByTestId('tree-row-token');
+    const tokenRow = screen.getByTestId('tree-row-token');
+    const descBtn = tokenRow.querySelector('[data-testid="desc-expand"]') as HTMLElement;
+    await user.click(descBtn);
+    const panel = await screen.findByTestId('desc-panel');
+    expect(panel).toHaveTextContent('PCI-DSS токенизация');
+    expect(screen.getByTestId('desc-panel-path')).toHaveTextContent('Платежи');
+    await user.click(screen.getByTestId('desc-panel-close'));
+    await waitFor(() => expect(screen.queryByTestId('desc-panel')).not.toBeInTheDocument());
+  });
+});

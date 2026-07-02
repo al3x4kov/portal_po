@@ -8,9 +8,9 @@ import {
 
 /** A link the caller intends to create, before it is persisted on either node. */
 export interface ProposedLink {
-  sourceId: string;
+  sourceSlug: string;
   type: LinkType;
-  targetId: string;
+  targetSlug: string;
 }
 
 const INVERSE: Record<LinkType, LinkType> = {
@@ -42,22 +42,22 @@ export function isDependencyType(type: LinkType): boolean {
  * E.g. PARENT_OF on source ⇒ CHILD_OF on target.
  */
 export function createLinkPair(
-  sourceId: string,
+  sourceSlug: string,
   type: LinkType,
-  targetId: string,
-): { source: Link; sourceId: string; target: Link; targetId: string } {
+  targetSlug: string,
+): { source: Link; sourceSlug: string; target: Link; targetSlug: string } {
   return {
-    sourceId,
-    source: { type, targetId },
-    targetId,
-    target: { type: INVERSE[type], targetId: sourceId },
+    sourceSlug,
+    source: { type, targetSlug },
+    targetSlug,
+    target: { type: INVERSE[type], targetSlug: sourceSlug },
   };
 }
 
 /** Reject a link from a requirement to itself. */
-export function assertNoSelfLink(sourceId: string, targetId: string): void {
-  if (sourceId === targetId) {
-    throw new SelfLinkError(`A requirement cannot be linked to itself (id=${sourceId}).`);
+export function assertNoSelfLink(sourceSlug: string, targetSlug: string): void {
+  if (sourceSlug === targetSlug) {
+    throw new SelfLinkError(`A requirement cannot be linked to itself (slug=${sourceSlug}).`);
   }
 }
 
@@ -65,32 +65,32 @@ export function assertNoSelfLink(sourceId: string, targetId: string): void {
 export function assertSameType(a: Requirement, b: Requirement): void {
   if (a.type !== b.type) {
     throw new TypeMismatchError(
-      `Hierarchical link requires equal types, got ${a.type} (id=${a.id}) and ${b.type} (id=${b.id}).`,
+      `Hierarchical link requires equal types, got ${a.type} (slug=${a.slug}) and ${b.type} (slug=${b.slug}).`,
     );
   }
 }
 
 /**
  * Assert a requirement keeps at most one parent (CHILD_OF).
- * When `newParentId` is supplied, the check accounts for the parent about to be added.
+ * When `newParentSlug` is supplied, the check accounts for the parent about to be added.
  *
  * @throws {MultipleParentError}
  */
 export function assertSingleParent(
   reqs: readonly Requirement[],
-  childId: string,
-  newParentId?: string,
+  childSlug: string,
+  newParentSlug?: string,
 ): void {
-  const child = reqs.find((r) => r.id === childId);
+  const child = reqs.find((r) => r.slug === childSlug);
   const parents = new Set<string>(
-    (child?.links ?? []).filter((l) => l.type === 'CHILD_OF').map((l) => l.targetId),
+    (child?.links ?? []).filter((l) => l.type === 'CHILD_OF').map((l) => l.targetSlug),
   );
-  if (newParentId !== undefined) {
-    parents.add(newParentId);
+  if (newParentSlug !== undefined) {
+    parents.add(newParentSlug);
   }
   if (parents.size > 1) {
     throw new MultipleParentError(
-      `Requirement ${childId} would have ${parents.size} parents; only one is allowed.`,
+      `Requirement ${childSlug} would have ${parents.size} parents; only one is allowed.`,
     );
   }
 }
@@ -98,17 +98,17 @@ export function assertSingleParent(
 type Edge = [string, string];
 
 function canonicalEdge(
-  sourceId: string,
+  sourceSlug: string,
   link: Link,
   family: 'hierarchy' | 'dependency',
 ): Edge | null {
   if (family === 'hierarchy') {
-    if (link.type === 'PARENT_OF') return [sourceId, link.targetId];
-    if (link.type === 'CHILD_OF') return [link.targetId, sourceId];
+    if (link.type === 'PARENT_OF') return [sourceSlug, link.targetSlug];
+    if (link.type === 'CHILD_OF') return [link.targetSlug, sourceSlug];
     return null;
   }
-  if (link.type === 'DEPENDS_ON') return [sourceId, link.targetId];
-  if (link.type === 'BLOCKED_BY') return [link.targetId, sourceId];
+  if (link.type === 'DEPENDS_ON') return [sourceSlug, link.targetSlug];
+  if (link.type === 'BLOCKED_BY') return [link.targetSlug, sourceSlug];
   return null;
 }
 
@@ -173,13 +173,13 @@ export function assertNoCycle(reqs: readonly Requirement[], proposed: ProposedLi
   const edges: Edge[] = [];
   for (const req of reqs) {
     for (const link of req.links) {
-      const edge = canonicalEdge(req.id, link, family);
+      const edge = canonicalEdge(req.slug, link, family);
       if (edge) edges.push(edge);
     }
   }
   const proposedEdge = canonicalEdge(
-    proposed.sourceId,
-    { type: proposed.type, targetId: proposed.targetId },
+    proposed.sourceSlug,
+    { type: proposed.type, targetSlug: proposed.targetSlug },
     family,
   );
   if (proposedEdge) edges.push(proposedEdge);

@@ -1,19 +1,25 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { parseManifest, serializeManifest, type ProjectManifest } from '@po/core';
 import { atomicWrite } from '../lib/atomicWrite.js';
 import { ensureDir } from '../lib/ensureDir.js';
 import { assertRealpathWithin, resolveSafe } from '../lib/pathSafe.js';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
 import { sanitizeProjectName } from '../lib/projectName.js';
-import { ProjectManifest, ProjectSummary, SCHEMA_VERSION } from './types.js';
+import { ProjectSummary, SCHEMA_VERSION } from './types.js';
 
-const MANIFEST = 'project.json';
-const REQUIREMENTS_DIR = 'requirements';
+/** Relative path of the OpenSpec manifest inside a project directory (ADR-001). */
+export const MANIFEST_PATH = path.join('openspec', 'project.md');
+const SPEC_FOLDERS = [
+  path.join('openspec', 'specs', 'functions'),
+  path.join('openspec', 'specs', 'nfr'),
+];
 
 /**
  * Filesystem repository for projects: every project is a directory under the
- * Projects/ root containing a `project.json` manifest and a `requirements/`
- * folder. All path resolution is funnelled through {@link resolveSafe}.
+ * Projects/ root containing an `openspec/project.md` manifest and
+ * `openspec/specs/{functions,nfr}/` folders (ADR-001). All path resolution is
+ * funnelled through {@link resolveSafe}.
  */
 export class FsProjectRepo {
   constructor(private readonly projectsRoot: string) {}
@@ -29,8 +35,8 @@ export class FsProjectRepo {
 
   private async readManifest(dir: string): Promise<ProjectManifest | null> {
     try {
-      const raw = await fs.readFile(path.join(dir, MANIFEST), 'utf8');
-      return JSON.parse(raw) as ProjectManifest;
+      const raw = await fs.readFile(path.join(dir, MANIFEST_PATH), 'utf8');
+      return parseManifest(raw);
     } catch {
       return null;
     }
@@ -80,7 +86,8 @@ export class FsProjectRepo {
 
   /**
    * Create a new project directory (FR-2). Recreates Projects/ when missing,
-   * sanitizes the name, rejects duplicates with a 409.
+   * sanitizes the name, rejects duplicates with a 409, and scaffolds the
+   * OpenSpec layout (manifest + spec folders).
    */
   async create(
     rawName: string,
@@ -96,13 +103,15 @@ export class FsProjectRepo {
     }
 
     await ensureDir(dir);
-    await ensureDir(path.join(dir, REQUIREMENTS_DIR));
+    for (const folder of SPEC_FOLDERS) {
+      await ensureDir(resolveSafe(dir, folder));
+    }
     const manifest: ProjectManifest = {
       name: rawName.trim() || id,
       schemaVersion: SCHEMA_VERSION,
       createdAt: now(),
     };
-    await atomicWrite(path.join(dir, MANIFEST), JSON.stringify(manifest, null, 2));
+    await atomicWrite(resolveSafe(dir, MANIFEST_PATH), serializeManifest(manifest));
     return this.summaryOf(id, dir);
   }
 }

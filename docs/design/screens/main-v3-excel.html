@@ -1,0 +1,93 @@
+<!-- Экран: T5 · Экспорт в Excel «как в UI». НЕ настоящий xlsx — эталон вида для backend-разработчика: один лист, колонки как в портале, иерархия отступами, связи словами. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>T5 · Экспорт Excel «как в UI» — v3</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  /* «Excel»-лист */
+  .xl{border-collapse:collapse;width:100%;font-size:13px;background:var(--color-surface)}
+  .xl th,.xl td{border:1px solid var(--color-border);padding:6px 10px;text-align:left;vertical-align:top}
+  .xl thead th{background:var(--color-surface-2);font-weight:700;color:var(--color-text);
+    position:sticky;top:0;white-space:nowrap;font-size:12px}
+  .xl .rownum{background:var(--color-surface-2);color:var(--color-text-3);text-align:center;
+    font-size:11px;font-weight:600;width:34px;white-space:nowrap}
+  .xl .grouphdr td{background:var(--color-primary-soft);font-weight:700;color:var(--color-primary)}
+  .xl .type{font-weight:600}
+  .xl .links{color:var(--color-text-2)}
+  .colletter{background:var(--color-surface-2);color:var(--color-text-3);text-align:center;
+    font-size:11px;font-weight:600;border:1px solid var(--color-border);padding:2px}
+  /* цветная точка критичности как «условное форматирование» */
+  .cdot{display:inline-block;width:8px;height:8px;border-radius:999px;margin-right:6px;vertical-align:middle}
+  .sheet-tab{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;font-size:13px;font-weight:600;
+    background:var(--color-surface);border:1px solid var(--color-border);border-bottom:0;
+    border-radius:var(--radius-sm) var(--radius-sm) 0 0;color:var(--color-text)}
+  .sheet-tab.muted{background:var(--color-surface-2);color:var(--color-text-3);font-weight:500}
+  .indent{display:inline-block}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto px-4 py-8">
+  <div class="flex items-center justify-between mb-1">
+    <h1 class="text-xl font-bold">T5 · Экспорт в Excel «как в UI»</h1>
+    <a href="../index.html" class="btn btn-secondary text-sm">← В галерею</a>
+  </div>
+  <p class="t2 text-sm mb-6">Эталон вида листа <span class="mono">.xlsx</span> для backend-разработчика (это макет, не настоящий файл). <b>Один лист</b>, колонки как в портале: Требование (отступ по иерархии) · Тип · Критичность (текст) · Реализация · Описание · Связи (словами). Порядок строк — как в дереве: сначала ФТ с иерархией, затем НФТ.</p>
+
+  <!-- Панель имитации Excel -->
+  <div class="card overflow-hidden" data-testid="excel-sheet">
+    <!-- «шапка» книги -->
+    <div class="flex items-center gap-2 px-4 py-2.5" style="background:var(--color-surface-2);border-bottom:1px solid var(--color-border)">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 3v18M3 8h5M3 13h5M3 18h5"/></svg>
+      <span class="font-semibold text-sm mono">payments-platform_requirements.xlsx</span>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="xl">
+        <!-- буквы колонок (как в Excel) -->
+        <thead>
+          <tr>
+            <th class="colletter"></th>
+            <th class="colletter">A</th><th class="colletter">B</th><th class="colletter">C</th><th class="colletter">D</th><th class="colletter">E</th><th class="colletter">F</th>
+          </tr>
+          <tr>
+            <th class="rownum">1</th>
+            <th style="min-width:280px">Требование</th>
+            <th style="width:70px">Тип</th>
+            <th style="width:110px">Критичность</th>
+            <th style="width:120px">Реализация</th>
+            <th style="min-width:280px">Описание</th>
+            <th style="min-width:300px">Связи</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- ФТ иерархия -->
+          <tr><td class="rownum">2</td><td class="type">Платежи</td><td class="type">ФТ</td><td><span class="cdot" style="background:var(--crit-critical)"></span>Critical</td><td>Реализовано</td><td>Приём и обработка входящих платежей: авторизация, списание, идемпотентность.</td><td class="links">—</td></tr>
+          <tr><td class="rownum">3</td><td><span class="indent" style="width:20px"></span>Оплата картой</td><td class="type">ФТ</td><td><span class="cdot" style="background:var(--crit-high)"></span>High</td><td>Реализовано</td><td>Поддержка Visa/Mastercard/МИР, 3-D Secure 2.0, обработка отказов.</td><td class="links">является дочерней для «Платежи»; блокируется «Соответствие PCI-DSS»; связана с «3-D Secure 2.0»</td></tr>
+          <tr><td class="rownum">4</td><td><span class="indent" style="width:40px"></span>Сохранение карты (токенизация)</td><td class="type">ФТ</td><td><span class="cdot" style="background:var(--crit-high)"></span>High</td><td>Q3 2026</td><td>PCI-DSS токенизация карточных данных, хранение токена вместо PAN.</td><td class="links">является дочерней для «Оплата картой»</td></tr>
+          <tr><td class="rownum">5</td><td><span class="indent" style="width:40px"></span>3-D Secure 2.0</td><td class="type">ФТ</td><td><span class="cdot" style="background:var(--crit-high)"></span>High</td><td>Q3 2026</td><td>Строгая аутентификация плательщика по протоколу EMV 3DS.</td><td class="links">является дочерней для «Оплата картой»; связана с «Оплата картой»</td></tr>
+          <tr><td class="rownum">6</td><td><span class="indent" style="width:20px"></span>Возвраты (refund)</td><td class="type">ФТ</td><td><span class="cdot" style="background:var(--crit-medium)"></span>Medium</td><td>Q4 2026</td><td>Полный и частичный возврат средств, сверка с исходной транзакцией.</td><td class="links">является дочерней для «Платежи»</td></tr>
+          <tr><td class="rownum">7</td><td><span class="indent" style="width:20px"></span>СБП / QR-платежи</td><td class="type">ФТ</td><td><span class="cdot" style="background:var(--crit-medium)"></span>Medium</td><td>Q1 2027</td><td>Оплата через Систему быстрых платежей по QR-коду и ссылкам.</td><td class="links">является дочерней для «Платежи»</td></tr>
+          <tr><td class="rownum">8</td><td class="type">Выплаты (payouts)</td><td class="type">ФТ</td><td><span class="cdot" style="background:var(--crit-high)"></span>High</td><td>Реализовано</td><td>Исходящие выплаты продавцам и партнёрам, расписание и лимиты.</td><td class="links">—</td></tr>
+          <tr><td class="rownum">9</td><td><span class="indent" style="width:20px"></span>Массовые выплаты</td><td class="type">ФТ</td><td><span class="cdot" style="background:var(--crit-medium)"></span>Medium</td><td>Q2 2027</td><td>Пакетная загрузка реестра выплат (CSV), асинхронная обработка.</td><td class="links">является дочерней для «Выплаты (payouts)»</td></tr>
+          <!-- НФТ секция -->
+          <tr><td class="rownum">10</td><td class="type">Время ответа API &lt; 200мс</td><td class="type">НФТ</td><td><span class="cdot" style="background:var(--crit-high)"></span>High</td><td>Реализовано</td><td>p95 &lt; 200мс при 100 RPS на эндпоинтах авторизации и статуса платежа.</td><td class="links">—</td></tr>
+          <tr><td class="rownum">11</td><td class="type">Соответствие PCI-DSS</td><td class="type">НФТ</td><td><span class="cdot" style="background:var(--crit-critical)"></span>Critical</td><td>Q3 2026</td><td>Соответствие стандарту PCI-DSS уровня 1, ежегодный аудит QSA.</td><td class="links">зависит от «Оплата картой» (реципрокная к BLOCKED_BY)</td></tr>
+          <tr><td class="rownum">12</td><td class="type">Доступность 99.95%</td><td class="type">НФТ</td><td><span class="cdot" style="background:var(--crit-high)"></span>High</td><td>Реализовано</td><td>SLA доступности платёжного шлюза 99.95% в месяц, мультизональность.</td><td class="links">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- вкладки листов (один содержательный лист) -->
+    <div class="flex items-end gap-1 px-3 pt-2 pb-0" style="background:var(--color-surface-2);border-top:1px solid var(--color-border)">
+      <span class="sheet-tab" data-testid="excel-sheet-tab">Требования</span>
+      <span class="text-xs t3 pl-2 pb-2">← один лист вместо прежних двух «сырых» (Requirements + Links)</span>
+    </div>
+  </div>
+
+  <p class="text-xs t3 mt-4">Иерархия передаётся отступом в колонке «Требование» (по 20px на уровень — в реальном xlsx это indent-level ячейки). Критичность — текстом (Low…Blocker) плюс цветная точка как условное форматирование. Связи — человекочитаемой формулировкой, той же, что в карточке (T2). Отдельный «технический» лист связей не обязателен.</p>
+</div>
+</body>
+</html>

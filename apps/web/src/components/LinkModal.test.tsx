@@ -17,11 +17,11 @@ vi.mock('../api/endpoints', () => ({
   requirementsApi: {},
 }));
 
-const source = makeReq({ id: 's1', name: 'Сохранение карты' });
+const source = makeReq({ slug: 's1', name: 'Сохранение карты' });
 const requirements = [
   source,
-  makeReq({ id: 'a1', name: 'Оплата картой' }),
-  makeReq({ id: 'a2', name: 'Возвраты' }),
+  makeReq({ slug: 'a1', name: 'Оплата картой' }),
+  makeReq({ slug: 'a2', name: 'Возвраты' }),
 ];
 
 describe('LinkModal (T-606, FR-8)', () => {

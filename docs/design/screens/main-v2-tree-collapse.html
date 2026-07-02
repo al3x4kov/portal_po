@@ -1,0 +1,86 @@
+<!-- Экран: Переключатель отображения дерева (B1). Два состояния: «Раскрыть все» / «Скрыть зависимости». Покрывает A6#4 (S24, S25). -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Отображение дерева — v2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  .crit{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:999px;display:inline-block;flex:none}
+  table.tw{border-collapse:separate;border-spacing:0;width:100%;font-size:14px}
+  .tw thead th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;
+    color:var(--color-text-3);text-align:left;padding:10px 16px;border-bottom:1px solid var(--color-border)}
+  .tw td{padding:9px 16px;border-bottom:1px solid var(--color-border)}
+  .tw tbody tr:last-child td{border-bottom:0}
+  .chev{width:15px;height:15px;flex:none;color:var(--color-text-3)}
+  .seg{display:inline-flex;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:2px}
+  .seg-btn{padding:6px 12px;font-size:13px;font-weight:600;border-radius:5px;color:var(--color-text-2);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .seg-on{background:var(--color-surface);color:var(--color-text);box-shadow:var(--shadow-sm)}
+  .count-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;
+    background:var(--color-primary-soft);color:var(--color-primary);cursor:pointer}
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto px-4 py-8">
+  <div class="flex items-center justify-between mb-1">
+    <h1 class="text-xl font-bold">B1 · Переключатель отображения дерева</h1>
+    <a href="index.html" class="btn btn-secondary text-sm">← В галерею</a>
+  </div>
+  <p class="t2 text-sm mb-6">Кнопка вида — часть единого слоя видимости строк (A6#4). «Скрыть зависимости» сворачивает вложенные/связанные функции, оставляя только корневые узлы. Показаны оба состояния.</p>
+
+  <!-- СОСТОЯНИЕ A: Раскрыть все (по умолчанию) -->
+  <div class="flex items-center gap-3 mb-2">
+    <span class="badge" style="background:var(--color-info-bg);color:var(--color-info)">Состояние A · по умолчанию</span>
+    <div class="seg" role="group" aria-label="Отображение дерева">
+      <button data-testid="toggle-collapse" class="seg-btn seg-on" aria-pressed="true">
+        <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>Раскрыть все
+      </button>
+      <button class="seg-btn" aria-pressed="false">
+        <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m8 9 4-4 4 4"/><path d="m16 15-4 4-4-4"/></svg>Скрыть зависимости
+      </button>
+    </div>
+    <span class="text-xs t3">Показано 6 из 6</span>
+  </div>
+  <section class="card mb-8 overflow-hidden">
+    <table class="tw">
+      <thead><tr><th style="width:55%">Требование</th><th style="width:140px">Критичность</th><th>Реализация</th></tr></thead>
+      <tbody>
+        <tr><td><span class="flex items-center gap-2 font-medium"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Платежи</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+        <tr><td><span class="flex items-center gap-2" style="padding-left:24px"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Оплата картой</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+        <tr><td><span class="flex items-center gap-2" style="padding-left:52px"><span class="dot" style="background:var(--color-text-3)"></span>Сохранение карты (токенизация)</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td></tr>
+        <tr><td><span class="flex items-center gap-2" style="padding-left:52px"><span class="dot" style="background:var(--color-text-3)"></span>3-D Secure 2.0</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q3 2026</span></td></tr>
+        <tr><td><span class="flex items-center gap-2" style="padding-left:24px"><span class="dot" style="background:var(--color-text-3)"></span>Возвраты (refund)</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span></td><td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning)">Q4 2026</span></td></tr>
+        <tr><td><span class="flex items-center gap-2 font-medium"><svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Выплаты (payouts)</span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- СОСТОЯНИЕ B: Скрыть зависимости -->
+  <div class="flex items-center gap-3 mb-2">
+    <span class="badge" style="background:var(--color-primary-soft);color:var(--color-primary)">Состояние B · зависимости свёрнуты</span>
+    <div class="seg" role="group" aria-label="Отображение дерева">
+      <button class="seg-btn" aria-pressed="false">
+        <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>Раскрыть все
+      </button>
+      <button data-testid="toggle-collapse" class="seg-btn seg-on" aria-pressed="true">
+        <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m8 9 4-4 4 4"/><path d="m16 15-4 4-4-4"/></svg>Скрыть зависимости
+      </button>
+    </div>
+    <span class="text-xs t3">Показано 2 из 6</span>
+  </div>
+  <section class="card overflow-hidden">
+    <table class="tw">
+      <thead><tr><th style="width:55%">Требование</th><th style="width:140px">Критичность</th><th>Реализация</th></tr></thead>
+      <tbody>
+        <tr><td><span class="flex items-center gap-2 font-medium"><svg class="chev" style="transform:rotate(-90deg)" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Платежи <button class="count-chip" data-testid="expand-node">3 зависимости</button></span></td><td><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+        <tr><td><span class="flex items-center gap-2 font-medium"><svg class="chev" style="transform:rotate(-90deg)" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>Выплаты (payouts) <button class="count-chip" data-testid="expand-node">1 зависимость</button></span></td><td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td><td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success)">Реализовано</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <p class="text-xs t3 mt-4">Свёрнутый узел помечен «повёрнутым» шевроном (▸) и чипом с числом скрытых потомков; клик по чипу или шеврону раскрывает только эту ветку. Кнопка «Раскрыть все» возвращает полный вид.</p>
+</div>
+</body>
+</html>

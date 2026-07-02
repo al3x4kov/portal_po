@@ -28,16 +28,16 @@ export function LinkModal({
   const results = useMemo(() => {
     const q = search.trim().toLowerCase();
     return requirements
-      .filter((r) => r.id !== source.id)
+      .filter((r) => r.slug !== source.slug)
       .filter((r) => (q.length === 0 ? true : r.name.toLowerCase().includes(q)))
       .slice(0, 25);
-  }, [requirements, search, source.id]);
+  }, [requirements, search, source.slug]);
 
   const submit = async (): Promise<void> => {
     if (!target) return;
     setApiError(null);
     try {
-      await createMut.mutateAsync({ sourceId: source.id, type, targetId: target.id });
+      await createMut.mutateAsync({ sourceSlug: source.slug, type, targetSlug: target.slug });
       onClose();
     } catch (err) {
       setApiError(errorMessage(err));
@@ -128,11 +128,13 @@ export function LinkModal({
           ) : (
             results.map((r) => (
               <button
-                key={r.id}
+                key={r.slug}
                 type="button"
                 className="flex w-full items-center justify-between px-3 py-2 text-left text-sm"
-                style={target?.id === r.id ? { background: 'var(--color-surface-2)' } : undefined}
-                data-testid={`link-result-${r.id}`}
+                style={
+                  target?.slug === r.slug ? { background: 'var(--color-surface-2)' } : undefined
+                }
+                data-testid={`link-result-${r.slug}`}
                 onClick={() => {
                   setTarget(r);
                   setSearch(r.name);
