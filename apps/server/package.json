@@ -24,9 +24,11 @@
     "adm-zip": "^0.5.16",
     "exceljs": "^4.4.0",
     "fastify": "^5.2.1",
+    "proper-lockfile": "^4.1.2",
     "tar": "^7.4.3"
   },
   "devDependencies": {
-    "@types/adm-zip": "^0.5.7"
+    "@types/adm-zip": "^0.5.7",
+    "@types/proper-lockfile": "^4.1.4"
   }
 }

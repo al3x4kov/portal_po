@@ -31,6 +31,24 @@ export interface ExportResult {
   contentType: string;
 }
 
+/** Bomb-guard limits applied while unpacking an import (ARCH-10 / QA-8). */
+export interface ArchiveLimits {
+  /** Max number of file entries an archive may contain. */
+  maxEntries: number;
+  /** Max cumulative *uncompressed* size across all entries, in bytes. */
+  maxTotalBytes: number;
+}
+
+/**
+ * Default import limits. Chosen well above any realistic OpenSpec project
+ * (thousands of small markdown files) yet low enough to stop a decompression
+ * bomb: 10 000 entries, 100 MiB uncompressed.
+ */
+export const DEFAULT_ARCHIVE_LIMITS: ArchiveLimits = {
+  maxEntries: 10_000,
+  maxTotalBytes: 100 * 1024 * 1024,
+};
+
 const MANIFEST = path.join('openspec', 'project.md');
 const SPECS_DIR = path.join('openspec', 'specs');
 const FOLDER = REQUIREMENT_FOLDER;
@@ -56,7 +74,14 @@ async function detectFormat(file: string): Promise<ArchiveFormat> {
  * and link integrity, and only then atomically renames into Projects/.
  */
 export class ArchiveRepo {
-  constructor(private readonly projectsRoot: string) {}
+  private readonly limits: ArchiveLimits;
+
+  constructor(
+    private readonly projectsRoot: string,
+    limits: Partial<ArchiveLimits> = {},
+  ) {
+    this.limits = { ...DEFAULT_ARCHIVE_LIMITS, ...limits };
+  }
 
   /** Stream a project directory as an archive (T-501). */
   async export(projectDir: string, format: ArchiveFormat, baseName: string): Promise<ExportResult> {
@@ -78,24 +103,53 @@ export class ArchiveRepo {
   }
 
   private async extract(format: ArchiveFormat, archivePath: string, dest: string): Promise<void> {
+    // Cumulative bomb-guard counters shared across the whole archive.
+    let entries = 0;
+    let totalBytes = 0;
+    const account = (bytes: number): void => {
+      entries += 1;
+      totalBytes += bytes;
+      if (entries > this.limits.maxEntries) {
+        throw new ArchiveError(`Archive has too many entries (limit ${this.limits.maxEntries}).`);
+      }
+      if (totalBytes > this.limits.maxTotalBytes) {
+        throw new ArchiveError(
+          `Archive exceeds the uncompressed size limit (${this.limits.maxTotalBytes} bytes).`,
+        );
+      }
+    };
+
     if (format === 'zip') {
       const zip = new AdmZip(archivePath);
       for (const entry of zip.getEntries()) {
         if (entry.isDirectory) continue;
+        account(entry.header.size); // uncompressed size, checked before writing
         const target = resolveSafe(dest, entry.entryName); // rejects traversal
         await ensureDir(path.dirname(target));
         await fs.writeFile(target, entry.getData());
       }
       return;
     }
+    // node-tar surfaces a throw from `filter` as an *uncaught* stream error, so
+    // we capture the first violation, skip the offending entry, and re-throw
+    // once extraction settles — nothing unsafe is ever written to disk.
+    let violation: Error | null = null;
     await tar.x({
       file: archivePath,
       cwd: dest,
-      filter: (p: string) => {
-        resolveSafe(dest, p); // rejects traversal inside the archive
+      filter: (p: string, entry: { size?: number }): boolean => {
+        if (violation) return false;
+        try {
+          resolveSafe(dest, p); // rejects traversal inside the archive
+          account(entry.size ?? 0); // rejects bomb (entries / uncompressed size)
+        } catch (err) {
+          violation = err as Error;
+          return false;
+        }
         return true;
       },
     });
+    if (violation) throw violation;
   }
 
   /** Find the directory that actually holds the project (flat or single nested folder). */
@@ -163,6 +217,18 @@ export class ArchiveRepo {
       ...(await this.readTypeFolder(contentRoot, 'FUNCTION')),
       ...(await this.readTypeFolder(contentRoot, 'NFR')),
     ];
+
+    // Project-wide slug uniqueness (ARCH-6): create() dedups slugs across the
+    // whole project, so a slug must be unique across BOTH type folders. Reject a
+    // cross-type collision (e.g. functions/x.md + nfr/x.md) that a type:slug
+    // index would otherwise silently accept and that would make links ambiguous.
+    const seenSlugs = new Set<string>();
+    for (const r of reqs) {
+      if (seenSlugs.has(r.slug)) {
+        throw new ArchiveError(`Duplicate slug "${r.slug}" across requirement types.`);
+      }
+      seenSlugs.add(r.slug);
+    }
 
     // Links target a slug; hierarchical links are within a single type, so index by type+slug.
     const key = (type: RequirementType, slug: string): string => `${type}:${slug}`;
