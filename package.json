@@ -22,6 +22,7 @@
     "e2e": "playwright test"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@eslint/js": "^9.18.0",
     "@playwright/test": "^1.50.0",
     "@types/js-yaml": "^4.0.9",

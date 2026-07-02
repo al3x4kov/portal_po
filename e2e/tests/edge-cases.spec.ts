@@ -59,7 +59,7 @@ test.describe('T-702 edge cases', () => {
     await page.getByTestId('requirement-modal-close').click();
   });
 
-  test('cycle in hierarchy is rejected with a UI error (2.4.3)', async ({ page }) => {
+  test('cycle in hierarchy is prevented in the LinkModal (2.4.3, UX-4)', async ({ page }) => {
     await createProject(page, uniqueName('cycle'));
     const a = uniqueName('F-a');
     const b = uniqueName('F-b');
@@ -67,11 +67,12 @@ test.describe('T-702 edge cases', () => {
     await addRequirement(page, { kind: 'function', name: b });
 
     await linkRequirements(page, a, 'CHILD_OF', b); // a → child of b
-    // b → child of a would close the loop a→b→a.
-    await linkRequirements(page, b, 'CHILD_OF', a, { expectError: true });
+    // b → child of a would close the loop a→b→a. UX-4: the target is offered
+    // but disabled with a "создаст цикл" reason and submit is blocked.
+    await linkRequirements(page, b, 'CHILD_OF', a, { expectBlocked: true });
   });
 
-  test('a second parent is rejected with a UI error (2.4.4)', async ({ page }) => {
+  test('a second parent is prevented in the LinkModal (2.4.4, UX-4)', async ({ page }) => {
     await createProject(page, uniqueName('two-parents'));
     const child = uniqueName('F-child');
     const p1 = uniqueName('F-p1');
@@ -81,8 +82,9 @@ test.describe('T-702 edge cases', () => {
     await addRequirement(page, { kind: 'function', name: p2 });
 
     await linkRequirements(page, child, 'CHILD_OF', p1);
-    // Giving the child a second parent via p2 PARENT_OF child must fail.
-    await linkRequirements(page, p2, 'PARENT_OF', child, { expectError: true });
+    // Giving the child a second parent via p2 PARENT_OF child must be prevented.
+    // UX-4: the child is disabled as a target with "у цели уже есть родитель".
+    await linkRequirements(page, p2, 'PARENT_OF', child, { expectBlocked: true });
   });
 
   test('importing a corrupt archive shows an error (FR-3.4, §5)', async ({ page }, testInfo) => {

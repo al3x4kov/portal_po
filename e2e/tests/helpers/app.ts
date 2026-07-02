@@ -24,6 +24,47 @@ export interface RequirementOptions {
   description?: string;
 }
 
+/** Extract the current project id from the `/p/:id` main-screen URL. */
+export function projectIdFromUrl(page: Page): string {
+  const m = /\/p\/([^/?#]+)/.exec(page.url());
+  if (!m) throw new Error(`Not on a project page: ${page.url()}`);
+  return decodeURIComponent(m[1]);
+}
+
+/**
+ * Seed a requirement straight through the REST API (fast bulk fixtures for the
+ * scale test, QA-2). Uses the page's request context so it shares the server
+ * origin. Returns the created requirement's slug.
+ */
+export async function apiCreateRequirement(
+  page: Page,
+  projectId: string,
+  opts: RequirementOptions,
+): Promise<string> {
+  const implemented = opts.implemented ?? true;
+  const body: Record<string, unknown> = {
+    type: opts.kind === 'function' ? 'FUNCTION' : 'NFR',
+    name: opts.name,
+    criticality: opts.criticality ?? 'MEDIUM',
+    implemented,
+  };
+  if (!implemented) {
+    body.targetQuarter = opts.quarter ?? 'Q1';
+    body.targetYear = opts.year ?? 2027;
+  }
+  if (opts.description) body.description = opts.description;
+
+  const res = await page.request.post(
+    `/api/projects/${encodeURIComponent(projectId)}/requirements`,
+    { data: body },
+  );
+  if (!res.ok()) {
+    throw new Error(`apiCreateRequirement failed (${res.status()}): ${await res.text()}`);
+  }
+  const created = (await res.json()) as { slug: string };
+  return created.slug;
+}
+
 /** Start screen → create a project → open it; ends on the main screen. */
 export async function createProject(page: Page, name: string): Promise<void> {
   await page.goto('/');
@@ -117,25 +158,48 @@ export async function renameRequirement(
   await expect(rowByName(page, newName)).toBeVisible();
 }
 
-/** Create a link between two requirements (FR-8). */
+/**
+ * Create a link between two requirements (FR-8).
+ *
+ * - `expectBlocked` (UX-4): the target is incompatible (cycle / second parent /
+ *   type mismatch); the LinkModal keeps it visible but *disabled* with a reason
+ *   (`data-disabled="true"`, `link-result-reason-<slug>`) and blocks submit —
+ *   the client prevents the invalid pick, the server stays the last line.
+ * - `expectError`: a server-side rejection still surfaces in `link-error`.
+ */
 export async function linkRequirements(
   page: Page,
   sourceName: string,
   type: LinkType,
   targetName: string,
-  opts: { expectError?: boolean } = {},
+  opts: { expectError?: boolean; expectBlocked?: boolean } = {},
 ): Promise<void> {
   await rowByName(page, sourceName).locator('[data-testid^="link-btn-"]').click();
   const modal = page.getByTestId('link-modal');
   await expect(modal).toBeVisible();
   await page.getByTestId('link-type').selectOption(type);
   await page.getByTestId('link-search').fill(targetName);
-  await page
+
+  const candidate = page
     .getByTestId('link-results')
     .locator('[data-testid^="link-result-"]')
     .filter({ hasText: targetName })
-    .first()
-    .click();
+    .first();
+
+  if (opts.expectBlocked) {
+    // Incompatible target: disabled with a reason, and submit stays disabled.
+    await expect(candidate).toHaveAttribute('data-disabled', 'true');
+    await expect(candidate).toBeDisabled();
+    await expect(
+      candidate.locator('[data-testid^="link-result-reason-"]'),
+    ).toBeVisible();
+    await expect(page.getByTestId('link-submit')).toBeDisabled();
+    await page.getByTestId('link-cancel').click();
+    await expect(modal).toBeHidden();
+    return;
+  }
+
+  await candidate.click();
   await page.getByTestId('link-submit').click();
 
   if (opts.expectError) {
@@ -172,16 +236,20 @@ export async function deleteRequirement(page: Page, name: string): Promise<void>
   await expect(rowByName(page, name)).toBeHidden();
 }
 
-/** Attempt to delete a node that still has children; expect it to be blocked. */
+/**
+ * Attempt to delete a node that still has children; expect it to be blocked
+ * (UX-3, S15): the dialog warns about the children *and* the destructive
+ * confirm is disabled up-front — the click that would fail server-side never
+ * happens. Cancel leaves the requirement intact.
+ */
 export async function expectDeleteBlocked(page: Page, name: string): Promise<void> {
   await rowByName(page, name).locator('[data-testid^="delete-btn-"]').click();
   const dialog = page.getByTestId('delete-dialog');
   await expect(dialog).toBeVisible();
   // The dialog warns about children up-front (danger note).
   await expect(page.getByTestId('delete-dialog-note')).toContainText('дочерних');
-  await page.getByTestId('delete-dialog-confirm').click();
-  // Server rejects (HAS_CHILDREN) and the error is surfaced in the dialog.
-  await expect(page.getByTestId('delete-dialog-error')).toBeVisible();
+  // UX-3: the destructive action is disabled while children exist.
+  await expect(page.getByTestId('delete-dialog-confirm')).toBeDisabled();
   await page.getByTestId('delete-dialog-cancel').click();
   await expect(dialog).toBeHidden();
   await expect(rowByName(page, name)).toBeVisible();

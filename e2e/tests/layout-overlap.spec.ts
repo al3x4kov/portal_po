@@ -26,6 +26,13 @@ import {
  */
 test.describe.configure({ mode: 'serial' });
 
+/**
+ * QA-7: субпиксельный рендеринг делал прежний допуск ±1px хрупким (маскировалось
+ * `retries:2`). Теперь допуск устойчивый, а перекрытие проверяется как реальное
+ * пересечение прямоугольников по обеим осям (а не по хрупкому порядку x).
+ */
+const TOL = 2;
+
 interface Box {
   x: number;
   y: number;
@@ -38,6 +45,13 @@ async function box(loc: Locator): Promise<Box> {
   const b = await loc.boundingBox();
   if (!b) throw new Error('element has no bounding box');
   return b;
+}
+
+/** Величина пересечения двух прямоугольников по обеим осям (0, если не пересекаются). */
+function overlapArea(a: Box, b: Box): { dx: number; dy: number } {
+  const dx = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+  const dy = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+  return { dx, dy };
 }
 
 interface Fixture {
@@ -90,31 +104,31 @@ async function checkRowActions(
   buttons.push(row.getByTestId(`link-btn-${slug}`));
   buttons.push(row.getByTestId(`delete-btn-${slug}`));
 
-  // 1) видимость по ховеру
+  // 1) видимость (UX-1: действия видны и без ховера; ховер лишь усиливает).
   for (const b of buttons) await expect(b).toBeVisible();
 
-  // 2) каждая кнопка горизонтально в пределах карточки секции (±1px)
+  // 2) каждая кнопка горизонтально в пределах карточки секции (устойчивый допуск)
   const boxes: Box[] = [];
   for (const b of buttons) {
     const bb = await box(b);
     expect(bb.x, `кнопка "${name}" выходит за левую границу карточки`).toBeGreaterThanOrEqual(
-      cardBox.x - 1,
+      cardBox.x - TOL,
     );
     expect(
       bb.x + bb.width,
       `кнопка "${name}" выходит за правую границу карточки`,
-    ).toBeLessThanOrEqual(cardBox.x + cardBox.width + 1);
+    ).toBeLessThanOrEqual(cardBox.x + cardBox.width + TOL);
     boxes.push(bb);
   }
 
-  // 3) соседние кнопки строки не налезают друг на друга (сортировка по x)
-  boxes.sort((a, b) => a.x - b.x);
-  for (let i = 1; i < boxes.length; i += 1) {
-    const prev = boxes[i - 1];
-    const next = boxes[i];
-    expect(prev.x + prev.width, `кнопки строки "${name}" перекрываются`).toBeLessThanOrEqual(
-      next.x + 1,
-    );
+  // 3) никакая пара кнопок строки не перекрывается (реальное пересечение по обеим
+  //    осям больше допуска — устойчиво к порядку и субпикселям).
+  for (let i = 0; i < boxes.length; i += 1) {
+    for (let j = i + 1; j < boxes.length; j += 1) {
+      const { dx, dy } = overlapArea(boxes[i], boxes[j]);
+      const overlapping = dx > TOL && dy > TOL;
+      expect(overlapping, `кнопки строки "${name}" перекрываются`).toBe(false);
+    }
   }
 }
 
@@ -139,14 +153,14 @@ async function checkLinkChips(page: Page, name: string): Promise<void> {
     const cb = await box(chips.nth(i));
     // внутри своей колонки «Связи»
     expect(cb.x, `чип связи "${name}" выходит влево за колонку «Связи»`).toBeGreaterThanOrEqual(
-      cellBox.x - 1,
+      cellBox.x - TOL,
     );
     expect(cb.x + cb.width, `чип связи "${name}" заходит в колонку «Описание»`).toBeLessThanOrEqual(
-      cellBox.x + cellBox.width + 1,
+      cellBox.x + cellBox.width + TOL,
     );
     // не заходит в «Реализация» (левый сосед)
     expect(cb.x, `чип связи "${name}" заходит в колонку «Реализация»`).toBeGreaterThanOrEqual(
-      implBox.x + implBox.width - 1,
+      implBox.x + implBox.width - TOL,
     );
   }
 }
