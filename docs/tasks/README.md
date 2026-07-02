@@ -16,6 +16,15 @@
 | `E5-import-export.md` | Импорт/экспорт архивов |
 | `E6-frontend.md` | Фронтенд: экраны и модалки |
 | `E7-quality-e2e.md` | Сквозные E2E, краевые случаи, CI-gate |
+| `E8-openspec-storage.md` | Хранилище OpenSpec + slug (ADR-001) |
+| `E9-excel-export.md` | Экспорт в Excel `.xlsx` (FR-10.3) |
+| `E10-ai-mcp.md` | AI-ready: REST `?format=openspec` + MCP-сервер (FR-10.4) |
+| `E11-ui-enhancements.md` | Единый слой видимости, поиск/фильтры (FR-7) |
+| `E12-quality.md` | Матрица ситуаций S1–S34, пороги покрытия |
+| `E13-service-functions.md` | Сервисные функции |
+| `E14-openapi-swagger.md` | OpenAPI `/openapi.json` + Swagger `/docs` |
+| `E15-po-ux.md` | PO-UX доработки T1–T5 (FR-11…FR-15) |
+| `E16-table-layout.md` | Раскладка таблицы, колонка «Связи», без перекрытий (FR-16) |
 
 ## Соглашения по разработке (для всех задач)
 - TypeScript strict, ESLint+Prettier зелёные.
@@ -36,10 +45,23 @@ S ≈ ≤ полдня · M ≈ день · L — требует дроблен�
 - **Волна 5:** T-503; фронтенд T-601 → T-602…T-607 (параллельно по экранам).
 - **Волна 6:** E5/E6 Playwright-сценарии (T-305, T-406, T-504) и E7 (T-701…T-703).
 
-## Трассировка покрытия ТЗ
+## Трассировка покрытия ТЗ `[ОБНОВЛЕНО v1.2 — BA-3]`
+
+**Ядро (FR-1…FR-10):**
 FR-1→T-602/T-305 · FR-2→T-303/T-602 · FR-3→T-502/T-603 · FR-4→T-303/T-603 ·
 FR-5/7→T-604 · FR-6→T-402/T-605 · FR-8→T-404/T-606 · FR-9→T-405/T-606 ·
 FR-10→T-501/T-607 · NFR-4/5→T-302 · NFR-8→E2/E7 (тесты).
 
+**Доработки (FR-10.3/.4, FR-11…FR-16) → эпики E8–E16 и e2e:**
+- FR-10.3 (`.xlsx`) → E9 · FR-10.4 (`?format=openspec`, MCP) → E10;
+  тесты: `apps/server/test/requirements-openspec.test.ts`, `apps/mcp/test/tools.test.ts`.
+- FR-11 (фильтр реализации) → E15/T1 · FR-12 (просмотр связей) → E15/T2 ·
+  FR-13 (удаление связи) → E15/T3 · FR-14 (НФТ из строки ФТ) → E15/T4 ·
+  FR-15 (Excel «как в UI») → E15/T5. E2E: `e2e/tests/po-ux.spec.ts` (T-1502).
+- FR-16 (раскладка/колонка «Связи»/без перекрытий) → E16. E2E:
+  `e2e/tests/layout-overlap.spec.ts` (T-1601).
+
+Полная матрица «ситуация → тест» (S1–S34) — `docs/architecture/test-situations.md` (BA-7).
+
 ## Сводка
-Эпиков: 7 · Задач: 31 · Параллелизуемых в волне 1: 3.
+Эпиков: 16 (E1–E16) · базовый бэклог (E1–E7): 31 задача · доработки — в E8–E16.

@@ -103,6 +103,34 @@ describe('T-501/T-502 import-export', () => {
     await expect(fs.stat(path.join(path.dirname(root), 'escape.md'))).rejects.toBeTruthy();
   });
 
+  it('rejects importing an archive whose hierarchy forms a cycle (BE-2)', async () => {
+    // Two requirements that are each other's parent AND child: reciprocity,
+    // single-parent and self-link checks all pass, but the graph is cyclic.
+    const md = (name: string, links: string[]): Buffer =>
+      Buffer.from(
+        [
+          `### Requirement: ${name}`,
+          '- criticality: MEDIUM',
+          '- implemented: true',
+          '- createdAt: 2026-01-01T00:00:00Z',
+          '- updatedAt: 2026-01-01T00:00:00Z',
+          '',
+          '#### Links',
+          ...links,
+          '',
+        ].join('\n'),
+      );
+
+    const zip = new AdmZip();
+    zip.addFile('openspec/specs/functions/a.md', md('Alpha', ['- CHILD_OF: b', '- PARENT_OF: b']));
+    zip.addFile('openspec/specs/functions/b.md', md('Beta', ['- CHILD_OF: a', '- PARENT_OF: a']));
+    const file = path.join(scratch, 'cycle.zip');
+    await fs.writeFile(file, zip.toBuffer());
+
+    await expect(svc.import(file, 'Cyclic')).rejects.toBeInstanceOf(ArchiveError);
+    await expect(fs.stat(path.join(root, 'Cyclic'))).rejects.toBeTruthy();
+  });
+
   it('rejects an unknown archive format', async () => {
     const file = path.join(scratch, 'plain.bin');
     await fs.writeFile(file, Buffer.from('not an archive'));

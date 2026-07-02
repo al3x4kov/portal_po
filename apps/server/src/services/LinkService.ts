@@ -5,6 +5,8 @@ import {
   assertSingleParent,
   createLinkPair,
   inverseLinkType,
+  isHierarchyType,
+  sameLink,
   type Link,
   type LinkType,
   type Requirement,
@@ -17,9 +19,6 @@ export interface LinkInput {
   type: LinkType;
   targetSlug: string;
 }
-
-const isHierarchy = (t: LinkType): boolean => t === 'PARENT_OF' || t === 'CHILD_OF';
-const sameLink = (a: Link, b: Link): boolean => a.type === b.type && a.targetSlug === b.targetSlug;
 
 /**
  * Use-case layer for links (FR-8): a relationship is stored as a mutually-inverse
@@ -46,7 +45,7 @@ export class LinkService {
 
     assertNoSelfLink(sourceSlug, targetSlug); // SelfLinkError (422)
 
-    if (isHierarchy(type)) {
+    if (isHierarchyType(type)) {
       assertSameType(source, target); // TypeMismatchError (422)
       if (type === 'CHILD_OF') {
         assertSingleParent(requirements, sourceSlug, targetSlug); // MultipleParentError (409)

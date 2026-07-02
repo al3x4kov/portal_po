@@ -1,6 +1,12 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { parse, serialize, type Requirement, type RequirementType } from '@po/core';
+import {
+  REQUIREMENT_FOLDER,
+  parse,
+  serialize,
+  type Requirement,
+  type RequirementType,
+} from '@po/core';
 import { atomicWrite } from '../lib/atomicWrite.js';
 import { ensureDir } from '../lib/ensureDir.js';
 import { resolveSafe } from '../lib/pathSafe.js';
@@ -19,10 +25,7 @@ export interface LoadResult {
 }
 
 /** Folder name (under openspec/specs) that holds requirements of a given type. */
-const FOLDER: Record<RequirementType, string> = {
-  FUNCTION: 'functions',
-  NFR: 'nfr',
-};
+const FOLDER = REQUIREMENT_FOLDER;
 
 const SPECS_DIR = path.join('openspec', 'specs');
 

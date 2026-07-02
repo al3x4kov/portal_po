@@ -2,11 +2,11 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   CRITICALITIES,
+  REQUIREMENT_FOLDER,
   REQUIREMENT_TYPES,
   TARGET_QUARTERS,
   serialize,
   type Requirement,
-  type RequirementType,
 } from '@po/core';
 import { RequirementService } from '../services/RequirementService.js';
 import { FsRequirementRepo } from '../repositories/FsRequirementRepo.js';
@@ -42,7 +42,7 @@ export const listQuery = z.object({
   format: z.enum(['json', 'openspec']).optional(),
 });
 
-const FOLDER_LABEL: Record<RequirementType, string> = { FUNCTION: 'functions', NFR: 'nfr' };
+const FOLDER_LABEL = REQUIREMENT_FOLDER;
 
 /**
  * Concatenate every requirement of a project into a single OpenSpec markdown

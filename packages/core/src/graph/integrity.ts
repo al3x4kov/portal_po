@@ -54,6 +54,11 @@ export function createLinkPair(
   };
 }
 
+/** True when two links are identical (same type + target). */
+export function sameLink(a: Link, b: Link): boolean {
+  return a.type === b.type && a.targetSlug === b.targetSlug;
+}
+
 /** Reject a link from a requirement to itself. */
 export function assertNoSelfLink(sourceSlug: string, targetSlug: string): void {
   if (sourceSlug === targetSlug) {
@@ -187,5 +192,28 @@ export function assertNoCycle(reqs: readonly Requirement[], proposed: ProposedLi
   const cycle = findCycle(edges);
   if (cycle) {
     throw new CycleError(cycle);
+  }
+}
+
+/**
+ * Assert that the whole graph (all persisted links) is free of hierarchy and
+ * dependency cycles. Unlike {@link assertNoCycle} this validates an existing
+ * set rather than a single proposed edge — used when importing an archive.
+ *
+ * @throws {CycleError} with the offending path.
+ */
+export function assertAcyclic(reqs: readonly Requirement[]): void {
+  for (const family of ['hierarchy', 'dependency'] as const) {
+    const edges: Edge[] = [];
+    for (const req of reqs) {
+      for (const link of req.links) {
+        const edge = canonicalEdge(req.slug, link, family);
+        if (edge) edges.push(edge);
+      }
+    }
+    const cycle = findCycle(edges);
+    if (cycle) {
+      throw new CycleError(cycle);
+    }
   }
 }

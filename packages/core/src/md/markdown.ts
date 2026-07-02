@@ -9,6 +9,7 @@ import type {
 import { LINK_TYPES, SCENARIO_KEYWORDS } from '../domain/types.js';
 import { ParseError } from '../domain/errors.js';
 import { formatZodError, requirementSchema } from '../validation/schema.js';
+import { checkTargetRule } from '../validation/targetRule.js';
 
 /**
  * Context that a requirement's markdown file does NOT carry inline: the `slug`
@@ -176,12 +177,12 @@ export function parse(md: string, ctx: ParseContext): Requirement {
   }
   const req = parsed.data;
 
-  // Conditional target rule (2.4): required iff not implemented, forbidden otherwise.
-  if (req.implemented) {
-    if (req.targetQuarter !== undefined || req.targetYear !== undefined) {
-      throw new ParseError('An implemented requirement must not carry a target.');
-    }
-  } else if (req.targetQuarter === undefined || req.targetYear === undefined) {
+  // Conditional target rule (2.4, BE-2): required iff not implemented, forbidden otherwise.
+  const violation = checkTargetRule(req);
+  if (violation?.kind === 'unexpected-target') {
+    throw new ParseError('An implemented requirement must not carry a target.');
+  }
+  if (violation?.kind === 'missing-target') {
     throw new ParseError('A not-implemented requirement requires a target (quarter and year).');
   }
 

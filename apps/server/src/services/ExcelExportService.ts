@@ -1,5 +1,12 @@
 import ExcelJS from 'exceljs';
-import type { Criticality, LinkType, Requirement, RequirementType } from '@po/core';
+import {
+  CRITICALITY_LABEL,
+  LINK_TYPE_LABEL,
+  orderTree,
+  type Criticality,
+  type Requirement,
+  type RequirementType,
+} from '@po/core';
 
 /** Sheet name — mirrors the portal's requirements table. */
 const SHEET_NAME = 'Требования';
@@ -13,15 +20,6 @@ const TYPE_LABEL: Record<RequirementType, string> = {
   NFR: 'НФТ',
 };
 
-/** UI label for a criticality level (mirrors apps/web criticality.ts). */
-const CRITICALITY_LABEL: Record<Criticality, string> = {
-  LOW: 'Low',
-  MEDIUM: 'Medium',
-  HIGH: 'High',
-  CRITICAL: 'Critical',
-  BLOCKER: 'Blocker',
-};
-
 /** Soft background tint per criticality (ARGB) — cosmetic cue for the cell. */
 const CRITICALITY_FILL: Record<Criticality, string> = {
   LOW: 'FFDCFCE7',
@@ -30,69 +28,6 @@ const CRITICALITY_FILL: Record<Criticality, string> = {
   CRITICAL: 'FFFEE2E2',
   BLOCKER: 'FFFECACA',
 };
-
-/** Readable phrase per link type (mirrors apps/web linkTypes.ts LINK_TYPE_LABEL). */
-const LINK_TYPE_LABEL: Record<LinkType, string> = {
-  CHILD_OF: 'является дочерней',
-  PARENT_OF: 'является родителем',
-  RELATES_TO: 'связана с',
-  DEPENDS_ON: 'зависит от',
-  BLOCKED_BY: 'блокируется',
-};
-
-/** A requirement paired with its hierarchy depth (0 = root). */
-interface OrderedRow {
-  req: Requirement;
-  depth: number;
-}
-
-/** Parent slug of a requirement, derived from its CHILD_OF link (mirrors tree.ts). */
-function parentSlugOf(req: Requirement): string | undefined {
-  return req.links.find((l) => l.type === 'CHILD_OF')?.targetSlug;
-}
-
-/**
- * Order a set of requirements as a depth-first tree walk.
- *
- * Roots (no in-set CHILD_OF parent) come first, sorted by name; each node's
- * children (its PARENT_OF targets, resolved via the reciprocal CHILD_OF) follow
- * in depth. Cycle-safe: a shared `seen` set guarantees every requirement is
- * emitted at most once, and any node unreachable from a root (e.g. trapped in a
- * cycle) is appended at depth 0 so the row count always equals the input size.
- */
-function orderTree(reqs: readonly Requirement[]): OrderedRow[] {
-  const bySlug = new Map(reqs.map((r) => [r.slug, r]));
-  const childrenOf = new Map<string, Requirement[]>();
-  const roots: Requirement[] = [];
-
-  for (const req of reqs) {
-    const parent = parentSlugOf(req);
-    if (parent && bySlug.has(parent)) {
-      const list = childrenOf.get(parent) ?? [];
-      list.push(req);
-      childrenOf.set(parent, list);
-    } else {
-      roots.push(req);
-    }
-  }
-
-  const byName = (a: Requirement, b: Requirement): number => a.name.localeCompare(b.name, 'ru');
-  const out: OrderedRow[] = [];
-  const seen = new Set<string>();
-
-  const walk = (req: Requirement, depth: number): void => {
-    if (seen.has(req.slug)) return;
-    seen.add(req.slug);
-    out.push({ req, depth });
-    [...(childrenOf.get(req.slug) ?? [])].sort(byName).forEach((c) => walk(c, depth + 1));
-  };
-
-  [...roots].sort(byName).forEach((r) => walk(r, 0));
-  // Defensive: emit any requirement not reached via a root (cycle guard).
-  [...reqs].sort(byName).forEach((r) => walk(r, 0));
-
-  return out;
-}
 
 /** Delivery status text: `Реализовано`, or the planned `Q<n> <year>` target. */
 function formatImplementation(req: Requirement): string {
@@ -139,9 +74,9 @@ export class ExcelExportService {
 
     const functions = reqs.filter((r) => r.type === 'FUNCTION');
     const nfrs = reqs.filter((r) => r.type === 'NFR');
-    const ordered: OrderedRow[] = [...orderTree(functions), ...orderTree(nfrs)];
+    const ordered = [...orderTree(functions), ...orderTree(nfrs)];
 
-    for (const { req, depth } of ordered) {
+    for (const { requirement: req, depth } of ordered) {
       const row = ws.addRow({
         name: req.name,
         type: TYPE_LABEL[req.type],

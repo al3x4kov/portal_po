@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { requirementSchema } from '@po/core';
+import { checkTargetRule, requirementSchema } from '@po/core';
 
 /**
  * Form schema reused from core's requirementSchema (same field rules: name
@@ -18,18 +18,13 @@ export const requirementFormSchema = requirementSchema
     targetYear: true,
   })
   .superRefine((val, ctx) => {
-    if (!val.implemented) {
-      if (!val.targetQuarter) {
+    // Reuse the shared implemented ⟺ target predicate from core (BE-2).
+    const violation = checkTargetRule(val);
+    if (violation?.kind === 'missing-target') {
+      for (const field of violation.fields) {
         ctx.addIssue({
           code: 'custom',
-          path: ['targetQuarter'],
-          message: 'Обязательно, пока требование не реализовано',
-        });
-      }
-      if (val.targetYear === undefined) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['targetYear'],
+          path: [field],
           message: 'Обязательно, пока требование не реализовано',
         });
       }

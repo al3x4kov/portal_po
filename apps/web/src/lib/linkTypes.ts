@@ -1,13 +1,7 @@
-import { LINK_TYPES, type LinkType } from '@po/core';
+import { LINK_TYPES, LINK_TYPE_LABEL, type LinkType } from '@po/core';
 
-/** Short readable label for a link type, used in the select options. */
-export const LINK_TYPE_LABEL: Record<LinkType, string> = {
-  CHILD_OF: 'является дочерней',
-  PARENT_OF: 'является родителем',
-  RELATES_TO: 'связана с',
-  DEPENDS_ON: 'зависит от',
-  BLOCKED_BY: 'блокируется',
-};
+// Short readable labels live in core (BE-3); re-exported for existing web imports.
+export { LINK_TYPE_LABEL } from '@po/core';
 
 /** Phrase (with connector) used to build the readable relationship sentence. */
 export const LINK_TYPE_PHRASE: Record<LinkType, string> = {

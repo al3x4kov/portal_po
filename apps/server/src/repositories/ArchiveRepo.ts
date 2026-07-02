@@ -5,6 +5,11 @@ import { Readable } from 'node:stream';
 import AdmZip from 'adm-zip';
 import * as tar from 'tar';
 import {
+  DomainError,
+  REQUIREMENT_FOLDER,
+  assertAcyclic,
+  assertNoSelfLink,
+  assertSingleParent,
   inverseLinkType,
   parse,
   serializeManifest,
@@ -28,7 +33,7 @@ export interface ExportResult {
 
 const MANIFEST = path.join('openspec', 'project.md');
 const SPECS_DIR = path.join('openspec', 'specs');
-const FOLDER: Record<RequirementType, string> = { FUNCTION: 'functions', NFR: 'nfr' };
+const FOLDER = REQUIREMENT_FOLDER;
 const IMPORT_TMP = '.import-tmp';
 
 /** Detect archive format from the leading magic bytes. */
@@ -164,41 +169,46 @@ export class ArchiveRepo {
     const bySlug = new Map<string, Requirement>();
     for (const r of reqs) bySlug.set(key(r.type, r.slug), r);
 
-    for (const req of reqs) {
-      let parents = 0;
-      for (const linkRef of req.links) {
-        if (linkRef.targetSlug === req.slug) {
-          // A self-reference within the same type is invalid.
-          const self = bySlug.get(key(req.type, linkRef.targetSlug));
-          if (self === req) {
-            throw new ArchiveError(`Requirement "${req.slug}" links to itself.`);
+    // Route link integrity through core/graph so the import shares the exact same
+    // rules as interactive editing (BE-2). Core raises typed DomainErrors; they
+    // are re-wrapped as ArchiveError so import failures map to a single code.
+    try {
+      for (const req of reqs) {
+        for (const linkRef of req.links) {
+          // Resolve the target: same type first (hierarchy), then any type (associations).
+          const other =
+            bySlug.get(key(req.type, linkRef.targetSlug)) ??
+            reqs.find((r) => r.slug === linkRef.targetSlug && r !== req);
+          if (other === req) {
+            assertNoSelfLink(req.slug, linkRef.targetSlug); // SelfLinkError
+          }
+          if (!other) {
+            throw new ArchiveError(
+              `Dangling link: "${req.slug}" references missing "${linkRef.targetSlug}".`,
+            );
+          }
+          const inverse = inverseLinkType(linkRef.type);
+          const reciprocated = other.links.some(
+            (l) => l.type === inverse && l.targetSlug === req.slug,
+          );
+          if (!reciprocated) {
+            throw new ArchiveError(
+              `Link from "${req.slug}" to "${linkRef.targetSlug}" is missing its inverse on the target.`,
+            );
           }
         }
-        // Resolve the target: same type first (hierarchy), then any type (associations).
-        const other =
-          bySlug.get(key(req.type, linkRef.targetSlug)) ??
-          reqs.find((r) => r.slug === linkRef.targetSlug && r !== req);
-        if (!other) {
-          throw new ArchiveError(
-            `Dangling link: "${req.slug}" references missing "${linkRef.targetSlug}".`,
-          );
-        }
-        const inverse = inverseLinkType(linkRef.type);
-        const reciprocated = other.links.some(
-          (l) => l.type === inverse && l.targetSlug === req.slug,
-        );
-        if (!reciprocated) {
-          throw new ArchiveError(
-            `Link from "${req.slug}" to "${linkRef.targetSlug}" is missing its inverse on the target.`,
-          );
-        }
-        if (linkRef.type === 'CHILD_OF') parents += 1;
-      }
-      if (parents > 1) {
-        throw new ArchiveError(
-          `Requirement "${req.slug}" has ${parents} parents (only one allowed).`,
+        // At most one parent per requirement (scoped to its own type). MultipleParentError.
+        assertSingleParent(
+          reqs.filter((r) => r.type === req.type),
+          req.slug,
         );
       }
+      // Reject hierarchy/dependency cycles across the whole graph (BE-2 gap). CycleError.
+      assertAcyclic(reqs);
+    } catch (err) {
+      if (err instanceof ArchiveError) throw err;
+      if (err instanceof DomainError) throw new ArchiveError(err.message);
+      throw err;
     }
   }
 
