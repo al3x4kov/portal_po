@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { LINK_TYPES, type LinkType, type Requirement } from '@po/core';
+import { LINK_TYPES, type LinkType, type Requirement, type RequirementType } from '@po/core';
 import { useCreateLink } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import { LINK_TYPE_OPTIONS, describeLink } from '../lib/linkTypes';
@@ -11,6 +11,8 @@ interface LinkModalProps {
   source: Requirement;
   requirements: Requirement[];
   onClose: () => void;
+  /** T-517: pre-filter candidates to this type when opening from RequirementModal. */
+  initialTypeFilter?: RequirementType;
 }
 
 export function LinkModal({
@@ -18,11 +20,13 @@ export function LinkModal({
   source,
   requirements,
   onClose,
+  initialTypeFilter,
 }: LinkModalProps): React.ReactElement {
   const [type, setType] = useState<LinkType>('CHILD_OF');
   const [search, setSearch] = useState('');
   const [target, setTarget] = useState<Requirement | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [typeFilter] = useState<RequirementType | null>(initialTypeFilter ?? null);
 
   const createMut = useCreateLink(projectId);
 
@@ -33,10 +37,11 @@ export function LinkModal({
     const q = search.trim().toLowerCase();
     return requirements
       .filter((r) => r.slug !== source.slug)
+      .filter((r) => (typeFilter !== null ? r.type === typeFilter : true))
       .filter((r) => (q.length === 0 ? true : r.name.toLowerCase().includes(q)))
       .slice(0, 25)
       .map((r) => ({ req: r, status: linkCandidateStatus(requirements, source, type, r) }));
-  }, [requirements, search, source, type]);
+  }, [requirements, search, source, type, typeFilter]);
 
   // The chosen target may become incompatible after the link type changes.
   const targetOk = target != null && linkCandidateStatus(requirements, source, type, target).ok;

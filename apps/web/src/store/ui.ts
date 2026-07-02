@@ -12,8 +12,10 @@ export type ModalState =
       /** T4: preset a link from this source slug once the new requirement is created. */
       linkFrom?: string;
       linkType?: LinkType;
+      /** T-515: auto-focus a specific field when the modal opens. */
+      focusField?: 'description';
     }
-  | { kind: 'link'; source: Requirement }
+  | { kind: 'link'; source: Requirement; initialTypeFilter?: RequirementType }
   | { kind: 'delete'; requirement: Requirement }
   | { kind: 'export' }
   | { kind: 'export-tasks' }

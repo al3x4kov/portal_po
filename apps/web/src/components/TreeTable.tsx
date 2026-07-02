@@ -1,8 +1,11 @@
+import { Fragment, useState } from 'react';
 import type { LinkType, Requirement } from '@po/core';
 import type { VisibleRow } from '../lib/visibility';
+import { buildLineGuides, type LineGuide } from '../lib/treeLines';
 import { nestedLabel } from '../lib/plural';
 import { LINK_TYPE_LABEL, describeLink } from '../lib/linkTypes';
 import { CriticalityBadge, ImplementationBadge } from './badges';
+import { InlineAddChildForm } from './InlineAddChildForm';
 
 /** Link types shown as inline relationship chips (hierarchy is shown by the tree itself). */
 const REL_TYPES: readonly LinkType[] = ['RELATES_TO', 'DEPENDS_ON', 'BLOCKED_BY'];
@@ -18,6 +21,84 @@ function relChipStyle(type: LinkType): React.CSSProperties {
   }
 }
 
+/* ── SVG icon components (Lucide-style, 18×18) ─────────────────────────── */
+
+function IconChainLink(): React.ReactElement {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+function IconCirclePlus(): React.ReactElement {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="16" />
+      <line x1="8" y1="12" x2="16" y2="12" />
+    </svg>
+  );
+}
+
+function IconTrash(): React.ReactElement {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14H6L5 6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+      <path d="M9 6V4h6v2" />
+    </svg>
+  );
+}
+
+/* ── Shared icon-button base style ─────────────────────────────────────── */
+const iconBtnBase: React.CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  cursor: 'pointer',
+  padding: '4px',
+  borderRadius: '4px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: 'var(--color-text-3)',
+  width: 30,
+  height: 30,
+};
+
 interface TreeTableProps {
   title: string;
   addLabel: string;
@@ -32,6 +113,10 @@ interface TreeTableProps {
   onLink: (req: Requirement) => void;
   /** T4: add an NFR pre-linked to a functional requirement (only wired for the ФТ section). */
   onAddNfr?: (req: Requirement) => void;
+  /** T-509: add a child functional requirement (FUNCTION rows only). */
+  onAddChild?: (req: Requirement) => void;
+  /** T-510: inline add-child form handler (parentSlug, childName) => Promise. */
+  onInlineAddChild?: (parentSlug: string, name: string) => Promise<void>;
   onDelete: (req: Requirement) => void;
   onDescExpand: (req: Requirement) => void;
   /** Expand a collapsed branch (collapse mode chip). */
@@ -50,10 +135,12 @@ interface TreeTableProps {
 
 function Row({
   row,
+  lineGuides,
   nameBySlug,
   onEdit,
   onLink,
   onAddNfr,
+  onAddChild,
   onDelete,
   onDescExpand,
   onExpandNode,
@@ -61,10 +148,12 @@ function Row({
   interactiveChevron,
 }: {
   row: VisibleRow;
+  lineGuides: LineGuide[];
   nameBySlug: Map<string, string>;
   onEdit: (r: Requirement) => void;
   onLink: (r: Requirement) => void;
   onAddNfr?: (r: Requirement) => void;
+  onAddChild?: (r: Requirement) => void;
   onDelete: (r: Requirement) => void;
   onDescExpand: (r: Requirement) => void;
   onExpandNode: (slug: string) => void;
@@ -77,6 +166,10 @@ function Row({
   const relLinks = req.links.filter((l) => REL_TYPES.includes(l.type));
   // T4: only functional requirements can spawn a pre-linked NFR (ФТ BLOCKED_BY НФТ).
   const canAddNfr = Boolean(onAddNfr) && req.type === 'FUNCTION';
+  // T-509: functional rows get an "add child" button.
+  const canAddChild = Boolean(onAddChild) && req.type === 'FUNCTION';
+  // T-509: disable delete when node has children.
+  const deleteDisabled = row.hasChildren;
 
   return (
     <tr
@@ -87,7 +180,17 @@ function Row({
       data-row-kind={row.kind}
     >
       <td className="py-2.5 pr-3 align-middle">
-        <div className="flex min-w-0 items-center gap-1.5" style={{ paddingLeft: row.depth * 24 }}>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {/* T-507: CSS tree line guides — one span per ancestor level */}
+          {lineGuides.map((guide, k) => (
+            <span
+              key={k}
+              className={`tree-guide tree-guide--${guide}`}
+              aria-hidden="true"
+              style={{ flexShrink: 0, width: '20px', position: 'relative', alignSelf: 'stretch' }}
+            />
+          ))}
+          {/* Chevron / bullet indicator */}
           {row.hasChildren ? (
             interactiveChevron ? (
               <button
@@ -97,13 +200,19 @@ function Row({
                 data-testid="toggle-node"
                 data-slug={req.slug}
                 aria-expanded={!collapsedBranch}
-                aria-label={collapsedBranch ? `Раскрыть «${req.name}»` : `Свернуть «${req.name}»`}
+                aria-label={
+                  collapsedBranch ? `Раскрыть «${req.name}»` : `Свернуть «${req.name}»`
+                }
                 onClick={() => onToggleNode?.(req.slug)}
               >
                 {collapsedBranch ? '▸' : '▾'}
               </button>
             ) : (
-              <span className="text-sm" style={{ color: 'var(--color-text-3)' }} aria-hidden="true">
+              <span
+                className="text-sm"
+                style={{ color: 'var(--color-text-3)' }}
+                aria-hidden="true"
+              >
                 {collapsedBranch ? '▸' : '▾'}
               </span>
             )
@@ -116,7 +225,7 @@ function Row({
               •
             </span>
           )}
-          {/* UX-10: the name is an explicit edit affordance (link-style button). */}
+          {/* UX-10: name is an explicit edit affordance (link-style button). */}
           <button
             type="button"
             className="min-w-0 truncate text-left font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid"
@@ -196,42 +305,68 @@ function Row({
           </span>
         </button>
       </td>
-      <td className="w-[210px] py-2.5 pr-4 align-middle text-right">
-        {/* UX-1 / UX-9: actions stay fully visible and keyboard-reachable,
-            identical on desktop/mobile. Emphasis on hover/focus comes from the
-            btn-ghost background — never from opacity, which would drop the text
-            below the WCAG AA contrast floor in the resting state (QA-1). */}
+      {/* T-509: icon action buttons hidden at rest, visible on row hover */}
+      <td className="w-[140px] py-2.5 pr-4 align-middle text-right">
         <div
-          className="inline-flex flex-nowrap justify-end gap-1 whitespace-nowrap"
+          className="inline-flex flex-nowrap justify-end gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100"
           data-testid={`row-actions-${req.slug}`}
         >
+          {/* ФТ-only: add child (T-510 will wire the create modal) */}
+          {canAddChild ? (
+            <button
+              type="button"
+              style={{ ...iconBtnBase, color: 'var(--color-primary)' }}
+              data-testid="row-add-child"
+              data-slug={req.slug}
+              title="Добавить дочернее требование"
+              aria-label="Добавить дочернее требование"
+              onClick={() => onAddChild?.(req)}
+            >
+              <IconCirclePlus />
+            </button>
+          ) : null}
+          {/* Link button — all rows */}
+          <button
+            type="button"
+            style={iconBtnBase}
+            className="hover:text-[var(--color-primary)]"
+            data-testid={`link-btn-${req.slug}`}
+            title="Связать с другим требованием"
+            aria-label="Связать с другим требованием"
+            onClick={() => onLink(req)}
+          >
+            <IconChainLink />
+          </button>
+          {/* ФТ-only: add pre-linked NFR */}
           {canAddNfr ? (
             <button
               type="button"
-              className="btn btn-ghost px-2 py-1 text-xs"
+              style={{ ...iconBtnBase, color: 'var(--color-success)' }}
               data-testid="row-add-nfr"
               data-slug={req.slug}
+              title="Добавить связанное НФТ"
+              aria-label="Добавить связанное НФТ"
               onClick={() => onAddNfr?.(req)}
             >
-              + НФТ
+              <IconCirclePlus />
             </button>
           ) : null}
+          {/* Delete — all rows; disabled when node has children */}
           <button
             type="button"
-            className="btn btn-ghost px-2 py-1 text-xs"
-            data-testid={`link-btn-${req.slug}`}
-            onClick={() => onLink(req)}
-          >
-            Связать
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost px-2 py-1 text-xs"
-            style={{ color: 'var(--color-danger)' }}
+            style={
+              deleteDisabled
+                ? { ...iconBtnBase, opacity: 0.4, cursor: 'not-allowed' }
+                : iconBtnBase
+            }
+            className={deleteDisabled ? '' : 'hover:text-[var(--color-danger)]'}
             data-testid={`delete-btn-${req.slug}`}
-            onClick={() => onDelete(req)}
+            title={deleteDisabled ? 'Сначала удалите дочерние' : 'Удалить требование'}
+            aria-label={deleteDisabled ? 'Сначала удалите дочерние' : 'Удалить требование'}
+            disabled={deleteDisabled}
+            onClick={() => !deleteDisabled && onDelete(req)}
           >
-            Удалить
+            <IconTrash />
           </button>
         </div>
       </td>
@@ -250,12 +385,20 @@ export function TreeTable({
   onEdit,
   onLink,
   onAddNfr,
+  onAddChild,
+  onInlineAddChild,
   onDelete,
   onDescExpand,
   onExpandNode,
   onToggleNode,
   interactiveChevron,
 }: TreeTableProps): React.ReactElement {
+  // T-507: compute tree line guides for all visible rows in one pass.
+  const guides = buildLineGuides(rows);
+
+  // T-510: slug of the parent row that triggered the inline add-child form (null = hidden).
+  const [addingChildAfter, setAddingChildAfter] = useState<string | null>(null);
+
   return (
     <section className="card mb-5 overflow-hidden" data-testid={`section-${testidPrefix}`}>
       <div
@@ -304,24 +447,42 @@ export function TreeTable({
                 <th className="w-[140px] px-4 py-2 font-semibold">Реализация</th>
                 <th className="w-[20%] px-4 py-2 font-semibold">Связи</th>
                 <th className="px-4 py-2 font-semibold">Описание</th>
-                <th className="w-[210px] px-4 py-2" />
+                <th className="w-[140px] px-4 py-2" />
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <Row
-                  key={row.requirement.slug}
-                  row={row}
-                  nameBySlug={nameBySlug}
-                  onEdit={onEdit}
-                  onLink={onLink}
-                  onAddNfr={onAddNfr}
-                  onDelete={onDelete}
-                  onDescExpand={onDescExpand}
-                  onExpandNode={onExpandNode}
-                  onToggleNode={onToggleNode}
-                  interactiveChevron={interactiveChevron}
-                />
+              {rows.map((row, i) => (
+                <Fragment key={row.requirement.slug}>
+                  <Row
+                    row={row}
+                    lineGuides={guides[i]}
+                    nameBySlug={nameBySlug}
+                    onEdit={onEdit}
+                    onLink={onLink}
+                    onAddNfr={onAddNfr}
+                    onAddChild={
+                      onInlineAddChild
+                        ? (req) => setAddingChildAfter(req.slug)
+                        : onAddChild
+                    }
+                    onDelete={onDelete}
+                    onDescExpand={onDescExpand}
+                    onExpandNode={onExpandNode}
+                    onToggleNode={onToggleNode}
+                    interactiveChevron={interactiveChevron}
+                  />
+                  {addingChildAfter === row.requirement.slug ? (
+                    <InlineAddChildForm
+                      parentSlug={row.requirement.slug}
+                      depth={row.depth + 1}
+                      onSave={async (name) => {
+                        await onInlineAddChild!(row.requirement.slug, name);
+                        setAddingChildAfter(null);
+                      }}
+                      onCancel={() => setAddingChildAfter(null)}
+                    />
+                  ) : null}
+                </Fragment>
               ))}
             </tbody>
           </table>

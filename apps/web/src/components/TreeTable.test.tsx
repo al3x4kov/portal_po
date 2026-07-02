@@ -260,14 +260,14 @@ describe('TreeTable (T-1102, FR-7)', () => {
     expect(rowEl.querySelector('[data-testid="delete-btn-f1"]')).not.toBeNull();
   });
 
-  it('UX-1/UX-9: row actions are always visible (no opacity dimming) and keyboard-reachable', () => {
+  it('T-509: row actions are hidden by default (opacity-0) and always in DOM (keyboard-reachable)', () => {
     renderTree(false);
     const actions = screen.getByTestId('row-actions-r2');
-    // Actions are fully visible at rest — no opacity-70 dimming (UX-9: dimming dropped
-    // contrast below AA; emphasis now comes from the btn-ghost hover background instead).
-    expect(actions.className).not.toContain('opacity-0');
-    expect(actions.className).not.toContain('opacity-70');
-    // The action buttons are always in the DOM inside the row card (keyboard-reachable).
+    // T-509: hidden at rest via opacity-0, shown on hover via group-hover:opacity-100.
+    // Always in DOM so keyboard users can still reach the buttons.
+    expect(actions.className).toContain('opacity-0');
+    expect(actions.className).toContain('group-hover:opacity-100');
+    // The action buttons are always in the DOM inside the row (keyboard-reachable).
     const rowEl = screen.getByTestId('tree-row-r2');
     expect(rowEl.contains(actions)).toBe(true);
     expect(actions.querySelector('[data-testid="delete-btn-r2"]')).not.toBeNull();

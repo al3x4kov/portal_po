@@ -24,6 +24,29 @@ export const projectsApi = {
   },
   export: (id: string, format: ArchiveFormat) =>
     apiDownload(`/projects/${encodeURIComponent(id)}/export?format=${format}`),
+  /** T-523: Selective archive export via POST /api/projects/:id/export/selected.
+   *  Returns the same { blob, filename } shape as apiDownload. */
+  exportSelected: async (
+    id: string,
+    format: ArchiveFormat,
+    slugs: string[],
+  ): Promise<{ blob: Blob; filename: string }> => {
+    const res = await fetch(`/api/projects/${encodeURIComponent(id)}/export/selected`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format, slugs }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Export failed: ${text}`);
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('content-disposition') ?? '';
+    const match = /filename="?([^"]+)"?/.exec(disposition);
+    const ext = format === 'zip' ? 'zip' : 'tar.gz';
+    const filename = match ? match[1] : `${id}-partial.${ext}`;
+    return { blob, filename };
+  },
   /** UX-8: Excel export goes through the same fetch/blob path as the archives so
    *  errors and the busy state are handled uniformly (no bare `<a download>`). */
   exportXlsx: (id: string) => apiDownload(`/projects/${encodeURIComponent(id)}/export.xlsx`),

@@ -2,7 +2,22 @@ import { useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import type { Requirement } from '@po/core';
 import { useProject, useRequirements } from '../api/hooks';
+import { Sidebar } from '../components/Sidebar';
 import { PathHeader } from '../components/PathHeader';
+import { CriticalityBadge } from '../components/badges';
+import { useUiStore } from '../store/ui';
+import { RequirementModal } from '../components/RequirementModal';
+import { ExportModal } from '../components/ExportModal';
+import { ExportTasksModal } from '../components/ExportTasksModal';
+
+// T-514: criticality sort order
+const CRIT_ORDER: Record<string, number> = {
+  BLOCKER: 0,
+  CRITICAL: 1,
+  HIGH: 2,
+  MEDIUM: 3,
+  LOW: 4,
+};
 
 /** Group requirements by date string (YYYY-MM-DD) using the updatedAt field. */
 function groupByDay(reqs: Requirement[]): Map<string, number> {
@@ -42,7 +57,6 @@ function ActivityChart({ byDay }: { byDay: Map<string, number> }): React.ReactEl
         aria-label="График активности изменений требований"
         role="img"
       >
-        {/* Y grid lines */}
         {[0.25, 0.5, 0.75, 1].map((f) => {
           const y = PAD.top + chartH * (1 - f);
           return (
@@ -68,7 +82,6 @@ function ActivityChart({ byDay }: { byDay: Map<string, number> }): React.ReactEl
           );
         })}
 
-        {/* Bars */}
         {entries.map(([day, count], i) => {
           const barH = maxVal === 0 ? 0 : (count / maxVal) * chartH;
           const x = PAD.left + i * ((chartW + 2) / entries.length);
@@ -104,7 +117,6 @@ function ActivityChart({ byDay }: { byDay: Map<string, number> }): React.ReactEl
           );
         })}
 
-        {/* X axis */}
         <line
           x1={PAD.left}
           x2={PAD.left + chartW}
@@ -123,11 +135,13 @@ function StatCard({
   value,
   detail,
   tone,
+  testid,
 }: {
   label: string;
   value: number;
   detail?: string;
   tone?: 'danger' | 'warning' | 'success';
+  testid?: string;
 }): React.ReactElement {
   const colorMap = {
     danger: { bg: 'var(--color-danger-bg)', fg: 'var(--color-danger-fg)' },
@@ -139,7 +153,7 @@ function StatCard({
     <div
       className="card p-5"
       style={colors ? { background: colors.bg } : undefined}
-      data-testid="dashboard-stat"
+      data-testid={testid ?? 'dashboard-stat'}
     >
       <p
         className="text-3xl font-bold"
@@ -168,13 +182,11 @@ export function Dashboard(): React.ReactElement {
   const functional = requirements.filter((r) => r.type === 'FUNCTION');
   const nfr = requirements.filter((r) => r.type === 'NFR');
 
-  // a) Root functions: no CHILD_OF link (= no parent)
   const rootFunctions = useMemo(
     () => functional.filter((r) => !r.links.some((l) => l.type === 'CHILD_OF')),
     [functional],
   );
 
-  // b) Functions without a linked NFR: no link pointing to an NFR slug
   const nfrSlugs = useMemo(() => new Set(nfr.map((r) => r.slug)), [nfr]);
   const functionsWithoutNfr = useMemo(
     () =>
@@ -184,21 +196,55 @@ export function Dashboard(): React.ReactElement {
     [functional, nfrSlugs],
   );
 
-  // c) Activity by day across all requirements
   const activityByDay = useMemo(() => groupByDay(requirements), [requirements]);
+
+  // T-514: requirements without description, sorted by criticality
+  const fnNoDesc = useMemo(
+    () =>
+      functional
+        .filter((r) => !r.description?.trim())
+        .sort((a, b) => (CRIT_ORDER[a.criticality] ?? 9) - (CRIT_ORDER[b.criticality] ?? 9)),
+    [functional],
+  );
+  const nfrNoDesc = useMemo(
+    () =>
+      nfr
+        .filter((r) => !r.description?.trim())
+        .sort((a, b) => (CRIT_ORDER[a.criticality] ?? 9) - (CRIT_ORDER[b.criticality] ?? 9)),
+    [nfr],
+  );
+
+  const modal = useUiStore((s) => s.modal);
+  const openModal = useUiStore((s) => s.openModal);
+  const closeModal = useUiStore((s) => s.closeModal);
+
+  const nameBySlug = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of requirements) m.set(r.slug, r.name);
+    return m;
+  }, [requirements]);
 
   const isLoading = reqQuery.isLoading || projectQuery.isLoading;
 
   return (
-    <div className="flex min-h-screen flex-col" data-testid="dashboard-page">
-      <PathHeader
-        name={projectQuery.data?.name ?? id}
-        mainPath={projectQuery.data?.mainPath ?? ''}
+    <>
+      <Sidebar
         projectId={id}
         activePage="dashboard"
+        onOpenExport={() => openModal({ kind: 'export' })}
+        onOpenTasks={() => openModal({ kind: 'export-tasks' })}
       />
+      <div
+        className="flex min-h-screen flex-col"
+        style={{ marginLeft: 'var(--sidebar-width)' }}
+        data-testid="dashboard-page"
+      >
+        <PathHeader
+          name={projectQuery.data?.name ?? id}
+          mainPath={projectQuery.data?.mainPath ?? ''}
+        />
 
-      <main className="mx-auto w-full max-w-4xl flex-1 space-y-6 p-6">
+        <main className="mx-auto w-full max-w-4xl flex-1 space-y-6 p-6">
         <h1 className="text-xl font-bold">Дашборд проекта</h1>
 
         {isLoading ? (
@@ -207,7 +253,6 @@ export function Dashboard(): React.ReactElement {
           </p>
         ) : (
           <>
-            {/* Stat cards */}
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <StatCard
                 label="Функций (ФТ)"
@@ -218,8 +263,9 @@ export function Dashboard(): React.ReactElement {
               <StatCard
                 label="Корневых функций"
                 value={rootFunctions.length}
-                detail="без родительской функции"
-                tone={rootFunctions.length === functional.length ? 'warning' : undefined}
+                detail={rootFunctions.length > 0 ? '⚠ Есть ФТ без родителя' : undefined}
+                tone={rootFunctions.length > 0 ? 'danger' : 'success'}
+                testid="stat-root-functions"
               />
               <StatCard
                 label="ФТ без НФТ"
@@ -229,7 +275,6 @@ export function Dashboard(): React.ReactElement {
               />
             </div>
 
-            {/* Activity chart */}
             <div className="card p-5">
               <h2 className="mb-4 font-semibold">
                 Динамика изменений ФТ/НФТ{' '}
@@ -240,7 +285,91 @@ export function Dashboard(): React.ReactElement {
               <ActivityChart byDay={activityByDay} />
             </div>
 
-            {/* Functions without NFT list */}
+            {fnNoDesc.length > 0 || nfrNoDesc.length > 0 ? (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {fnNoDesc.length > 0 ? (
+                  <div className="card p-4" data-testid="dash-no-desc-ft">
+                    <h2 className="mb-3 font-semibold">
+                      ФТ без описания
+                      <span
+                        className="ml-2 rounded-full px-2 py-0.5 text-xs font-bold"
+                        style={{
+                          background: 'var(--color-warning-bg)',
+                          color: 'var(--color-warning-fg)',
+                        }}
+                      >
+                        {fnNoDesc.length}
+                      </span>
+                    </h2>
+                    <ul className="space-y-2">
+                      {fnNoDesc.map((r) => (
+                        <li key={r.slug} className="flex items-center gap-2">
+                          <CriticalityBadge criticality={r.criticality} />
+                          <span className="flex-1 truncate text-sm">{r.name}</span>
+                          <button
+                            type="button"
+                            className="btn btn-ghost px-2 py-0.5 text-xs"
+                            style={{ color: 'var(--color-primary)' }}
+                            data-testid={`dash-no-desc-open-${r.slug}`}
+                            onClick={() =>
+                              openModal({
+                                kind: 'requirement',
+                                reqType: r.type,
+                                requirement: r,
+                                focusField: 'description',
+                              })
+                            }
+                          >
+                            + Описание
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {nfrNoDesc.length > 0 ? (
+                  <div className="card p-4" data-testid="dash-no-desc-nfr">
+                    <h2 className="mb-3 font-semibold">
+                      НФТ без описания
+                      <span
+                        className="ml-2 rounded-full px-2 py-0.5 text-xs font-bold"
+                        style={{
+                          background: 'var(--color-warning-bg)',
+                          color: 'var(--color-warning-fg)',
+                        }}
+                      >
+                        {nfrNoDesc.length}
+                      </span>
+                    </h2>
+                    <ul className="space-y-2">
+                      {nfrNoDesc.map((r) => (
+                        <li key={r.slug} className="flex items-center gap-2">
+                          <CriticalityBadge criticality={r.criticality} />
+                          <span className="flex-1 truncate text-sm">{r.name}</span>
+                          <button
+                            type="button"
+                            className="btn btn-ghost px-2 py-0.5 text-xs"
+                            style={{ color: 'var(--color-primary)' }}
+                            data-testid={`dash-no-desc-open-${r.slug}`}
+                            onClick={() =>
+                              openModal({
+                                kind: 'requirement',
+                                reqType: r.type,
+                                requirement: r,
+                                focusField: 'description',
+                              })
+                            }
+                          >
+                            + Описание
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {functionsWithoutNfr.length > 0 ? (
               <div className="card p-5">
                 <h2 className="mb-3 font-semibold">
@@ -267,6 +396,28 @@ export function Dashboard(): React.ReactElement {
           </>
         )}
       </main>
-    </div>
+
+      {modal?.kind === 'requirement' ? (
+        <RequirementModal
+          projectId={id}
+          reqType={modal.reqType}
+          requirement={modal.requirement}
+          nameBySlug={nameBySlug}
+          linkFrom={modal.linkFrom}
+          linkType={modal.linkType}
+          focusField={modal.focusField}
+          onClose={closeModal}
+        />
+      ) : null}
+
+      {modal?.kind === 'export' ? (
+        <ExportModal projectId={id} requirements={requirements} onClose={closeModal} />
+      ) : null}
+
+      {modal?.kind === 'export-tasks' ? (
+        <ExportTasksModal projectId={id} requirements={requirements} onClose={closeModal} />
+      ) : null}
+      </div>
+    </>
   );
 }

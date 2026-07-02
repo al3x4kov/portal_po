@@ -235,22 +235,22 @@ export async function deleteRequirement(page: Page, name: string): Promise<void>
 }
 
 /**
- * Attempt to delete a node that still has children; expect it to be blocked
- * (UX-3, S15): the dialog warns about the children *and* the destructive
- * confirm is disabled up-front — the click that would fail server-side never
- * happens. Cancel leaves the requirement intact.
+ * Verify that deleting a node that still has children is blocked (UX-3, S15).
+ *
+ * Wave 1-2 behaviour: the delete button is rendered `disabled` when the row
+ * has children — the dialog never opens.  The test hovers the row to make the
+ * action column visible, then asserts the button is disabled and the row is
+ * still present.
  */
 export async function expectDeleteBlocked(page: Page, name: string): Promise<void> {
-  await rowByName(page, name).locator('[data-testid^="delete-btn-"]').click();
-  const dialog = page.getByTestId('delete-dialog');
-  await expect(dialog).toBeVisible();
-  // The dialog warns about children up-front (danger note).
-  await expect(page.getByTestId('delete-dialog-note')).toContainText('дочерних');
-  // UX-3: the destructive action is disabled while children exist.
-  await expect(page.getByTestId('delete-dialog-confirm')).toBeDisabled();
-  await page.getByTestId('delete-dialog-cancel').click();
-  await expect(dialog).toBeHidden();
-  await expect(rowByName(page, name)).toBeVisible();
+  const row = rowByName(page, name);
+  await row.hover();
+  const deleteBtn = row.locator('[data-testid^="delete-btn-"]');
+  // UX-3 / Wave 1-2: button must be disabled while children exist.
+  await expect(deleteBtn).toBeDisabled();
+  // No dialog should open — the row stays intact.
+  await expect(page.getByTestId('delete-dialog')).toBeHidden();
+  await expect(row).toBeVisible();
 }
 
 /** Download a .zip / .tar.gz export archive and return the saved file path. */
@@ -260,7 +260,7 @@ export async function exportArchive(
   testInfo: TestInfo,
 ): Promise<string> {
   // Open the ExportModal (footer button), skip selection step, pick the format.
-  await page.getByTestId('footer-export').click();
+  await page.getByTestId('sidebar-open-export').click();
   await page.getByTestId('export-next').click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),

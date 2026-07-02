@@ -148,9 +148,11 @@ test.describe('T-702 edge cases', () => {
     // Delete the leaf child; this must cascade-clean parent's PARENT_OF link.
     await deleteRequirement(page, child);
 
-    // Parent now has no children: its delete dialog reports it is safe and succeeds,
-    // proving the reverse PARENT_OF link was cleaned up.
-    await rowByName(page, parent).locator('[data-testid^="delete-btn-"]').click();
+    // Parent now has no children: its delete button is enabled again.
+    // Hover the row first so the action column is visible, then click delete.
+    const parentRow = rowByName(page, parent);
+    await parentRow.hover();
+    await parentRow.locator('[data-testid^="delete-btn-"]').click();
     await expect(page.getByTestId('delete-dialog')).toBeVisible();
     await expect(page.getByTestId('delete-dialog-note')).toContainText('нет дочерних');
     await page.getByTestId('delete-dialog-confirm').click();

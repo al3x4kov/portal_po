@@ -9,7 +9,7 @@ interface ExportTasksModalProps {
 }
 
 type Direction = 'tracker' | 'smoke' | 'crit-regression' | 'full';
-type Step = 'choose' | 'select' | 'preview';
+type Step = 'choose' | 'select' | 'unimpl-question' | 'preview';
 
 const DIRECTION_INFO: Record<Direction, { title: string; icon: string; description: string }> = {
   tracker: {
@@ -86,7 +86,7 @@ const CRIT_ORDER: Record<string, number> = {
 };
 
 // ── Smoke generator ─────────────────────────────────────────────────────────
-function generateSmoke(reqs: Requirement[], _nameBySlug: Map<string, string>): string {
+export function generateSmoke(reqs: Requirement[], _nameBySlug: Map<string, string>): string {
   const fn = reqs.filter((r) => r.type === 'FUNCTION');
   const included = fn.filter(
     (r) =>
@@ -135,7 +135,10 @@ function generateSmoke(reqs: Requirement[], _nameBySlug: Map<string, string>): s
 }
 
 // ── Critical Regression generator ───────────────────────────────────────────
-function generateCritRegression(reqs: Requirement[], _nameBySlug: Map<string, string>): string {
+export function generateCritRegression(
+  reqs: Requirement[],
+  _nameBySlug: Map<string, string>,
+): string {
   const fn = reqs.filter((r) => r.type === 'FUNCTION');
   const included = fn.filter(
     (r) => ['BLOCKER', 'CRITICAL'].includes(r.criticality) || !r.implemented || childCount(r) >= 3,
@@ -193,7 +196,7 @@ function generateCritRegression(reqs: Requirement[], _nameBySlug: Map<string, st
 }
 
 // ── Full model generator ─────────────────────────────────────────────────────
-function generateFull(reqs: Requirement[], _nameBySlug: Map<string, string>): string {
+export function generateFull(reqs: Requirement[], _nameBySlug: Map<string, string>): string {
   const fn = reqs.filter((r) => r.type === 'FUNCTION');
   const ordered = bfsOrder(fn);
 
@@ -250,7 +253,13 @@ function generateFull(reqs: Requirement[], _nameBySlug: Map<string, string>): st
 }
 
 // ── TaskTracker generator ────────────────────────────────────────────────────
-function generateTracker(reqs: Requirement[]): string {
+/**
+ * Generate a TaskTracker Markdown export for the given requirements.
+ * Links whose `targetSlug` is NOT in `includedSlugs` (if provided) are omitted,
+ * so cross-references only point to requirements that are part of the export set.
+ */
+export function generateTracker(reqs: Requirement[], includedSlugs?: Set<string>): string {
+  const exportSet = includedSlugs ?? new Set(reqs.map((r) => r.slug));
   const lines: string[] = ['# Задачи для TaskTracker\n'];
   for (const r of reqs) {
     lines.push(`---`);
@@ -263,9 +272,10 @@ function generateTracker(reqs: Requirement[]): string {
     lines.push(`---\n`);
     lines.push(`## ${r.name}\n`);
     if (r.description) lines.push(`${r.description}\n`);
-    if (r.links.length > 0) {
+    const visibleLinks = r.links.filter((l) => exportSet.has(l.targetSlug));
+    if (visibleLinks.length > 0) {
       lines.push(`**Связи:**`);
-      for (const l of r.links) {
+      for (const l of visibleLinks) {
         lines.push(`- ${l.type}: ${l.targetSlug}`);
       }
       lines.push('');
@@ -297,6 +307,12 @@ export function ExportTasksModal({
     if (dir === 'tracker') {
       // tracker reuses ExportModal for selection, then shows preview
       setShowSelectModal(true);
+    } else if (
+      dir === 'crit-regression' &&
+      requirements.some((r) => r.type === 'FUNCTION' && !r.implemented)
+    ) {
+      // T-532: ask whether to include unimplemented FTs
+      setStep('unimpl-question');
     } else {
       // generate immediately
       const md = generateMd(dir);
@@ -328,10 +344,21 @@ export function ExportTasksModal({
   // Tracker: after requirement selection in ExportModal, generate the MD
   function handleTrackerSelected(selected: Set<string>): void {
     const reqs = requirements.filter((r) => selected.has(r.slug));
-    const md = generateTracker(reqs);
+    const md = generateTracker(reqs, selected);
     setPreviewMd(md);
     setPreviewTitle(DIRECTION_INFO.tracker.title);
     setShowSelectModal(false);
+    setStep('preview');
+  }
+
+  // T-532: crit-regression with unimpl question answer
+  function handleUnimplAnswer(includeUnimpl: boolean): void {
+    const reqs = includeUnimpl
+      ? requirements
+      : requirements.filter((r) => r.type !== 'FUNCTION' || r.implemented);
+    const md = generateCritRegression(reqs, nameBySlug);
+    setPreviewMd(md);
+    setPreviewTitle(DIRECTION_INFO['crit-regression'].title);
     setStep('preview');
   }
 
@@ -352,6 +379,17 @@ export function ExportTasksModal({
     step === 'choose' ? (
       <button type="button" className="btn btn-secondary" onClick={onClose}>
         Закрыть
+      </button>
+    ) : step === 'unimpl-question' ? (
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={() => {
+          setStep('choose');
+          setDirection(null);
+        }}
+      >
+        ← Назад
       </button>
     ) : (
       <>
@@ -418,6 +456,31 @@ export function ExportTasksModal({
               </button>
             );
           })}
+        </div>
+      ) : step === 'unimpl-question' ? (
+        /* T-532: ask about including unimplemented FTs in crit-regression */
+        <div className="space-y-4" data-testid="unimpl-question">
+          <p className="text-sm" style={{ color: 'var(--color-text-2)' }}>
+            В проекте есть <strong>нереализованные ФТ</strong>. Включить их в модель тестирования?
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              className="btn btn-primary"
+              data-testid="unimpl-include-yes"
+              onClick={() => handleUnimplAnswer(true)}
+            >
+              Да — включить нереализованные ФТ
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              data-testid="unimpl-include-no"
+              onClick={() => handleUnimplAnswer(false)}
+            >
+              Нет — только реализованные
+            </button>
+          </div>
         </div>
       ) : (
         /* Preview */

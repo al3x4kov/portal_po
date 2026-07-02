@@ -21,6 +21,26 @@ export const exportQuery = z.object({
   format: z.enum(['zip', 'targz']).default('zip'),
 });
 
+/**
+ * Slug pattern: only lowercase alphanumerics and hyphens are accepted.
+ * This rule is enforced by the core slug-generation logic and prevents
+ * path traversal (no dots, slashes, or backslashes). (T-523 / NFR-5)
+ */
+const SLUG_RE = /^[a-z0-9-]+$/;
+
+/** Body schema for POST /api/projects/:id/export/selected (T-523). */
+export const exportSelectedBody = z.object({
+  format: z.enum(['zip', 'targz']),
+  slugs: z
+    .array(
+      z
+        .string()
+        .min(1)
+        .regex(SLUG_RE, 'Slug must contain only lowercase alphanumerics and hyphens'),
+    )
+    .min(1, 'At least one slug is required'),
+});
+
 /** Path params (BE-6): zod-validated instead of unchecked `as {…}` casts. */
 const idParams = z.object({ id: z.string().min(1) });
 
@@ -68,6 +88,23 @@ export async function archiveRoutes(app: FastifyInstance, deps: AppDeps): Promis
     const { id } = parseInput(idParams, req.params);
     const { format } = parseInput(exportQuery, req.query);
     const result = await service.export(id, format as ArchiveFormat);
+
+    reply.header('content-type', result.contentType);
+    reply.header('content-disposition', `attachment; filename="${result.filename}"`);
+    return reply.send(result.body);
+  });
+
+  // T-523: partial export — only the listed slugs + manifest.
+  app.post('/api/projects/:id/export/selected', async (req, reply) => {
+    const { id } = parseInput(idParams, req.params);
+    // Body validation errors for this endpoint map to 400 (BAD_REQUEST): an
+    // invalid slug pattern or an empty slugs array is a client-side data error.
+    const bodyResult = exportSelectedBody.safeParse(req.body);
+    if (!bodyResult.success) {
+      throw new BadRequestError(bodyResult.error.issues.map((i) => i.message).join('; '));
+    }
+    const { format, slugs } = bodyResult.data;
+    const result = await service.exportSelected(id, slugs, format as ArchiveFormat);
 
     reply.header('content-type', result.contentType);
     reply.header('content-disposition', `attachment; filename="${result.filename}"`);

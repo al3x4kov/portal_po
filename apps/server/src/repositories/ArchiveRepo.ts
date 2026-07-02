@@ -102,6 +102,99 @@ export class ArchiveRepo implements ArchivePort {
     };
   }
 
+  /**
+   * Build a partial archive containing only the specified slugs + the project
+   * manifest (T-523). Missing slugs are silently skipped; the manifest is
+   * always included when present.
+   */
+  async exportSelected(
+    projectDir: string,
+    slugs: string[],
+    format: ArchiveFormat,
+    baseName: string,
+  ): Promise<ExportResult> {
+    // Collect candidate paths: check both type folders for each slug.
+    const typeFolders = Object.values(FOLDER) as string[];
+    const includePaths: Array<{ rel: string; abs: string }> = [];
+
+    for (const slug of slugs) {
+      let found = false;
+      for (const folder of typeFolders) {
+        const rel = path.join(SPECS_DIR, folder, `${slug}.md`);
+        const abs = path.join(projectDir, rel);
+        try {
+          await fs.access(abs);
+          includePaths.push({ rel, abs });
+          found = true;
+          break; // slug is unique across types (ARCH-6), stop on first hit
+        } catch {
+          /* file does not exist in this folder — try next */
+        }
+      }
+      if (!found) {
+        process.stderr.write(
+          `[ArchiveRepo.exportSelected] slug "${slug}" not found in project "${baseName}", skipping.\n`,
+        );
+      }
+    }
+
+    // Always include manifest when it exists.
+    const manifestAbs = path.join(projectDir, MANIFEST);
+    let hasManifest = false;
+    try {
+      await fs.access(manifestAbs);
+      hasManifest = true;
+    } catch {
+      /* no manifest — omit */
+    }
+
+    if (format === 'zip') {
+      const zip = new AdmZip();
+      if (hasManifest) {
+        zip.addLocalFile(manifestAbs, path.dirname(MANIFEST));
+      }
+      for (const { rel, abs } of includePaths) {
+        zip.addLocalFile(abs, path.dirname(rel));
+      }
+      return {
+        body: zip.toBuffer(),
+        filename: `${baseName}-partial.zip`,
+        contentType: 'application/zip',
+      };
+    }
+
+    // tar.gz: write files into a temp directory that mirrors the archive layout,
+    // then pack it. This avoids the cwd-based API that would include everything.
+    const tmpDir = path.join(this.projectsRoot, `.partial-export-${randomBytes(6).toString('hex')}`);
+    try {
+      if (hasManifest) {
+        const dest = path.join(tmpDir, MANIFEST);
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        await fs.copyFile(manifestAbs, dest);
+      }
+      for (const { rel, abs } of includePaths) {
+        const dest = path.join(tmpDir, rel);
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        await fs.copyFile(abs, dest);
+      }
+      const stream = tar.create({ gzip: true, cwd: tmpDir }, ['.']) as unknown as Readable;
+      // Drain the stream into a buffer so we can clean up the temp dir after.
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+        stream.on('end', resolve);
+        stream.on('error', reject);
+      });
+      return {
+        body: Buffer.concat(chunks),
+        filename: `${baseName}-partial.tar.gz`,
+        contentType: 'application/gzip',
+      };
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
   private async extract(format: ArchiveFormat, archivePath: string, dest: string): Promise<void> {
     // Cumulative bomb-guard counters shared across the whole archive.
     let entries = 0;

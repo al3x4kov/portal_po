@@ -147,13 +147,16 @@ describe('RequirementModal (T-1106, FR-6)', () => {
         onClose={vi.fn()}
       />,
     );
-    expect(screen.getByTestId('req-links')).toBeInTheDocument();
+    // T-517: links section is split into FT and NFR; without requirementsBySlug all non-hierarchy
+    // links fall back to the FT section.
+    expect(screen.getByTestId('req-links-ft')).toBeInTheDocument();
+    expect(screen.getByTestId('req-links-nfr')).toBeInTheDocument();
     const blocked = screen.getByTestId('req-link-pci');
     expect(blocked).toHaveAttribute('data-link-type', 'BLOCKED_BY');
     expect(blocked).toHaveTextContent('блокируется');
     expect(blocked).toHaveTextContent('Соответствие PCI DSS');
     expect(screen.getByTestId('req-link-tds')).toHaveTextContent('3-D Secure');
-    expect(screen.queryByTestId('req-links-empty')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('req-links-ft-empty')).not.toBeInTheDocument();
   });
 
   it('T2: shows an explicit empty state when the requirement has no links', () => {
@@ -166,14 +169,18 @@ describe('RequirementModal (T-1106, FR-6)', () => {
         onClose={vi.fn()}
       />,
     );
-    expect(screen.getByTestId('req-links-empty')).toHaveTextContent('Связей нет');
-    expect(screen.queryByTestId('req-links')).not.toBeInTheDocument();
+    // T-517: empty state is now per-section; both FT and NFR sections show their own empty state.
+    expect(screen.getByTestId('req-links-ft-empty')).toHaveTextContent('Нет связей с ФТ');
+    expect(screen.getByTestId('req-links-nfr-empty')).toHaveTextContent('Нет связей с НФТ');
+    // No link rows should be present.
+    expect(screen.queryAllByTestId(/^req-link-/)).toHaveLength(0);
   });
 
   it('T2: a brand-new requirement shows no links block at all', () => {
     renderWithProviders(<RequirementModal projectId="p1" reqType="NFR" onClose={vi.fn()} />);
-    expect(screen.queryByTestId('req-links')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('req-links-empty')).not.toBeInTheDocument();
+    // T-517: new requirement has no links block at all (isEdit=false).
+    expect(screen.queryByTestId('req-links-ft')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('req-links-nfr')).not.toBeInTheDocument();
   });
 
   // ── T3 · inline delete of a link ─────────────────────────────────────────────

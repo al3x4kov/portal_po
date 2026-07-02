@@ -87,6 +87,63 @@ html.dark {
   }
 }
 
+/* ── Tree lines (T-507) ───────────────────────────── */
+.tree-guide {
+  display: inline-block;
+  width: 20px;
+  position: relative;
+  align-self: stretch;
+  flex-shrink: 0;
+}
+.tree-guide--vert::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: var(--tree-line-width, 1px);
+  background: var(--tree-line-color, #cbd5e1);
+}
+.tree-guide--tee::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 50%;
+  width: var(--tree-line-width, 1px);
+  background: var(--tree-line-color, #cbd5e1);
+}
+.tree-guide--tee::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  right: 0;
+  height: var(--tree-line-width, 1px);
+  background: var(--tree-line-color, #cbd5e1);
+}
+.tree-guide--elbow::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 50%;
+  width: var(--tree-line-width, 1px);
+  background: var(--tree-line-color, #cbd5e1);
+}
+.tree-guide--elbow::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  right: 0;
+  height: var(--tree-line-width, 1px);
+  background: var(--tree-line-color, #cbd5e1);
+}
+.tree-guide--space {
+  /* empty spacer, no lines */
+}
+
 @layer components {
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-sm border border-transparent px-4 py-2 text-sm font-semibold transition-colors;

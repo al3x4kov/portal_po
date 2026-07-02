@@ -135,9 +135,10 @@ test.describe('T-1502 · E15 PO UX', () => {
     const aSlug = await slugOf(page, a);
     const bSlug = await slugOf(page, b);
 
-    // T2: в карточке источника A виден блок «Связи» с записью на цель B.
+    // T2: в карточке источника A виден блок «Связи с ФТ» (RELATES_TO к другому ФТ → FT-секция).
+    // Wave 1-2: секции разделены на req-links-ft и req-links-nfr.
     let modal = await openEdit(page, a);
-    await expect(page.getByTestId('req-links')).toBeVisible();
+    await expect(page.getByTestId('req-links-ft')).toBeVisible();
     const linkToB = page.getByTestId(`req-link-${bSlug}`);
     await expect(linkToB).toBeVisible();
     await expect(linkToB).toHaveAttribute('data-link-type', 'RELATES_TO');
@@ -151,29 +152,29 @@ test.describe('T-1502 · E15 PO UX', () => {
 
     await page.getByTestId(`req-link-del-${bSlug}`).click();
     await page.getByTestId('req-link-del-confirm').click();
-    // После удаления у A связей не осталось → пустое состояние.
+    // После удаления у A связей с ФТ не осталось → пустое состояние FT-секции.
     await expect(page.getByTestId(`req-link-${bSlug}`)).toBeHidden();
-    await expect(page.getByTestId('req-links-empty')).toBeVisible();
+    await expect(page.getByTestId('req-links-ft-empty')).toBeVisible();
 
     // Закрыть и переоткрыть A — связь по-прежнему отсутствует (сохранилось на сервере).
     await page.getByTestId('requirement-modal-close').click();
     await expect(modal).toBeHidden();
     modal = await openEdit(page, a);
-    await expect(page.getByTestId('req-links-empty')).toBeVisible();
+    await expect(page.getByTestId('req-links-ft-empty')).toBeVisible();
     await page.getByTestId('requirement-modal-close').click();
     await expect(modal).toBeHidden();
 
-    // Реципрокная связь у цели B тоже исчезла.
+    // Реципрокная связь у цели B тоже исчезла (RELATES_TO реципрокна, target A = ФТ → FT-секция).
     modal = await openEdit(page, b);
     await expect(page.getByTestId(`req-link-${aSlug}`)).toBeHidden();
-    await expect(page.getByTestId('req-links-empty')).toBeVisible();
+    await expect(page.getByTestId('req-links-ft-empty')).toBeVisible();
     await page.getByTestId('requirement-modal-close').click();
     await expect(modal).toBeHidden();
 
-    // Требование без связей C — явное пустое состояние.
+    // Требование без связей C — явные пустые состояния обеих секций.
     await openEdit(page, c);
-    await expect(page.getByTestId('req-links-empty')).toBeVisible();
-    await expect(page.getByTestId('req-links')).toBeHidden();
+    await expect(page.getByTestId('req-links-ft-empty')).toBeVisible();
+    await expect(page.getByTestId('req-links-nfr-empty')).toBeVisible();
   });
 
   // ── T4 · НФТ из строки ФТ (preset BLOCKED_BY) ───────────────────────────────
@@ -247,7 +248,7 @@ test.describe('T-1502 · E15 PO UX', () => {
     });
     await addRequirement(page, { kind: 'nfr', name: uniqueName('N-x'), criticality: 'MEDIUM' });
 
-    await page.getByTestId('footer-export').click();
+    await page.getByTestId('sidebar-open-export').click();
     await page.getByTestId('export-next').click();
     const [download] = await Promise.all([
       page.waitForEvent('download'),
@@ -271,5 +272,92 @@ test.describe('T-1502 · E15 PO UX', () => {
     await promisify(execFile)('unzip', ['-o', savedPath, '-d', dir]);
     const workbookXml = await fs.readFile(`${dir}/xl/workbook.xml`, 'utf8');
     expect(workbookXml).toContain('Требования');
+  });
+});
+
+/**
+ * Wave 1-2 UX-фичи: Sidebar-навигация, Inline add child, ExportTasksModal.
+ */
+test.describe('Wave 1-2 UX', () => {
+  // ── UX-4 · Sidebar-навигация между вкладками ────────────────────────────────
+  test('UX-4 Sidebar: переключение Requirements ↔ Dashboard', async ({ page }) => {
+    await createProject(page, uniqueName('sidebar-nav-proj'));
+    // Убеждаемся что мы на странице требований.
+    await expect(page.getByTestId('main-page')).toBeVisible();
+
+    // Нажимаем таб Dashboard.
+    await page.getByTestId('sidebar-nav-dashboard').click();
+    await expect(page).toHaveURL(/\/dashboard/);
+
+    // Нажимаем таб Requirements — возвращаемся к /p/:id.
+    await page.getByTestId('sidebar-nav-requirements').click();
+    await expect(page).toHaveURL(/\/p\/[^/]+$/);
+    await expect(page.getByTestId('main-page')).toBeVisible();
+  });
+
+  // ── T-512 · Inline add child ─────────────────────────────────────────────────
+  test('T-512 UX-1 — добавить дочерний ФТ через inline форму', async ({ page }) => {
+    await createProject(page, uniqueName('inline-child-proj'));
+    const parent = uniqueName('F-parent');
+    await addRequirement(page, { kind: 'function', name: parent, criticality: 'HIGH' });
+
+    // Навести на строку ФТ-типа и нажать кнопку «добавить дочерний».
+    const parentRow = page.locator(`tr[data-req-name="${parent}"]`);
+    await parentRow.hover();
+    await parentRow.getByTestId('row-add-child').click();
+
+    // Inline-форма должна появиться.
+    await expect(page.getByTestId('inline-add-child-form')).toBeVisible();
+
+    // Вводим имя нового дочернего ФТ.
+    const childName = uniqueName('F-child-inline');
+    await page.getByTestId('inline-add-child-input').fill(childName);
+
+    // Сохраняем — форма исчезает, строка появляется в дереве.
+    await page.getByTestId('inline-add-child-save').click();
+    await expect(page.getByTestId('inline-add-child-form')).toBeHidden();
+    await expect(page.locator(`tr[data-req-name="${childName}"]`)).toBeVisible();
+  });
+
+  // ── T-512b · Отмена inline add child ────────────────────────────────────────
+  test('T-512b UX-1 — отмена inline-формы не создаёт требование', async ({ page }) => {
+    await createProject(page, uniqueName('inline-cancel-proj'));
+    const parent = uniqueName('F-cancel-parent');
+    await addRequirement(page, { kind: 'function', name: parent });
+
+    const parentRow = page.locator(`tr[data-req-name="${parent}"]`);
+    await parentRow.hover();
+    await parentRow.getByTestId('row-add-child').click();
+    await expect(page.getByTestId('inline-add-child-form')).toBeVisible();
+
+    // Ввести имя и отменить.
+    const cancelledName = uniqueName('F-cancelled');
+    await page.getByTestId('inline-add-child-input').fill(cancelledName);
+    await page.getByTestId('inline-add-child-cancel').click();
+
+    // Форма скрыта, новая строка не появилась.
+    await expect(page.getByTestId('inline-add-child-form')).toBeHidden();
+    await expect(page.locator(`tr[data-req-name="${cancelledName}"]`)).toBeHidden();
+  });
+
+  // ── ExportTasksModal · smoke ─────────────────────────────────────────────────
+  test('ExportTasksModal: открывается, smoke-экспорт генерирует MD', async ({ page }) => {
+    await createProject(page, uniqueName('tasks-modal-proj'));
+    await addRequirement(page, { kind: 'function', name: uniqueName('F-t'), criticality: 'HIGH' });
+    await addRequirement(page, { kind: 'nfr', name: uniqueName('N-t'), criticality: 'MEDIUM' });
+
+    // Открыть ExportTasksModal через кнопку в Sidebar.
+    await page.getByTestId('sidebar-open-tasks').click();
+    const modal = page.getByTestId('export-tasks-modal');
+    await expect(modal).toBeVisible();
+
+    // Выбрать направление «smoke» — перейти к предпросмотру (нет вопроса об unimpl).
+    await page.getByTestId('export-tasks-dir-smoke').click();
+
+    // Предпросмотр MD должен появиться.
+    await expect(page.getByTestId('export-tasks-preview')).toBeVisible();
+
+    // Кнопка «Скачать MD» активна.
+    await expect(page.getByTestId('export-tasks-download')).toBeEnabled();
   });
 });

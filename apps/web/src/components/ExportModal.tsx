@@ -1,10 +1,13 @@
 import { useState, useMemo } from 'react';
-import type { Criticality, Requirement, TargetQuarter } from '@po/core';
-import { CRITICALITIES, TARGET_QUARTERS } from '@po/core';
+import type { Criticality, Requirement } from '@po/core';
+import { CRITICALITIES } from '@po/core';
 import { CRITICALITY_LABEL } from '../lib/criticality';
 import { Modal } from './Modal';
 import { projectsApi } from '../api/endpoints';
 import { errorMessage } from '../api/client';
+import { buildForest, type TreeNode } from '../lib/tree';
+import { buildLineGuides } from '../lib/treeLines';
+import type { VisibleRow } from '../lib/visibility';
 
 type ExportFormat = 'xlsx' | 'zip' | 'targz';
 
@@ -22,6 +25,19 @@ const FORMAT_LABELS: Record<ExportFormat, string> = {
   targz: '.tar.gz (OpenSpec)',
 };
 
+/** Recursively flatten a tree forest into DFS order with depth info. */
+function flattenTree(
+  nodes: TreeNode[],
+  depth = 0,
+): Array<{ req: Requirement; depth: number; hasChildren: boolean }> {
+  const result: Array<{ req: Requirement; depth: number; hasChildren: boolean }> = [];
+  for (const node of nodes) {
+    result.push({ req: node.requirement, depth, hasChildren: node.children.length > 0 });
+    result.push(...flattenTree(node.children, depth + 1));
+  }
+  return result;
+}
+
 export function ExportModal({
   projectId,
   requirements,
@@ -33,20 +49,81 @@ export function ExportModal({
   );
   const [critFilter, setCritFilter] = useState<Set<Criticality>>(new Set());
   const [implFilter, setImplFilter] = useState<'all' | 'planned' | 'done'>('all');
-  const [quarterFilter, setQuarterFilter] = useState<Set<TargetQuarter>>(new Set());
+  // T-521: quarter filter key is "Q2-2026" (quarter + year combo)
+  const [quarterFilter, setQuarterFilter] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState<ExportFormat | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
-  const visible = useMemo(() => {
-    return requirements.filter((r) => {
-      if (critFilter.size > 0 && !critFilter.has(r.criticality)) return false;
-      if (implFilter === 'planned' && r.implemented) return false;
-      if (implFilter === 'done' && !r.implemented) return false;
-      if (quarterFilter.size > 0 && (!r.targetQuarter || !quarterFilter.has(r.targetQuarter)))
-        return false;
-      return true;
-    });
-  }, [requirements, critFilter, implFilter, quarterFilter]);
+  // T-521: compute unique Q+Y pairs from requirements with implemented: false
+  const availableQuarters = useMemo(() => {
+    const pairs = new Set<string>();
+    for (const r of requirements) {
+      if (!r.implemented && r.targetQuarter && r.targetYear) {
+        pairs.add(`${r.targetQuarter}-${r.targetYear}`);
+      }
+    }
+    return [...pairs].sort();
+  }, [requirements]);
+
+  // T-520: split into functional and NFR
+  const functional = useMemo(
+    () => requirements.filter((r) => r.type === 'FUNCTION'),
+    [requirements],
+  );
+  const nfr = useMemo(() => requirements.filter((r) => r.type === 'NFR'), [requirements]);
+
+  /** Apply criticality / impl / quarter filters to a flat list of requirements */
+  function passesFilters(r: Requirement): boolean {
+    if (critFilter.size > 0 && !critFilter.has(r.criticality)) return false;
+    if (implFilter === 'planned' && r.implemented) return false;
+    if (implFilter === 'done' && !r.implemented) return false;
+    if (
+      quarterFilter.size > 0 &&
+      (!r.targetQuarter ||
+        !r.targetYear ||
+        !quarterFilter.has(`${r.targetQuarter}-${r.targetYear}`))
+    )
+      return false;
+    return true;
+  }
+
+  // T-520: filtered functional items, then build tree from those
+  const filteredFunctional = useMemo(
+    () => functional.filter(passesFilters),
+    [functional, critFilter, implFilter, quarterFilter], // passesFilters is stable w.r.t. these deps
+  );
+
+  const fnFlat = useMemo(() => {
+    const forest = buildForest(filteredFunctional);
+    return flattenTree(forest);
+  }, [filteredFunctional]);
+
+  // Build VisibleRow-compatible objects for buildLineGuides
+  const fnVisibleRows = useMemo(
+    (): VisibleRow[] =>
+      fnFlat.map(({ req, depth, hasChildren }) => ({
+        requirement: req,
+        depth,
+        kind: 'match',
+        hasChildren,
+        hiddenCount: 0,
+      })),
+    [fnFlat],
+  );
+
+  const fnGuides = useMemo(() => buildLineGuides(fnVisibleRows), [fnVisibleRows]);
+
+  // T-520: filtered NFR items (flat list)
+  const filteredNfr = useMemo(
+    () => nfr.filter(passesFilters),
+    [nfr, critFilter, implFilter, quarterFilter], // passesFilters is stable w.r.t. these deps
+  );
+
+  // Combined visible list for toggleAll logic
+  const visible = useMemo(
+    () => [...filteredFunctional, ...filteredNfr],
+    [filteredFunctional, filteredNfr],
+  );
 
   const allVisibleSelected = visible.length > 0 && visible.every((r) => selected.has(r.slug));
 
@@ -66,6 +143,15 @@ export function ExportModal({
     }
   }
 
+  function toggleReq(slug: string): void {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  }
+
   function toggleCrit(c: Criticality): void {
     setCritFilter((s) => {
       const next = new Set(s);
@@ -75,11 +161,12 @@ export function ExportModal({
     });
   }
 
-  function toggleQuarter(q: TargetQuarter): void {
+  // T-521: toggle a "Q2-2026" key
+  function toggleQuarter(key: string): void {
     setQuarterFilter((s) => {
       const next = new Set(s);
-      if (next.has(q)) next.delete(q);
-      else next.add(q);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -90,10 +177,25 @@ export function ExportModal({
     setExportError(null);
     setExporting(format);
     try {
-      const { blob, filename } =
-        format === 'xlsx'
-          ? await projectsApi.exportXlsx(projectId)
-          : await projectsApi.export(projectId, format);
+      let blob: Blob;
+      let filename: string;
+
+      if (format === 'xlsx') {
+        ({ blob, filename } = await projectsApi.exportXlsx(projectId));
+      } else {
+        // zip or targz
+        if (selected.size === 0) return; // defensive — button should be disabled
+        if (selected.size >= requirements.length) {
+          // All selected — use the existing GET endpoint (full project)
+          ({ blob, filename } = await projectsApi.export(projectId, format));
+        } else {
+          // Partial selection — use the new POST /export/selected endpoint
+          ({ blob, filename } = await projectsApi.exportSelected(projectId, format, [
+            ...selected,
+          ]));
+        }
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -207,29 +309,33 @@ export function ExportModal({
                 );
               })}
             </div>
-            {/* Quarter (only shown when 'planned') */}
-            {implFilter === 'planned' ? (
-              <div className="flex gap-1.5">
-                {TARGET_QUARTERS.map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    className="rounded-full border px-2.5 py-1 text-xs font-medium"
-                    style={
-                      quarterFilter.has(q)
-                        ? {
-                            background: 'var(--color-primary)',
-                            color: '#fff',
-                            borderColor: 'var(--color-primary)',
-                          }
-                        : { borderColor: 'var(--color-border)', color: 'var(--color-text-2)' }
-                    }
-                    onClick={() => toggleQuarter(q)}
-                    data-testid={`export-filter-q-${q}`}
-                  >
-                    {q}
-                  </button>
-                ))}
+            {/* T-521: Quarter chips — only shown when 'planned' and there are available Q+Y pairs */}
+            {implFilter === 'planned' && availableQuarters.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {availableQuarters.map((key) => {
+                  // Format "Q2-2026" → "Q2 2026"
+                  const label = key.replace('-', ' ');
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                      style={
+                        quarterFilter.has(key)
+                          ? {
+                              background: 'var(--color-primary)',
+                              color: '#fff',
+                              borderColor: 'var(--color-primary)',
+                            }
+                          : { borderColor: 'var(--color-border)', color: 'var(--color-text-2)' }
+                      }
+                      onClick={() => toggleQuarter(key)}
+                      data-testid={`export-filter-q-${key}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             ) : null}
           </div>
@@ -250,46 +356,127 @@ export function ExportModal({
             </span>
           </div>
 
-          {/* Requirement list */}
-          <div
-            className="max-h-72 space-y-1 overflow-y-auto rounded-lg border p-2"
-            style={{ borderColor: 'var(--color-border)' }}
-          >
+          {/* T-520: Requirement list split into ФТ tree + НФТ flat sections */}
+          <div className="max-h-72 space-y-3 overflow-y-auto">
             {visible.length === 0 ? (
               <p className="py-4 text-center text-sm" style={{ color: 'var(--color-text-3)' }}>
                 Нет требований, подходящих под фильтры.
               </p>
             ) : (
-              visible.map((r) => (
-                <label
-                  key={r.slug}
-                  className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-1.5 hover:bg-[var(--color-surface-2)]"
-                  data-testid={`export-item-${r.slug}`}
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 flex-none"
-                    checked={selected.has(r.slug)}
-                    onChange={() => {
-                      setSelected((s) => {
-                        const next = new Set(s);
-                        if (next.has(r.slug)) next.delete(r.slug);
-                        else next.add(r.slug);
-                        return next;
-                      });
-                    }}
-                  />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{r.name}</p>
-                    <p className="text-xs" style={{ color: 'var(--color-text-3)' }}>
-                      {r.type === 'FUNCTION' ? 'ФТ' : 'НФТ'} · {r.criticality}
-                      {!r.implemented && r.targetQuarter
-                        ? ` · ${r.targetQuarter} ${r.targetYear ?? ''}`
-                        : ''}
-                    </p>
+              <>
+                {/* Functional requirements — tree view */}
+                {filteredFunctional.length > 0 && (
+                  <div
+                    className="overflow-hidden rounded-lg border"
+                    style={{ borderColor: 'var(--color-border)' }}
+                  >
+                    <div
+                      className="px-3 py-2 text-xs font-bold uppercase tracking-wide"
+                      style={{
+                        background: 'var(--color-surface-2)',
+                        color: 'var(--color-text-3)',
+                      }}
+                    >
+                      Функциональные требования ({filteredFunctional.length})
+                    </div>
+                    {fnFlat.map(({ req, depth, hasChildren }, i) => (
+                      <label
+                        key={req.slug}
+                        className="flex cursor-pointer items-center gap-2 px-2 py-1.5 hover:bg-[var(--color-surface-2)]"
+                        style={{ borderTop: '1px solid var(--color-border)' }}
+                        data-testid={`export-item-${req.slug}`}
+                      >
+                        {/* T-520: tree line guides */}
+                        {fnGuides[i].map((guide, k) => (
+                          <span
+                            key={k}
+                            className={`tree-guide tree-guide--${guide}`}
+                            aria-hidden="true"
+                            style={{
+                              flexShrink: 0,
+                              width: '16px',
+                              alignSelf: 'stretch',
+                              position: 'relative',
+                            }}
+                          />
+                        ))}
+                        {/* Chevron / bullet indicator */}
+                        <span
+                          className="flex-none text-xs"
+                          style={{ color: 'var(--color-text-3)' }}
+                          aria-hidden="true"
+                        >
+                          {hasChildren ? (depth === 0 ? '▾' : '▾') : '•'}
+                        </span>
+                        <input
+                          type="checkbox"
+                          className="flex-none"
+                          checked={selected.has(req.slug)}
+                          onChange={() => toggleReq(req.slug)}
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{req.name}</p>
+                          <p className="text-xs" style={{ color: 'var(--color-text-3)' }}>
+                            {req.criticality}
+                            {!req.implemented && req.targetQuarter
+                              ? ` · ${req.targetQuarter} ${req.targetYear ?? ''}`
+                              : ''}
+                          </p>
+                        </div>
+                      </label>
+                    ))}
                   </div>
-                </label>
-              ))
+                )}
+
+                {/* NFR — flat list */}
+                {filteredNfr.length > 0 && (
+                  <div
+                    className="overflow-hidden rounded-lg border"
+                    style={{ borderColor: 'var(--color-border)' }}
+                  >
+                    <div
+                      className="px-3 py-2 text-xs font-bold uppercase tracking-wide"
+                      style={{
+                        background: 'var(--color-surface-2)',
+                        color: 'var(--color-text-3)',
+                      }}
+                    >
+                      Нефункциональные требования ({filteredNfr.length})
+                    </div>
+                    {filteredNfr.map((r) => (
+                      <label
+                        key={r.slug}
+                        className="flex cursor-pointer items-center gap-2 px-2 py-1.5 hover:bg-[var(--color-surface-2)]"
+                        style={{ borderTop: '1px solid var(--color-border)' }}
+                        data-testid={`export-item-${r.slug}`}
+                      >
+                        <span
+                          className="flex-none text-xs"
+                          style={{ color: 'var(--color-text-3)' }}
+                          aria-hidden="true"
+                        >
+                          •
+                        </span>
+                        <input
+                          type="checkbox"
+                          className="flex-none"
+                          checked={selected.has(r.slug)}
+                          onChange={() => toggleReq(r.slug)}
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">{r.name}</p>
+                          <p className="text-xs" style={{ color: 'var(--color-text-3)' }}>
+                            {r.criticality}
+                            {!r.implemented && r.targetQuarter
+                              ? ` · ${r.targetQuarter} ${r.targetYear ?? ''}`
+                              : ''}
+                          </p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -297,7 +484,8 @@ export function ExportModal({
         /* Format selection step */
         <div className="space-y-4">
           <p className="text-sm" style={{ color: 'var(--color-text-2)' }}>
-            Выбрано требований: <strong>{selectedCount}</strong>. Выберите формат выгрузки:
+            Выбрано <strong>{selectedCount}</strong> требований для архива. Выберите формат
+            выгрузки:
           </p>
           {exportError ? (
             <p
@@ -322,6 +510,11 @@ export function ExportModal({
                   {fmt === 'xlsx' ? '📊' : '📦'}
                 </span>
                 <span className="text-sm font-medium">{FORMAT_LABELS[fmt]}</span>
+                {fmt !== 'xlsx' ? (
+                  <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
+                    {selectedCount} файлов
+                  </span>
+                ) : null}
                 {exporting === fmt ? (
                   <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
                     Экспорт…
@@ -331,8 +524,10 @@ export function ExportModal({
             ))}
           </div>
           <p className="text-xs" style={{ color: 'var(--color-text-3)' }}>
-            Примечание: фильтрация по выбранным требованиям применяется в Excel. Архивы (.zip /
-            .tar.gz) содержат весь проект целиком.
+            Примечание: фильтрация по выбранным требованиям применяется в Excel и архивах.
+            {selectedCount < requirements.length
+              ? ' Архив будет содержать только выбранные требования.'
+              : ' Архив будет содержать весь проект целиком.'}
           </p>
         </div>
       )}

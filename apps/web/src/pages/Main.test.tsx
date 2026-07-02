@@ -17,6 +17,7 @@ vi.mock('../api/endpoints', () => ({
     get: (...a: unknown[]) => getProject(...a),
     export: (...a: unknown[]) => exportArchive(...a),
     exportXlsx: (...a: unknown[]) => exportXlsx(...a),
+    exportSelected: vi.fn().mockResolvedValue({ blob: new Blob(), filename: 'partial.zip' }),
   },
   requirementsApi: {
     list: (...a: unknown[]) => listRequirements(...a),
@@ -81,7 +82,7 @@ describe('Main page (E11 integration)', () => {
   it('UX-8: "Экспорт" footer button opens ExportModal', async () => {
     const user = userEvent.setup();
     renderMain();
-    const btn = await screen.findByTestId('footer-export');
+    const btn = await screen.findByTestId('sidebar-open-export');
     expect(btn.tagName).toBe('BUTTON');
     await user.click(btn);
     expect(await screen.findByTestId('export-modal')).toBeInTheDocument();
@@ -91,7 +92,7 @@ describe('Main page (E11 integration)', () => {
     exportXlsx.mockReturnValue(new Promise(() => {}));
     const user = userEvent.setup();
     renderMain();
-    await user.click(await screen.findByTestId('footer-export'));
+    await user.click(await screen.findByTestId('sidebar-open-export'));
     // advance to format step
     await user.click(await screen.findByTestId('export-next'));
     const xlsxBtn = await screen.findByTestId('export-fmt-xlsx');
@@ -104,7 +105,7 @@ describe('Main page (E11 integration)', () => {
     exportXlsx.mockRejectedValueOnce(new Error('Не удалось собрать Excel'));
     const user = userEvent.setup();
     renderMain();
-    await user.click(await screen.findByTestId('footer-export'));
+    await user.click(await screen.findByTestId('sidebar-open-export'));
     await user.click(await screen.findByTestId('export-next'));
     await user.click(await screen.findByTestId('export-fmt-xlsx'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось собрать Excel');
@@ -162,14 +163,16 @@ describe('Main page (E11 integration)', () => {
     expect(await screen.findByTestId('tree-row-pay')).toBeInTheDocument();
   });
 
-  it('UX-3: disables the delete confirm for a requirement that still has children', async () => {
-    const user = userEvent.setup();
+  it('UX-3/T-509: delete button is disabled for a requirement that has children', async () => {
     renderMain();
     await screen.findByTestId('tree-row-pay');
     const payRow = screen.getByTestId('tree-row-pay');
-    await user.click(payRow.querySelector('[data-testid="delete-btn-pay"]') as HTMLElement);
-    const confirm = await screen.findByTestId('delete-dialog-confirm');
-    expect(confirm).toBeDisabled();
+    const deleteBtn = payRow.querySelector('[data-testid="delete-btn-pay"]') as HTMLElement;
+    // T-509: the button itself is disabled when the node has children
+    expect(deleteBtn).toBeDisabled();
+    expect(deleteBtn).toHaveAttribute('title', 'Сначала удалите дочерние');
+    // No dialog should appear since the button is disabled
+    expect(screen.queryByTestId('delete-dialog-confirm')).not.toBeInTheDocument();
   });
 
   it('UX-2: shows a success toast after deleting a leaf requirement', async () => {

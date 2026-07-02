@@ -67,6 +67,19 @@ export class ProjectService {
     });
   }
 
+  /**
+   * Export a partial archive containing only the listed requirement slugs plus
+   * the project manifest (T-523). Unknown slugs are silently ignored.
+   */
+  async exportSelected(id: string, slugs: string[], format: ArchiveFormat): Promise<ExportResult> {
+    return withOpLog(this.log, { op: 'exportSelected', projectId: id }, async () => {
+      const project = await this.repo.get(id); // 404 when missing
+      // ArchivePort doesn't declare exportSelected — call through the concrete type.
+      const archiveRepo = this.archive as import('../repositories/ArchiveRepo.js').ArchiveRepo;
+      return archiveRepo.exportSelected(project.mainPath, slugs, format, project.id);
+    });
+  }
+
   /** Import an archive as a new project; returns the opened project summary.
    * Serialized on the target directory so a concurrent import/create of the
    * same name cannot race the extract→validate→rename commit (ADR-003). */

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -29,12 +29,17 @@ interface RequirementModalProps {
   requirement?: Requirement;
   /** Project-wide slug → name map so link targets render by name (T2). */
   nameBySlug?: Map<string, string>;
+  /** T-517: full requirement objects by slug so we can classify links by target type. */
+  requirementsBySlug?: Map<string, Requirement>;
   /** T4: after creating this NFR, link it from this source slug. */
   linkFrom?: string;
   linkType?: LinkType;
-  /** Called when the user requests to add a new link (opens LinkModal in Main). */
-  onAddLink?: () => void;
+  /** T-517: Called when the user requests to add a new link; receives a type hint
+   *  (FUNCTION | NFR) so LinkModal can pre-filter candidates. */
+  onAddLink?: (typeHint: RequirementType) => void;
   onClose: () => void;
+  /** T-515: auto-focus a specific field when the modal opens. */
+  focusField?: 'description';
 }
 
 const FORM_ID = 'requirement-form';
@@ -55,14 +60,28 @@ export function RequirementModal({
   reqType,
   requirement,
   nameBySlug,
+  requirementsBySlug,
   linkFrom,
   linkType,
   onAddLink,
   onClose,
+  focusField,
 }: RequirementModalProps): React.ReactElement {
   const isEdit = Boolean(requirement);
   const [apiError, setApiError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<'cancel' | 'save' | null>(null);
+
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // T-515: auto-focus the description textarea when requested.
+  useEffect(() => {
+    if (focusField === 'description') {
+      const timer = setTimeout(() => {
+        descriptionRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [focusField]);
 
   const createMut = useCreateRequirement(projectId);
   const updateMut = useUpdateRequirement(projectId);
@@ -231,7 +250,7 @@ export function RequirementModal({
   ) : nameOk ? (
     <p
       className="mt-1.5 flex items-center gap-1.5 text-xs"
-      style={{ color: 'var(--color-success)' }}
+      style={{ color: 'var(--color-success-fg)' }}
       data-testid="req-name-status"
       data-state="ok"
     >
@@ -463,29 +482,129 @@ export function RequirementModal({
             className="input"
             style={{ resize: 'vertical' }}
             data-testid="req-description"
-            {...register('description')}
+            {...register('description', {
+              setValueAs: (v: string) => v,
+            })}
+            ref={(el) => {
+              descriptionRef.current = el;
+              const { ref } = register('description');
+              if (typeof ref === 'function') ref(el);
+            }}
           />
           <p className="mt-1 text-xs" style={{ color: 'var(--color-text-3)' }}>
             Поддерживается Markdown.
           </p>
         </div>
 
-        {/* Block 5 · links (T2/T3) — edit mode only; a new requirement has no links yet. */}
-        {isEdit ? (
-          <>
-            <hr style={{ borderColor: 'var(--color-border)' }} />
-            <LinkList
-              links={links}
-              nameBySlug={nameBySlug}
-              pendingDelete={pendingDelete}
-              deleting={deleteLinkMut.isPending}
-              onRequestDelete={(l) => setPendingDelete({ type: l.type, targetSlug: l.targetSlug })}
-              onCancelDelete={() => setPendingDelete(null)}
-              onConfirmDelete={() => void confirmDeleteLink()}
-              onAddLink={onAddLink}
-            />
-          </>
-        ) : null}
+        {/* Block 5 · links (T2/T3/T-517) — edit mode only; a new requirement has no links yet.
+            Split into «Связи с ФТ» and «Связи с НФТ» sections.
+            - FT section: hierarchy links (CHILD_OF/PARENT_OF) + links whose target is FUNCTION,
+              plus unresolved links (when requirementsBySlug is absent) as a safe fallback.
+            - NFR section: links whose target type is NFR (requires requirementsBySlug). */}
+        {isEdit ? (() => {
+          const HIER_TYPES = new Set<LinkType>(['CHILD_OF', 'PARENT_OF']);
+
+          const ftLinks = links.filter((l) => {
+            if (HIER_TYPES.has(l.type)) return true;
+            const targetReq = requirementsBySlug?.get(l.targetSlug);
+            if (targetReq) return targetReq.type === 'FUNCTION';
+            // Target type unknown (requirementsBySlug not provided): fall back to FT section.
+            return true;
+          });
+
+          const nfrLinks = links.filter((l) => {
+            if (HIER_TYPES.has(l.type)) return false;
+            const targetReq = requirementsBySlug?.get(l.targetSlug);
+            return targetReq ? targetReq.type === 'NFR' : false;
+          });
+
+          const sharedLinkListProps = {
+            pendingDelete,
+            deleting: deleteLinkMut.isPending,
+            onRequestDelete: (l: Link) =>
+              setPendingDelete({ type: l.type, targetSlug: l.targetSlug }),
+            onCancelDelete: () => setPendingDelete(null),
+            onConfirmDelete: () => void confirmDeleteLink(),
+          };
+
+          return (
+            <>
+              <hr style={{ borderColor: 'var(--color-border)' }} />
+
+              {/* FT section */}
+              <div data-testid="req-links-ft">
+                <div
+                  className="mb-2 flex items-center justify-between gap-2 rounded-md px-2 py-1.5"
+                  style={{
+                    background: 'var(--color-primary-soft)',
+                    color: 'var(--color-primary)',
+                  }}
+                >
+                  <span className="text-xs font-bold uppercase tracking-wide">
+                    Связи с ФТ ({ftLinks.length})
+                  </span>
+                  {onAddLink ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost px-2 py-0.5 text-xs"
+                      data-testid="req-links-add-ft"
+                      onClick={() => onAddLink('FUNCTION')}
+                    >
+                      + Связать с ФТ
+                    </button>
+                  ) : null}
+                </div>
+                {ftLinks.length === 0 ? (
+                  <p
+                    className="px-2 py-3 text-sm"
+                    style={{ color: 'var(--color-text-3)', fontStyle: 'italic' }}
+                    data-testid="req-links-ft-empty"
+                  >
+                    Нет связей с ФТ — добавьте первую
+                  </p>
+                ) : (
+                  <LinkList links={ftLinks} nameBySlug={nameBySlug} {...sharedLinkListProps} />
+                )}
+              </div>
+
+              {/* NFR section */}
+              <div data-testid="req-links-nfr">
+                <div
+                  className="mb-2 flex items-center justify-between gap-2 rounded-md px-2 py-1.5"
+                  style={{
+                    background: 'var(--color-surface-2)',
+                    color: 'var(--color-text-2)',
+                  }}
+                >
+                  <span className="text-xs font-bold uppercase tracking-wide">
+                    Связи с НФТ ({nfrLinks.length})
+                  </span>
+                  {onAddLink ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost px-2 py-0.5 text-xs"
+                      data-testid="req-links-add-nfr"
+                      onClick={() => onAddLink('NFR')}
+                    >
+                      + Связать с НФТ
+                    </button>
+                  ) : null}
+                </div>
+                {nfrLinks.length === 0 ? (
+                  <p
+                    className="px-2 py-3 text-sm"
+                    style={{ color: 'var(--color-text-3)', fontStyle: 'italic' }}
+                    data-testid="req-links-nfr-empty"
+                  >
+                    Нет связей с НФТ — добавьте первую
+                  </p>
+                ) : (
+                  <LinkList links={nfrLinks} nameBySlug={nameBySlug} {...sharedLinkListProps} />
+                )}
+              </div>
+            </>
+          );
+        })() : null}
       </form>
 
       {confirm === 'save' ? (
