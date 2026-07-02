@@ -45,4 +45,22 @@ describe('T-804 project manifest (openspec/project.md)', () => {
     expect(() => parseManifest('---\nname: X\n---\n')).toThrow(ParseError);
     expect(() => parseManifest('no frontmatter at all')).toThrow(ParseError);
   });
+
+  // ARCH-5 / SA-9: version boundary.
+  it('accepts the current schemaVersion', () => {
+    const md = serializeManifest({ ...manifest, schemaVersion: SCHEMA_VERSION });
+    expect(parseManifest(md).schemaVersion).toBe(SCHEMA_VERSION);
+  });
+
+  it('rejects an unknown future schemaVersion with a clear ParseError', () => {
+    const future = serializeManifest({ ...manifest, schemaVersion: SCHEMA_VERSION + 1 });
+    expect(() => parseManifest(future)).toThrow(ParseError);
+    expect(() => parseManifest(future)).toThrow(/schemaVersion/i);
+  });
+
+  it('rejects a non-positive schemaVersion', () => {
+    expect(() => parseManifest(serializeManifest({ ...manifest, schemaVersion: 0 }))).toThrow(
+      ParseError,
+    );
+  });
 });

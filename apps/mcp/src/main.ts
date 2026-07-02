@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { stderrOpLogger } from '@po/server';
 import { createTools } from './tools.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -19,7 +20,8 @@ const PROJECTS_ROOT = process.env.PROJECTS_ROOT
 async function main(): Promise<void> {
   const server = new McpServer({ name: 'po-mcp', version: '0.1.0' });
 
-  for (const t of createTools(PROJECTS_ROOT)) {
+  // stdout is the JSON-RPC channel; all diagnostics go to stderr (ARCH-7).
+  for (const t of createTools(PROJECTS_ROOT, undefined, stderrOpLogger())) {
     server.registerTool(
       t.name,
       { description: t.description, inputSchema: t.inputSchema },

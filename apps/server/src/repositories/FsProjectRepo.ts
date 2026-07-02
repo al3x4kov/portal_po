@@ -6,7 +6,7 @@ import { ensureDir } from '../lib/ensureDir.js';
 import { assertRealpathWithin, resolveSafe } from '../lib/pathSafe.js';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
 import { sanitizeProjectName } from '../lib/projectName.js';
-import { ProjectSummary, SCHEMA_VERSION } from './types.js';
+import { ProjectSummary, SCHEMA_VERSION, type ProjectRepo } from './types.js';
 
 /** Relative path of the OpenSpec manifest inside a project directory (ADR-001). */
 export const MANIFEST_PATH = path.join('openspec', 'project.md');
@@ -21,7 +21,7 @@ const SPEC_FOLDERS = [
  * `openspec/specs/{functions,nfr}/` folders (ADR-001). All path resolution is
  * funnelled through {@link resolveSafe}.
  */
-export class FsProjectRepo {
+export class FsProjectRepo implements ProjectRepo {
   constructor(private readonly projectsRoot: string) {}
 
   /** Recreate Projects/ if it was removed (FR-2.3 / FR-3.2). */

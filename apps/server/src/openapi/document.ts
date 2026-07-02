@@ -259,6 +259,13 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
                   properties: {
                     requirements: { type: 'array', items: ref('Requirement') },
                     broken: { type: 'array', items: { type: 'object' } },
+                    incomplete: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description:
+                        'Slug-и требований без полного критерия приёмки (нет сценариев ' +
+                        'или есть неполные сценарии) — SA-4.',
+                    },
                   },
                 },
               },

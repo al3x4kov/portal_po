@@ -4,8 +4,9 @@ import path from 'node:path';
 import AdmZip from 'adm-zip';
 import * as tar from 'tar';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { SCHEMA_VERSION } from '@po/core';
 import { ArchiveRepo } from '../src/repositories/ArchiveRepo.js';
-import { ProjectService } from '../src/services/ProjectService.js';
+import { createProjectService } from '../src/factory.js';
 import { ArchiveError } from '../src/lib/errors.js';
 import { cleanup, fixedNow, makeTmpRoot } from './helpers.js';
 
@@ -43,7 +44,7 @@ describe('ARCH-6 / ARCH-10 / QA-8 import safety', () => {
     const file = path.join(scratch, 'dup.zip');
     await fs.writeFile(file, zip.toBuffer());
 
-    const svc = new ProjectService(root, fixedNow);
+    const svc = createProjectService({ projectsRoot: root, now: fixedNow });
     await expect(svc.import(file, 'DupProj')).rejects.toBeInstanceOf(ArchiveError);
     await expect(fs.stat(path.join(root, 'DupProj'))).rejects.toBeTruthy();
   });
@@ -57,7 +58,7 @@ describe('ARCH-6 / ARCH-10 / QA-8 import safety', () => {
     const file = path.join(scratch, 'evil.tgz');
     await tar.c({ gzip: true, file, cwd: inner }, ['../escape.md']);
 
-    const svc = new ProjectService(root, fixedNow);
+    const svc = createProjectService({ projectsRoot: root, now: fixedNow });
     await expect(svc.import(file, 'EvilTar')).rejects.toBeTruthy();
     // Nothing was written above the Projects root.
     await expect(fs.stat(path.join(path.dirname(root), 'escape.md'))).rejects.toBeTruthy();
@@ -106,8 +107,47 @@ describe('ARCH-6 / ARCH-10 / QA-8 import safety', () => {
     const file = path.join(scratch, 'ok.zip');
     await fs.writeFile(file, zip.toBuffer());
 
-    const svc = new ProjectService(root, fixedNow);
+    const svc = createProjectService({ projectsRoot: root, now: fixedNow });
     const project = await svc.import(file, 'GoodProj');
     expect(project.id).toBe('GoodProj');
+  });
+
+  // ARCH-5 / SA-9: schemaVersion is validated on import.
+  const manifestMd = (version: number): Buffer =>
+    Buffer.from(
+      [
+        '---',
+        'name: Versioned',
+        `schemaVersion: ${version}`,
+        'createdAt: 2026-01-01T00:00:00.000Z',
+        '---',
+        'body',
+        '',
+      ].join('\n'),
+    );
+
+  it('ARCH-5: rejects an archive whose manifest declares a future schemaVersion', async () => {
+    const zip = new AdmZip();
+    zip.addFile('openspec/project.md', manifestMd(SCHEMA_VERSION + 1));
+    zip.addFile('openspec/specs/functions/ok.md', reqMd('Ok One'));
+    const file = path.join(scratch, 'future.zip');
+    await fs.writeFile(file, zip.toBuffer());
+
+    const svc = createProjectService({ projectsRoot: root, now: fixedNow });
+    await expect(svc.import(file, 'FutureProj')).rejects.toBeInstanceOf(ArchiveError);
+    // Catalog must not be created for an unsupported version.
+    await expect(fs.stat(path.join(root, 'FutureProj'))).rejects.toBeTruthy();
+  });
+
+  it('ARCH-5: imports an archive with the current schemaVersion', async () => {
+    const zip = new AdmZip();
+    zip.addFile('openspec/project.md', manifestMd(SCHEMA_VERSION));
+    zip.addFile('openspec/specs/functions/ok.md', reqMd('Ok One'));
+    const file = path.join(scratch, 'current.zip');
+    await fs.writeFile(file, zip.toBuffer());
+
+    const svc = createProjectService({ projectsRoot: root, now: fixedNow });
+    const project = await svc.import(file, 'CurrentProj');
+    expect(project.id).toBe('CurrentProj');
   });
 });

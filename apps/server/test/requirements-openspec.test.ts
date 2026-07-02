@@ -85,6 +85,6 @@ describe('T-1001 requirements list format=openspec', () => {
       url: '/api/projects/P/requirements?format=json',
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ requirements: [], broken: [] });
+    expect(res.json()).toEqual({ requirements: [], broken: [], incomplete: [] });
   });
 });

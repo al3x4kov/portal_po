@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import AdmZip from 'adm-zip';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ProjectService } from '../src/services/ProjectService.js';
+import { createProjectService } from '../src/factory.js';
 import { FsRequirementRepo } from '../src/repositories/FsRequirementRepo.js';
 import { RequirementService } from '../src/services/RequirementService.js';
 import { LinkService } from '../src/services/LinkService.js';
@@ -27,12 +27,12 @@ async function bodyToFile(result: ExportResult, dir: string): Promise<string> {
 
 describe('T-501/T-502 import-export', () => {
   let root: string;
-  let svc: ProjectService;
+  let svc: ReturnType<typeof createProjectService>;
   let scratch: string;
 
   beforeEach(async () => {
     root = await makeTmpRoot();
-    svc = new ProjectService(root, fixedNow);
+    svc = createProjectService({ projectsRoot: root, now: fixedNow });
     scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'po-arch-'));
   });
   afterEach(async () => {

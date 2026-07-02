@@ -10,12 +10,13 @@ import {
   type TargetQuarter,
   UniquenessError,
 } from '@po/core';
-import {
-  FsRequirementRepo,
-  type BrokenRequirement,
-  type LoadResult,
-  type RequirementBatchOp,
-} from '../repositories/FsRequirementRepo.js';
+import type {
+  BrokenRequirement,
+  LoadResult,
+  RequirementBatchOp,
+  RequirementRepo,
+} from '../repositories/types.js';
+import { withOpLog, type OpLogger } from '../lib/logger.js';
 import { NotFoundError } from '../lib/errors.js';
 
 /** Editable fields a client may supply when creating a requirement. */
@@ -45,10 +46,27 @@ export interface CheckNameResult {
  * performs cascading delete (FR-9).
  */
 export class RequirementService {
+  private readonly log?: OpLogger;
+  private readonly projectId: string;
+
   constructor(
-    private readonly repo: FsRequirementRepo,
+    private readonly repo: RequirementRepo,
     private readonly now: () => string = () => new Date().toISOString(),
-  ) {}
+    opts: { log?: OpLogger; projectId?: string } = {},
+  ) {
+    this.log = opts.log;
+    this.projectId = opts.projectId ?? '';
+  }
+
+  /** Structured observability wrapper for a mutating use case (ARCH-7). */
+  private record<T>(
+    op: string,
+    slug: string | undefined,
+    fn: () => Promise<T>,
+    slugOf?: (result: T) => string,
+  ): Promise<T> {
+    return withOpLog(this.log, { op, projectId: this.projectId, slug }, fn, slugOf);
+  }
 
   list(): Promise<LoadResult> {
     return this.repo.loadAll();
@@ -73,60 +91,68 @@ export class RequirementService {
 
   /** Create a new requirement (FR-6). Serialized per project (ADR-003). */
   create(input: RequirementInput): Promise<Requirement> {
-    return this.repo.withLock(async () => {
-      const { requirements, broken } = await this.repo.loadAll();
-      assertUniqueName(requirements, { type: input.type, name: input.name }); // UniquenessError (409)
+    return this.record(
+      'create',
+      undefined,
+      () =>
+        this.repo.withLock(async () => {
+          const { requirements, broken } = await this.repo.loadAll();
+          assertUniqueName(requirements, { type: input.type, name: input.name }); // UniquenessError (409)
 
-      const slug = dedupe(toSlug(input.name), this.takenSlugs(requirements, broken));
-      const ts = this.now();
-      const candidate = {
-        slug,
-        type: input.type,
-        name: input.name,
-        criticality: input.criticality,
-        description: input.description,
-        implemented: input.implemented,
-        targetQuarter: input.targetQuarter,
-        targetYear: input.targetYear,
-        links: [],
-        createdAt: ts,
-        updatedAt: ts,
-      };
-      const req = validateRequirement(candidate); // ValidationError (422)
+          const slug = dedupe(toSlug(input.name), this.takenSlugs(requirements, broken));
+          const ts = this.now();
+          const candidate = {
+            slug,
+            type: input.type,
+            name: input.name,
+            criticality: input.criticality,
+            description: input.description,
+            implemented: input.implemented,
+            targetQuarter: input.targetQuarter,
+            targetYear: input.targetYear,
+            links: [],
+            createdAt: ts,
+            updatedAt: ts,
+          };
+          const req = validateRequirement(candidate); // ValidationError (422)
 
-      await this.repo.applyBatch([{ kind: 'write', req }]);
-      return req;
-    });
+          await this.repo.applyBatch([{ kind: 'write', req }]);
+          return req;
+        }),
+      (r) => r.slug,
+    );
   }
 
   /** Update an existing requirement (FR-6.5). slug, type and createdAt are immutable. */
   update(slug: string, input: RequirementUpdate): Promise<Requirement> {
-    return this.repo.withLock(async () => {
-      const { requirements } = await this.repo.loadAll();
-      const existing = requirements.find((r) => r.slug === slug);
-      if (!existing) {
-        throw new NotFoundError(`Requirement not found: "${slug}".`);
-      }
+    return this.record('update', slug, () =>
+      this.repo.withLock(async () => {
+        const { requirements } = await this.repo.loadAll();
+        const existing = requirements.find((r) => r.slug === slug);
+        if (!existing) {
+          throw new NotFoundError(`Requirement not found: "${slug}".`);
+        }
 
-      const candidate = {
-        slug: existing.slug, // slug is fixed at creation (immutable handle)
-        type: existing.type, // type is fixed at creation
-        name: input.name,
-        criticality: input.criticality,
-        description: input.description,
-        implemented: input.implemented,
-        targetQuarter: input.targetQuarter,
-        targetYear: input.targetYear,
-        links: existing.links,
-        createdAt: existing.createdAt,
-        updatedAt: this.now(),
-      };
-      const req = validateRequirement(candidate);
-      assertUniqueName(requirements, { slug: req.slug, type: req.type, name: req.name });
+        const candidate = {
+          slug: existing.slug, // slug is fixed at creation (immutable handle)
+          type: existing.type, // type is fixed at creation
+          name: input.name,
+          criticality: input.criticality,
+          description: input.description,
+          implemented: input.implemented,
+          targetQuarter: input.targetQuarter,
+          targetYear: input.targetYear,
+          links: existing.links,
+          createdAt: existing.createdAt,
+          updatedAt: this.now(),
+        };
+        const req = validateRequirement(candidate);
+        assertUniqueName(requirements, { slug: req.slug, type: req.type, name: req.name });
 
-      await this.repo.applyBatch([{ kind: 'write', req }]);
-      return req;
-    });
+        await this.repo.applyBatch([{ kind: 'write', req }]);
+        return req;
+      }),
+    );
   }
 
   /**
@@ -139,24 +165,26 @@ export class RequirementService {
    * already-corrupt file is left as-is rather than crashing the delete.
    */
   delete(slug: string): Promise<void> {
-    return this.repo.withLock(async () => {
-      const { requirements } = await this.repo.loadAll();
-      const existing = requirements.find((r) => r.slug === slug);
-      if (!existing) {
-        throw new NotFoundError(`Requirement not found: "${slug}".`);
-      }
-
-      const after = cascadeUnlink(requirements, slug); // HasChildrenError (409)
-      const bySlug = new Map(requirements.map((r) => [r.slug, r]));
-
-      const batch: RequirementBatchOp[] = [{ kind: 'delete', type: existing.type, slug }];
-      for (const r of after) {
-        if (bySlug.get(r.slug) !== r) {
-          batch.push({ kind: 'write', req: r });
+    return this.record('delete', slug, () =>
+      this.repo.withLock(async () => {
+        const { requirements } = await this.repo.loadAll();
+        const existing = requirements.find((r) => r.slug === slug);
+        if (!existing) {
+          throw new NotFoundError(`Requirement not found: "${slug}".`);
         }
-      }
-      await this.repo.applyBatch(batch);
-    });
+
+        const after = cascadeUnlink(requirements, slug); // HasChildrenError (409)
+        const bySlug = new Map(requirements.map((r) => [r.slug, r]));
+
+        const batch: RequirementBatchOp[] = [{ kind: 'delete', type: existing.type, slug }];
+        for (const r of after) {
+          if (bySlug.get(r.slug) !== r) {
+            batch.push({ kind: 'write', req: r });
+          }
+        }
+        await this.repo.applyBatch(batch);
+      }),
+    );
   }
 
   /** Real-time uniqueness check for the form (FR-6.6); excludes own slug on rename. */

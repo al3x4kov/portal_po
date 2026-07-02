@@ -9,6 +9,7 @@ export * from './domain/folders.js';
 export * from './validation/schema.js';
 export * from './validation/rules.js';
 export * from './validation/targetRule.js';
+export * from './validation/contracts.js';
 
 // Markdown serialization
 export * from './md/markdown.js';

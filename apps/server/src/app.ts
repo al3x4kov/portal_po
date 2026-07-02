@@ -2,8 +2,9 @@ import path from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import { CycleError, DomainError, HasChildrenError } from '@po/core';
-import { httpStatusForCode } from './lib/errors.js';
+import { DomainError } from '@po/core';
+import { domainErrorDetails, httpStatusForCode } from './lib/errors.js';
+import { pinoOpLogger } from './lib/logger.js';
 import { registerOpenApi } from './openapi/plugin.js';
 import { projectRoutes } from './routes/projects.js';
 import { requirementRoutes } from './routes/requirements.js';
@@ -19,13 +20,6 @@ export interface BuildAppOptions {
   logger?: FastifyServerOptions['logger'];
   /** When set and existing, the built SPA in this directory is served. */
   staticRoot?: string;
-}
-
-/** Structured details surfaced for specific domain errors. */
-function detailsFor(err: DomainError): unknown {
-  if (err instanceof CycleError) return { path: err.path };
-  if (err instanceof HasChildrenError) return { children: err.children };
-  return undefined;
 }
 
 /**
@@ -45,13 +39,16 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const deps = {
     projectsRoot: opts.projectsRoot,
     now: opts.now ?? (() => new Date().toISOString()),
+    log: pinoOpLogger(app.log),
   };
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof DomainError) {
       const status = httpStatusForCode(err.code);
       if (status >= 500) req.log.error({ err }, 'domain error mapped to 5xx');
-      reply.status(status).send({ code: err.code, message: err.message, details: detailsFor(err) });
+      reply
+        .status(status)
+        .send({ code: err.code, message: err.message, details: domainErrorDetails(err) });
       return;
     }
     // Fastify/validation/multipart errors that carry an explicit status code.

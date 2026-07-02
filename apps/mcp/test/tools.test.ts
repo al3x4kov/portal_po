@@ -1,7 +1,14 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { FsProjectRepo } from '@po/server';
+import {
+  FsProjectRepo,
+  linkInputShape,
+  requirementCreateShape,
+  requirementUpdateShape,
+  type OpLogEntry,
+  type OpLogger,
+} from '@po/server';
 import { createTools, type ToolDef } from '../src/tools.js';
 import { byName, call, cleanup, data, fixedNow, makeTmpRoot } from './helpers.js';
 
@@ -319,5 +326,112 @@ describe('T-1002 MCP tools wrapper (S31–S34)', () => {
     const t = byName(createTools(root));
     const res = await call(t, 'list_requirements', { projectId: 'P' });
     expect(res.isError).toBeUndefined();
+  });
+});
+
+// ARCH-4: the MCP tools consume the canonical @po/server contract shapes so the
+// accepted input cannot drift from the REST routes (which use the same objects).
+describe('ARCH-4 MCP tools reuse the canonical input contracts', () => {
+  it('create/update/link tools reference the exact canonical field validators', async () => {
+    const root = await makeTmpRoot();
+    try {
+      const defs = byName(createTools(root, fixedNow));
+      const create = defs.get('create_requirement')!;
+      const update = defs.get('update_requirement')!;
+      const link = defs.get('link_requirements')!;
+
+      // Reference equality proves a single source of truth (no re-declared fields).
+      expect(create.inputSchema.type).toBe(requirementCreateShape.type);
+      expect(create.inputSchema.name).toBe(requirementCreateShape.name);
+      expect(create.inputSchema.criticality).toBe(requirementCreateShape.criticality);
+      expect(update.inputSchema.name).toBe(requirementUpdateShape.name);
+      // `type` is immutable on update — the tool must NOT accept it.
+      expect(update.inputSchema.type).toBeUndefined();
+      expect(link.inputSchema.sourceSlug).toBe(linkInputShape.sourceSlug);
+      expect(link.inputSchema.targetSlug).toBe(linkInputShape.targetSlug);
+    } finally {
+      await cleanup(root);
+    }
+  });
+});
+
+// ARCH-11: domain error details survive into the MCP error result.
+describe('ARCH-11 MCP preserves structured error details', () => {
+  let root: string;
+  let tools: Map<string, ToolDef>;
+
+  beforeEach(async () => {
+    root = await makeTmpRoot();
+    tools = byName(createTools(root, fixedNow));
+    await new FsProjectRepo(root).create('P', fixedNow);
+    for (const name of ['A', 'B']) {
+      await call(tools, 'create_requirement', {
+        projectId: 'P',
+        type: 'FUNCTION',
+        name,
+        criticality: 'LOW',
+        implemented: true,
+      });
+    }
+    await call(tools, 'link_requirements', {
+      projectId: 'P',
+      sourceSlug: 'a',
+      type: 'PARENT_OF',
+      targetSlug: 'b',
+    });
+  });
+  afterEach(async () => {
+    await cleanup(root);
+  });
+
+  it('a CYCLE error carries the offending path in structuredContent', async () => {
+    const res = await call(tools, 'link_requirements', {
+      projectId: 'P',
+      sourceSlug: 'b',
+      type: 'PARENT_OF',
+      targetSlug: 'a',
+    });
+    expect(res.isError).toBe(true);
+    const error = (res.structuredContent as { error?: { code?: string; details?: unknown } })
+      ?.error;
+    expect(error?.code).toBe('CYCLE');
+    const details = error?.details as { path?: unknown } | undefined;
+    expect(Array.isArray(details?.path)).toBe(true);
+  });
+
+  it('a HAS_CHILDREN error carries the blocking children', async () => {
+    const res = await call(tools, 'delete_requirement', { projectId: 'P', slug: 'a' });
+    expect(res.isError).toBe(true);
+    const error = (res.structuredContent as { error?: { code?: string; details?: unknown } })
+      ?.error;
+    expect(error?.code).toBe('HAS_CHILDREN');
+    const details = error?.details as { children?: unknown } | undefined;
+    expect(Array.isArray(details?.children)).toBe(true);
+  });
+});
+
+// ARCH-7: MCP mutations emit structured logs (via the injected logger, which in
+// production writes to stderr to keep the stdio JSON-RPC channel clean).
+describe('ARCH-7 MCP structured logging', () => {
+  it('logs a create operation through the injected logger', async () => {
+    const root = await makeTmpRoot();
+    try {
+      const entries: OpLogEntry[] = [];
+      const logger: OpLogger = { op: (e) => entries.push(e) };
+      await new FsProjectRepo(root).create('P', fixedNow);
+      const tools = byName(createTools(root, fixedNow, logger));
+
+      await call(tools, 'create_requirement', {
+        projectId: 'P',
+        type: 'FUNCTION',
+        name: 'Logged',
+        criticality: 'LOW',
+        implemented: true,
+      });
+      const entry = entries.find((e) => e.op === 'create');
+      expect(entry).toMatchObject({ op: 'create', projectId: 'P', slug: 'logged', outcome: 'ok' });
+    } finally {
+      await cleanup(root);
+    }
   });
 });

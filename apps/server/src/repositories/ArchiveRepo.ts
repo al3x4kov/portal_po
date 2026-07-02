@@ -12,6 +12,7 @@ import {
   assertSingleParent,
   inverseLinkType,
   parse,
+  parseManifest,
   serializeManifest,
   type ProjectManifest,
   type Requirement,
@@ -21,15 +22,14 @@ import { ensureDir } from '../lib/ensureDir.js';
 import { resolveSafe } from '../lib/pathSafe.js';
 import { sanitizeProjectName } from '../lib/projectName.js';
 import { ArchiveError, ConflictError } from '../lib/errors.js';
-import { SCHEMA_VERSION } from './types.js';
+import {
+  SCHEMA_VERSION,
+  type ArchiveFormat,
+  type ArchivePort,
+  type ExportResult,
+} from './types.js';
 
-export type ArchiveFormat = 'zip' | 'targz';
-
-export interface ExportResult {
-  body: Buffer | Readable;
-  filename: string;
-  contentType: string;
-}
+export type { ArchiveFormat, ExportResult } from './types.js';
 
 /** Bomb-guard limits applied while unpacking an import (ARCH-10 / QA-8). */
 export interface ArchiveLimits {
@@ -73,7 +73,7 @@ async function detectFormat(file: string): Promise<ArchiveFormat> {
  * directory as zip or tar.gz; import unpacks into a temp area, validates schema
  * and link integrity, and only then atomically renames into Projects/.
  */
-export class ArchiveRepo {
+export class ArchiveRepo implements ArchivePort {
   private readonly limits: ArchiveLimits;
 
   constructor(
@@ -203,8 +203,32 @@ export class ArchiveRepo {
     return reqs;
   }
 
+  /**
+   * Reject an archive whose manifest declares an unknown (future) schemaVersion
+   * before anything is committed (ARCH-5 / SA-9). A missing manifest is fine —
+   * {@link ensureManifest} synthesizes a current-version one. A malformed or
+   * too-new manifest raises {@link ArchiveError} so import fails and the target
+   * directory is never created.
+   */
+  private async validateManifest(contentRoot: string): Promise<void> {
+    const manifestPath = path.join(contentRoot, MANIFEST);
+    let raw: string;
+    try {
+      raw = await fs.readFile(manifestPath, 'utf8');
+    } catch {
+      return; // no manifest — ensureManifest will write a current-version one
+    }
+    try {
+      parseManifest(raw); // enforces schemaVersion <= SCHEMA_VERSION
+    } catch (err) {
+      throw new ArchiveError(`Unsupported or invalid project manifest: ${(err as Error).message}`);
+    }
+  }
+
   /** Parse + integrity-validate every requirement in the extracted content root. */
   private async validate(contentRoot: string): Promise<void> {
+    await this.validateManifest(contentRoot);
+
     const specsDir = path.join(contentRoot, SPECS_DIR);
     try {
       const stat = await fs.stat(specsDir);

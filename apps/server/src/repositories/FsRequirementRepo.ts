@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   REQUIREMENT_FOLDER,
+  incompleteScenarios,
   parse,
   serialize,
   type Requirement,
@@ -12,29 +13,14 @@ import { ensureDir } from '../lib/ensureDir.js';
 import { resolveSafe } from '../lib/pathSafe.js';
 import { withProjectLock } from '../lib/projectLock.js';
 import { NotFoundError } from '../lib/errors.js';
+import type {
+  BrokenRequirement,
+  LoadResult,
+  RequirementBatchOp,
+  RequirementRepo,
+} from './types.js';
 
-/** A `.md` file that could not be parsed into a valid Requirement (flagged, not fatal). */
-export interface BrokenRequirement {
-  /** Path relative to `openspec/specs` (e.g. `functions/foo.md`). */
-  file: string;
-  /** File name without the `.md` extension — occupies a slug on disk (ARCH-3). */
-  slug: string;
-  error: string;
-}
-
-/** Result of loading every requirement file in a project. */
-export interface LoadResult {
-  requirements: Requirement[];
-  broken: BrokenRequirement[];
-}
-
-/**
- * A single file mutation inside a transactional batch: a `write` upserts a
- * requirement file, a `delete` removes one. Applied all-or-nothing by
- * {@link FsRequirementRepo.applyBatch}.
- */
-export type RequirementBatchOp =
-  { kind: 'write'; req: Requirement } | { kind: 'delete'; type: RequirementType; slug: string };
+export type { BrokenRequirement, LoadResult, RequirementBatchOp } from './types.js';
 
 /** Internal file-level operation (absolute path; `data` absent ⇒ delete). */
 interface FileOp {
@@ -53,7 +39,7 @@ const SPECS_DIR = path.join('openspec', 'specs');
  * from the folder and the slug from the file name. Reads tolerate corrupt files
  * by flagging them; writes go through atomicWrite + core serialize.
  */
-export class FsRequirementRepo {
+export class FsRequirementRepo implements RequirementRepo {
   private readonly specsDir: string;
 
   constructor(
@@ -110,7 +96,14 @@ export class FsRequirementRepo {
     requirements.sort((a, b) =>
       a.type === b.type ? a.slug.localeCompare(b.slug) : a.type.localeCompare(b.type),
     );
-    return { requirements, broken };
+
+    // SA-4: a requirement lacks a complete acceptance criterion when it has no
+    // scenarios at all, or at least one incomplete scenario (missing WHEN/THEN).
+    const incomplete = requirements
+      .filter((r) => (r.scenarios?.length ?? 0) === 0 || incompleteScenarios(r).length > 0)
+      .map((r) => r.slug);
+
+    return { requirements, broken, incomplete };
   }
 
   /** Create or overwrite a single requirement file atomically. */

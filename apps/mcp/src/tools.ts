@@ -4,23 +4,22 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { z } from 'zod';
+import { DomainError, type Requirement } from '@po/core';
 import {
-  CRITICALITIES,
-  DomainError,
-  LINK_TYPES,
-  REQUIREMENT_TYPES,
-  TARGET_QUARTERS,
-  type Requirement,
-} from '@po/core';
-import {
-  ArchiveRepo,
-  FsProjectRepo,
-  FsRequirementRepo,
-  LinkService,
+  createLinkService,
+  createProjectRepo,
+  createProjectService,
+  createRequirementService,
+  domainErrorDetails,
+  linkInputShape,
+  requirementCreateShape,
+  requirementUpdateShape,
   NotFoundError,
-  ProjectService,
-  RequirementService,
   type ArchiveFormat,
+  type LinkService,
+  type OpLogger,
+  type RequirementService,
+  type ServiceContext,
 } from '@po/server';
 
 /**
@@ -50,9 +49,20 @@ function ok(data: Record<string, unknown>): ToolResult {
   };
 }
 
-/** Build an MCP error result from a domain error code + message. */
-function fail(code: string, message: string): ToolResult {
-  return { content: [{ type: 'text', text: `[${code}] ${message}` }], isError: true };
+/**
+ * Build an MCP error result from a domain error code + message, preserving the
+ * structured `details` (ARCH-11): a cycle's `path`, a node's blocking `children`
+ * etc. are carried in `structuredContent.error` instead of being collapsed into
+ * the human-readable text line, so agents can act on them programmatically.
+ */
+function fail(code: string, message: string, details?: unknown): ToolResult {
+  const error: Record<string, unknown> = { code, message };
+  if (details !== undefined) error.details = details;
+  return {
+    content: [{ type: 'text', text: `[${code}] ${message}` }],
+    structuredContent: { error },
+    isError: true,
+  };
 }
 
 /**
@@ -79,25 +89,16 @@ function tool<S extends z.ZodRawShape>(
       try {
         return ok(await run(parsed.data));
       } catch (err) {
-        if (err instanceof DomainError) return fail(err.code, err.message);
+        if (err instanceof DomainError) return fail(err.code, err.message, domainErrorDetails(err));
         throw err;
       }
     },
   };
 }
 
-/** Shared Zod field definitions, reusing the canonical enums from @po/core. */
+/** Shared Zod field definitions for identifiers (project-local). */
 const projectId = z.string().min(1);
 const slug = z.string().min(1);
-
-const requirementFields = {
-  name: z.string().min(1),
-  criticality: z.enum(CRITICALITIES),
-  description: z.string().optional(),
-  implemented: z.boolean(),
-  targetQuarter: z.enum(TARGET_QUARTERS).optional(),
-  targetYear: z.number().int().optional(),
-};
 
 /** Serialize a Requirement to a plain record for structured tool output. */
 function requirementRecord(req: Requirement): Record<string, unknown> {
@@ -109,11 +110,11 @@ function requirementRecord(req: Requirement): Record<string, unknown> {
  * existing @po/server services/repositories directly (no HTTP). Read tools are
  * side-effect free; write tools return the resulting requirement state.
  */
-export function createTools(projectsRoot: string, now?: () => string): ToolDef[] {
+export function createTools(projectsRoot: string, now?: () => string, log?: OpLogger): ToolDef[] {
   const clock = now ?? ((): string => new Date().toISOString());
-  const projectService = new ProjectService(projectsRoot, clock);
-  const projectRepo = new FsProjectRepo(projectsRoot);
-  const archiveRepo = new ArchiveRepo(projectsRoot);
+  const ctx: ServiceContext = { projectsRoot, now: clock, log };
+  const projectService = createProjectService(ctx);
+  const projectRepo = createProjectRepo(ctx);
 
   const requireProject = async (id: string): Promise<void> => {
     if (!(await projectRepo.exists(id))) {
@@ -121,9 +122,8 @@ export function createTools(projectsRoot: string, now?: () => string): ToolDef[]
     }
   };
 
-  const reqRepo = (id: string): FsRequirementRepo => new FsRequirementRepo(projectsRoot, id);
-  const reqService = (id: string): RequirementService => new RequirementService(reqRepo(id), clock);
-  const linkService = (id: string): LinkService => new LinkService(reqRepo(id), clock);
+  const reqService = (id: string): RequirementService => createRequirementService(ctx, id);
+  const linkService = (id: string): LinkService => createLinkService(ctx, id);
 
   return [
     tool('list_projects', 'List all projects.', {}, async () => {
@@ -142,8 +142,8 @@ export function createTools(projectsRoot: string, now?: () => string): ToolDef[]
       { projectId },
       async ({ projectId: id }) => {
         await requireProject(id);
-        const { requirements, broken } = await reqService(id).list();
-        return { requirements, broken };
+        const { requirements, broken, incomplete } = await reqService(id).list();
+        return { requirements, broken, incomplete };
       },
     ),
 
@@ -163,7 +163,7 @@ export function createTools(projectsRoot: string, now?: () => string): ToolDef[]
     tool(
       'create_requirement',
       'Create a requirement; returns the created requirement.',
-      { projectId, type: z.enum(REQUIREMENT_TYPES), ...requirementFields },
+      { projectId, ...requirementCreateShape },
       async ({ projectId: id, ...input }) => {
         await requireProject(id);
         const req = await reqService(id).create(input);
@@ -174,7 +174,7 @@ export function createTools(projectsRoot: string, now?: () => string): ToolDef[]
     tool(
       'update_requirement',
       'Update a requirement (slug/type immutable); returns the updated requirement.',
-      { projectId, slug, ...requirementFields },
+      { projectId, slug, ...requirementUpdateShape },
       async ({ projectId: id, slug: s, ...input }) => {
         await requireProject(id);
         const req = await reqService(id).update(s, input);
@@ -185,12 +185,7 @@ export function createTools(projectsRoot: string, now?: () => string): ToolDef[]
     tool(
       'link_requirements',
       'Create a typed link between two requirements; returns the source requirement.',
-      {
-        projectId,
-        sourceSlug: slug,
-        type: z.enum(LINK_TYPES),
-        targetSlug: slug,
-      },
+      { projectId, ...linkInputShape },
       async ({ projectId: id, sourceSlug, type, targetSlug }) => {
         await requireProject(id);
         const service = linkService(id);
@@ -218,9 +213,8 @@ export function createTools(projectsRoot: string, now?: () => string): ToolDef[]
       'Export a project as an archive written to a temp file; returns its path.',
       { projectId, format: z.enum(['zip', 'targz']).default('zip') },
       async ({ projectId: id, format }) => {
-        await requireProject(id);
-        const project = await projectRepo.get(id);
-        const result = await archiveRepo.export(project.mainPath, format as ArchiveFormat, id);
+        // ProjectService.export performs the existence check (404) and logging.
+        const result = await projectService.export(id, format as ArchiveFormat);
         const outPath = path.join(
           os.tmpdir(),
           `po-mcp-export-${randomBytes(8).toString('hex')}-${result.filename}`,

@@ -14,9 +14,22 @@ export interface ProjectManifest {
 /** Current manifest schema version. */
 export const SCHEMA_VERSION = 2;
 
+/**
+ * `schemaVersion` is bounded by the version this build understands (ARCH-5 /
+ * SA-9): an unknown *future* version must fail loudly rather than be accepted
+ * silently, so a project written by a newer app is never partially read (or, on
+ * import, committed to disk). Values in `1..SCHEMA_VERSION` are accepted.
+ */
 const manifestSchema = z.object({
   name: z.string().min(1),
-  schemaVersion: z.number().int().positive(),
+  schemaVersion: z
+    .number()
+    .int()
+    .positive()
+    .max(
+      SCHEMA_VERSION,
+      `Unsupported schemaVersion: this build understands up to ${SCHEMA_VERSION}.`,
+    ),
   createdAt: z.string().min(1),
 });
 
