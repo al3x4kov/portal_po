@@ -18,6 +18,11 @@ export interface BrokenRequirement {
 export interface RequirementListResult {
   requirements: Requirement[];
   broken: BrokenRequirement[];
+  /**
+   * Slugs of requirements lacking a complete acceptance criterion (SA-4/SA-6):
+   * no scenarios at all, or at least one scenario missing WHEN/THEN.
+   */
+  incomplete: string[];
 }
 
 /** GET /api/projects/:id/requirements/check-name response. */

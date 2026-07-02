@@ -14,7 +14,7 @@
   --color-border:    #e2e8f0; /* slate-200 */
   --color-text:      #0f172a; /* slate-900 */
   --color-text-2:    #475569; /* slate-600 */
-  --color-text-3:    #94a3b8; /* slate-400 */
+  --color-text-3:    #5b6675; /* UX-9: darkened for WCAG AA (>=4.5:1) */
 
   /* Семантические */
   --color-success:   #16a34a;
@@ -60,7 +60,7 @@ html.dark {
   --color-border:    #334155;
   --color-text:      #f1f5f9;
   --color-text-2:    #cbd5e1;
-  --color-text-3:    #64748b;
+  --color-text-3:    #94a3b8; /* UX-9: brightened for WCAG AA (>=4.5:1) */
 
   --color-success-bg:#052e16;
   --color-warning-bg:#451a03;

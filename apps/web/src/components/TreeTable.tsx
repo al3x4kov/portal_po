@@ -27,6 +27,8 @@ interface TreeTableProps {
   rows: VisibleRow[];
   /** Project-wide slug → name map, to render link targets by name. */
   nameBySlug: Map<string, string>;
+  /** Slugs whose acceptance criterion is missing/incomplete (SA-4/SA-6). */
+  incompleteSet?: ReadonlySet<string>;
   onAdd: () => void;
   onEdit: (req: Requirement) => void;
   onLink: (req: Requirement) => void;
@@ -41,6 +43,7 @@ interface TreeTableProps {
 function Row({
   row,
   nameBySlug,
+  incomplete,
   onEdit,
   onLink,
   onAddNfr,
@@ -50,6 +53,7 @@ function Row({
 }: {
   row: VisibleRow;
   nameBySlug: Map<string, string>;
+  incomplete: boolean;
   onEdit: (r: Requirement) => void;
   onLink: (r: Requirement) => void;
   onAddNfr?: (r: Requirement) => void;
@@ -103,6 +107,18 @@ function Row({
               data-testid={`ancestor-label-${req.slug}`}
             >
               предок
+            </span>
+          ) : null}
+          {incomplete ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+              style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning)' }}
+              data-testid="incomplete-badge"
+              data-slug={req.slug}
+              title="Нет полного критерия приёмки (сценария WHEN/THEN)"
+              aria-label="Нет полного критерия приёмки"
+            >
+              <span aria-hidden="true">⚠</span> без критерия
             </span>
           ) : null}
           {collapsedBranch ? (
@@ -165,7 +181,13 @@ function Row({
         </button>
       </td>
       <td className="w-[210px] py-2.5 pr-4 align-middle text-right">
-        <div className="inline-flex flex-nowrap justify-end gap-1 whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100 max-md:opacity-100">
+        {/* UX-1: actions stay visible (subtle by default), and any focused button
+            becomes fully visible via group-focus-within — keyboard-reachable and
+            identical on desktop/mobile, while remaining inside the row card. */}
+        <div
+          className="inline-flex flex-nowrap justify-end gap-1 whitespace-nowrap opacity-70 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+          data-testid={`row-actions-${req.slug}`}
+        >
           {canAddNfr ? (
             <button
               type="button"
@@ -207,6 +229,7 @@ export function TreeTable({
   count,
   rows,
   nameBySlug,
+  incompleteSet,
   onAdd,
   onEdit,
   onLink,
@@ -272,6 +295,7 @@ export function TreeTable({
                   key={row.requirement.slug}
                   row={row}
                   nameBySlug={nameBySlug}
+                  incomplete={incompleteSet?.has(row.requirement.slug) ?? false}
                   onEdit={onEdit}
                   onLink={onLink}
                   onAddNfr={onAddNfr}

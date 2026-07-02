@@ -49,6 +49,9 @@ interface UiState {
   implementationFilter: Set<ImplStatus>;
   setImplementationFilter: (statuses: Iterable<ImplStatus>) => void;
 
+  /** Clear every applied filter at once (UX-6 "Сбросить фильтры"). */
+  resetFilters: () => void;
+
   modal: ModalState;
   openModal: (modal: NonNullable<ModalState>) => void;
   closeModal: () => void;
@@ -91,6 +94,12 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   implementationFilter: new Set<ImplStatus>(),
   setImplementationFilter: (statuses) => set({ implementationFilter: new Set(statuses) }),
+
+  resetFilters: () =>
+    set({
+      criticalityFilter: new Set<Criticality>(),
+      implementationFilter: new Set<ImplStatus>(),
+    }),
 
   modal: null,
   openModal: (modal) => set({ modal }),

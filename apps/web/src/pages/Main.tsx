@@ -31,6 +31,7 @@ export function Main(): React.ReactElement {
   const criticalityFilter = useUiStore((s) => s.criticalityFilter);
   const implementationFilter = useUiStore((s) => s.implementationFilter);
   const setSearch = useUiStore((s) => s.setSearch);
+  const resetFilters = useUiStore((s) => s.resetFilters);
 
   const deleteMut = useDeleteRequirement(id);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -38,6 +39,11 @@ export function Main(): React.ReactElement {
   const [descReq, setDescReq] = useState<Requirement | null>(null);
 
   const requirements = reqQuery.data?.requirements ?? [];
+  const broken = reqQuery.data?.broken ?? [];
+  const incompleteSet = useMemo(
+    () => new Set(reqQuery.data?.incomplete ?? []),
+    [reqQuery.data?.incomplete],
+  );
   const functional = requirements.filter((r) => r.type === 'FUNCTION');
   const nfr = requirements.filter((r) => r.type === 'NFR');
   const collapsed = treeMode === 'collapse';
@@ -80,6 +86,9 @@ export function Main(): React.ReactElement {
   const matchCount = fnVis.matchCount + nfrVis.matchCount;
   const searchActive = search.trim().length > 0;
   const searchEmpty = searchActive && matchCount === 0;
+  const filtersActive = criticalityFilter.size > 0 || implementationFilter.size > 0;
+  // UX-6: empty purely because of the criticality/implementation filters (no search).
+  const filtersEmpty = !searchActive && filtersActive && shown === 0 && total > 0;
 
   const onExport = async (format: ArchiveFormat): Promise<void> => {
     setExportError(null);
@@ -124,6 +133,46 @@ export function Main(): React.ReactElement {
       ) : null}
 
       <main className="w-full flex-1 px-4 py-5">
+        {!reqQuery.isLoading && !reqQuery.isError && broken.length > 0 ? (
+          <section
+            className="card mb-5 p-4"
+            role="alert"
+            style={{ borderColor: 'var(--color-danger)' }}
+            data-testid="broken-panel"
+          >
+            <div className="flex items-center gap-2">
+              <span aria-hidden="true">⚠</span>
+              <h2 className="font-bold" style={{ color: 'var(--color-danger)' }}>
+                Битые файлы требований ({broken.length})
+              </h2>
+            </div>
+            <p className="mt-1 text-sm" style={{ color: 'var(--color-text-2)' }}>
+              Эти файлы не удалось разобрать — они не показаны в дереве. Исправьте их вручную в
+              каталоге проекта.
+            </p>
+            <ul className="mt-3 space-y-2">
+              {broken.map((b) => (
+                <li
+                  key={b.file}
+                  className="rounded-lg p-2.5 text-sm"
+                  style={{ background: 'var(--color-danger-bg)' }}
+                  data-testid="broken-item"
+                >
+                  <span
+                    className="font-mono font-semibold"
+                    style={{ color: 'var(--color-danger)' }}
+                  >
+                    {b.file}
+                  </span>
+                  <span className="ml-2" style={{ color: 'var(--color-text-2)' }}>
+                    {b.error}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         {reqQuery.isLoading ? (
           <p data-testid="main-loading" style={{ color: 'var(--color-text-3)' }}>
             Загрузка требований…
@@ -163,13 +212,59 @@ export function Main(): React.ReactElement {
             <p className="mt-1 max-w-sm text-sm" style={{ color: 'var(--color-text-3)' }}>
               Проверьте написание или очистите поиск, чтобы вернуть полное дерево требований.
             </p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                data-testid="search-clear"
+                onClick={() => setSearch('')}
+              >
+                Очистить поиск
+              </button>
+              {filtersActive ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary text-sm"
+                  data-testid="filters-reset"
+                  onClick={resetFilters}
+                >
+                  Сбросить фильтры
+                </button>
+              ) : null}
+            </div>
+          </section>
+        ) : filtersEmpty ? (
+          <section
+            className="card flex flex-col items-center px-6 py-14 text-center"
+            data-testid="filters-empty"
+          >
+            <div
+              className="mb-4 grid place-items-center rounded-full"
+              style={{ width: 56, height: 56, background: 'var(--color-surface-2)' }}
+              aria-hidden="true"
+            >
+              <svg
+                width="26"
+                height="26"
+                fill="none"
+                stroke="var(--color-text-3)"
+                strokeWidth="2"
+                viewBox="0 0 24 24"
+              >
+                <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+              </svg>
+            </div>
+            <p className="font-semibold">Нет требований под выбранные фильтры</p>
+            <p className="mt-1 max-w-sm text-sm" style={{ color: 'var(--color-text-3)' }}>
+              Ослабьте условия или сбросьте все фильтры, чтобы вернуть полное дерево требований.
+            </p>
             <button
               type="button"
               className="btn btn-secondary mt-4 text-sm"
-              data-testid="search-clear"
-              onClick={() => setSearch('')}
+              data-testid="filters-reset"
+              onClick={resetFilters}
             >
-              Очистить поиск
+              Сбросить фильтры
             </button>
           </section>
         ) : (
@@ -183,6 +278,27 @@ export function Main(): React.ReactElement {
                 {matchesLabel(matchCount)} · показаны предки
               </p>
             ) : null}
+            {filtersActive ? (
+              <div
+                className="mb-3 flex flex-wrap items-center gap-2 text-xs"
+                data-testid="filters-applied"
+              >
+                <span
+                  className="badge"
+                  style={{ background: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}
+                >
+                  Фильтры применены
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-ghost px-2 py-0.5 text-xs"
+                  data-testid="filters-reset-all"
+                  onClick={resetFilters}
+                >
+                  Сбросить все фильтры
+                </button>
+              </div>
+            ) : null}
             <TreeTable
               title="Функциональные требования"
               addLabel="+ Функция"
@@ -190,6 +306,7 @@ export function Main(): React.ReactElement {
               count={functional.length}
               rows={fnVis.rows}
               nameBySlug={nameBySlug}
+              incompleteSet={incompleteSet}
               onAdd={() => openModal({ kind: 'requirement', reqType: 'FUNCTION' })}
               onEdit={onEdit}
               onLink={onLink}
@@ -205,6 +322,7 @@ export function Main(): React.ReactElement {
               count={nfr.length}
               rows={nfrVis.rows}
               nameBySlug={nameBySlug}
+              incompleteSet={incompleteSet}
               onAdd={() => openModal({ kind: 'requirement', reqType: 'NFR' })}
               onEdit={onEdit}
               onLink={onLink}
@@ -335,6 +453,7 @@ export function Main(): React.ReactElement {
                 error={deleteError}
                 confirmLabel="Удалить"
                 busy={deleteMut.isPending}
+                confirmDisabled={children > 0}
                 onCancel={closeModal}
                 onConfirm={async () => {
                   setDeleteError(null);

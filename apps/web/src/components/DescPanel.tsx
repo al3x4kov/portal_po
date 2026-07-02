@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { Requirement } from '@po/core';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { CriticalityBadge, ImplementationBadge } from './badges';
 
 interface DescPanelProps {
@@ -22,14 +23,16 @@ export function DescPanel({
   onEdit,
   onDelete,
 }: DescPanelProps): React.ReactElement {
+  const panelRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  // UX-5: trap focus in the drawer, defaulting to the close button.
+  useFocusTrap(panelRef, { initialFocus: closeRef });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKey);
-    closeRef.current?.focus();
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
@@ -45,6 +48,7 @@ export function DescPanel({
         aria-hidden="true"
       />
       <aside
+        ref={panelRef}
         className="fixed inset-y-0 right-0 z-50 flex w-[420px] max-w-[92vw] flex-col border-l shadow-lg"
         style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
         role="dialog"

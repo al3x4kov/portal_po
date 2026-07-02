@@ -1,6 +1,7 @@
 import { render, type RenderResult } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
+import { ToastProvider } from '../components/Toast';
 
 export function makeQueryClient(): QueryClient {
   return new QueryClient({
@@ -19,7 +20,9 @@ export function renderWithProviders(
   const queryClient = makeQueryClient();
   const result = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[options.route ?? '/']}>{ui}</MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter initialEntries={[options.route ?? '/']}>{ui}</MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
   );
   return { ...result, queryClient };

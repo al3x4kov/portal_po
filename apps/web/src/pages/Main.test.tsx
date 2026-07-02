@@ -67,6 +67,7 @@ describe('Main page (E11 integration)', () => {
       treeMode: 'expand-all',
       search: '',
       criticalityFilter: new Set(),
+      implementationFilter: new Set(),
       expanded: new Set(),
       modal: null,
     });
@@ -107,6 +108,59 @@ describe('Main page (E11 integration)', () => {
     await user.type(screen.getByTestId('search-input'), 'блокчейн');
     expect(await screen.findByTestId('search-empty')).toBeInTheDocument();
     expect(screen.queryByTestId('section-function')).not.toBeInTheDocument();
+  });
+
+  it('SA-6: shows a broken-panel when the API reports unparseable files', async () => {
+    listRequirements.mockResolvedValue({
+      requirements,
+      broken: [{ file: 'functions/oops.md', slug: 'oops', error: 'Ошибка разбора' }],
+      incomplete: [],
+    });
+    renderMain();
+    const panel = await screen.findByTestId('broken-panel');
+    expect(panel).toHaveTextContent('functions/oops.md');
+    expect(panel).toHaveTextContent('Ошибка разбора');
+  });
+
+  it('SA-6: flags requirements without an acceptance criterion (incomplete-badge)', async () => {
+    listRequirements.mockResolvedValue({ requirements, broken: [], incomplete: ['pay'] });
+    renderMain();
+    await screen.findByTestId('tree-row-pay');
+    const badges = screen.getAllByTestId('incomplete-badge');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveAttribute('data-slug', 'pay');
+  });
+
+  it('UX-6: offers "Сбросить фильтры" when filters hide everything, and restores the tree', async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ implementationFilter: new Set(['PLANNED']) });
+    renderMain();
+    const reset = await screen.findByTestId('filters-reset');
+    expect(screen.queryByTestId('section-function')).not.toBeInTheDocument();
+    await user.click(reset);
+    expect(await screen.findByTestId('tree-row-pay')).toBeInTheDocument();
+  });
+
+  it('UX-3: disables the delete confirm for a requirement that still has children', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await screen.findByTestId('tree-row-pay');
+    const payRow = screen.getByTestId('tree-row-pay');
+    await user.click(payRow.querySelector('[data-testid="delete-btn-pay"]') as HTMLElement);
+    const confirm = await screen.findByTestId('delete-dialog-confirm');
+    expect(confirm).toBeDisabled();
+  });
+
+  it('UX-2: shows a success toast after deleting a leaf requirement', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await screen.findByTestId('tree-row-sla');
+    const slaRow = screen.getByTestId('tree-row-sla');
+    await user.click(slaRow.querySelector('[data-testid="delete-btn-sla"]') as HTMLElement);
+    const confirm = await screen.findByTestId('delete-dialog-confirm');
+    expect(confirm).not.toBeDisabled();
+    await user.click(confirm);
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Требование удалено');
   });
 
   it('opens the description drawer on demand and closes it (T-1104)', async () => {

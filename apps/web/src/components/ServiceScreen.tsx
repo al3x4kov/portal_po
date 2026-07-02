@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 export type ServiceKind = 'ai' | 'rest' | 'mcp';
 
@@ -303,14 +304,16 @@ function McpContent(): React.ReactElement {
  * fixed header, scrolling body. Styled purely through design tokens.
  */
 export function ServiceScreen({ service, onClose }: ServiceScreenProps): React.ReactElement {
+  const cardRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  // UX-5: trap focus inside the service screen, defaulting to the close button.
+  useFocusTrap(cardRef, { initialFocus: closeRef });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', onKey);
-    closeRef.current?.focus();
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
@@ -325,6 +328,7 @@ export function ServiceScreen({ service, onClose }: ServiceScreenProps): React.R
       aria-hidden="false"
     >
       <div
+        ref={cardRef}
         role="dialog"
         aria-modal="true"
         aria-label={TITLES[service]}

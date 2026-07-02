@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface ModalProps {
   title: string;
@@ -21,6 +22,10 @@ export function Modal({
   testid = 'modal',
   badge,
 }: ModalProps): React.ReactElement {
+  const cardRef = useRef<HTMLDivElement>(null);
+  // UX-5: keep focus inside the dialog; preserves an inner autoFocus (see hook).
+  useFocusTrap(cardRef);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') onClose();
@@ -36,6 +41,7 @@ export function Modal({
       data-testid={`${testid}-overlay`}
     >
       <div
+        ref={cardRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
