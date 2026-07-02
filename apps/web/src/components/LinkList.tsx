@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Link, LinkType } from '@po/core';
 import { LINK_TYPE_LABEL } from '../lib/linkTypes';
 
@@ -16,6 +17,8 @@ interface LinkListProps {
   onRequestDelete: (link: Link) => void;
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
+  /** Called when the user clicks the "+ Добавить связь" button in the header. */
+  onAddLink?: () => void;
 }
 
 interface LinkRowProps {
@@ -28,11 +31,8 @@ interface LinkRowProps {
   onConfirmDelete: () => void;
 }
 
-/**
- * A single relationship row with an inline (two-step) delete confirmation
- * (BE-5, extracted from RequirementModal — T3). Deleting removes the reciprocal
- * pair server-side, so the copy warns it disappears for both requirements.
- */
+const HIERARCHY_TYPES = new Set<LinkType>(['CHILD_OF', 'PARENT_OF']);
+
 function LinkRow({
   link,
   targetName,
@@ -50,10 +50,10 @@ function LinkRow({
           style={{ background: 'var(--color-danger-bg)' }}
         >
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium" style={{ color: 'var(--color-danger)' }}>
+            <p className="text-sm font-medium" style={{ color: 'var(--color-danger-fg)' }}>
               Удалить связь «{LINK_TYPE_LABEL[link.type]} «{targetName}»»?
             </p>
-            <p className="text-xs" style={{ color: 'var(--color-danger)' }}>
+            <p className="text-xs" style={{ color: 'var(--color-danger-fg)' }}>
               Связь исчезнет у обоих требований.
             </p>
           </div>
@@ -114,6 +114,10 @@ function LinkRow({
  * The requirement's relationship list (BE-5, extracted from RequirementModal —
  * T2/T3). Presentational: the parent owns the links state and the delete
  * mutation; this renders the label, empty state and the rows.
+ *
+ * Hierarchy links (CHILD_OF / PARENT_OF) are collapsed by default to save
+ * screen space — they're structural noise in the editing context. All other
+ * link types are always visible.
  */
 export function LinkList({
   links,
@@ -123,15 +127,36 @@ export function LinkList({
   onRequestDelete,
   onCancelDelete,
   onConfirmDelete,
+  onAddLink,
 }: LinkListProps): React.ReactElement {
+  const [hierarchyExpanded, setHierarchyExpanded] = useState(false);
+
+  const hierarchyLinks = links.filter((l) => HIERARCHY_TYPES.has(l.type));
+  const otherLinks = links.filter((l) => !HIERARCHY_TYPES.has(l.type));
+
   return (
     <div>
-      <span className="label">
-        Связи{' '}
-        <span className="font-normal" style={{ color: 'var(--color-text-3)' }}>
-          ({links.length})
+      <div className="mb-2 flex items-center justify-between">
+        <span className="label">
+          Связи{' '}
+          <span className="font-normal" style={{ color: 'var(--color-text-3)' }}>
+            ({links.length})
+          </span>
         </span>
-      </span>
+        {onAddLink ? (
+          <button
+            type="button"
+            className="btn btn-ghost px-2 py-1 text-xs"
+            style={{ color: 'var(--color-primary)' }}
+            data-testid="req-links-add"
+            aria-label="Добавить связь"
+            onClick={onAddLink}
+          >
+            + Добавить связь
+          </button>
+        ) : null}
+      </div>
+
       {links.length === 0 ? (
         <p
           className="rounded-lg px-3 py-4 text-center text-sm"
@@ -141,21 +166,63 @@ export function LinkList({
           Связей нет
         </p>
       ) : (
-        <div className="space-y-1.5" data-testid="req-links">
-          {links.map((l) => (
-            <LinkRow
-              key={`${l.type}-${l.targetSlug}`}
-              link={l}
-              targetName={nameBySlug?.get(l.targetSlug) ?? l.targetSlug}
-              isPending={
-                pendingDelete?.type === l.type && pendingDelete?.targetSlug === l.targetSlug
-              }
-              deleting={deleting}
-              onRequestDelete={onRequestDelete}
-              onCancelDelete={onCancelDelete}
-              onConfirmDelete={onConfirmDelete}
-            />
-          ))}
+        <div className="space-y-3" data-testid="req-links">
+          {/* Hierarchy links: collapsed by default */}
+          {hierarchyLinks.length > 0 ? (
+            <div>
+              <button
+                type="button"
+                className="flex w-full items-center gap-1.5 rounded-lg px-3 py-1.5 text-left text-xs"
+                style={{
+                  background: 'var(--color-surface-2)',
+                  color: 'var(--color-text-3)',
+                }}
+                data-testid="req-links-hierarchy-toggle"
+                onClick={() => setHierarchyExpanded((v) => !v)}
+              >
+                <span aria-hidden="true">{hierarchyExpanded ? '▾' : '▸'}</span>
+                Родитель / предок ({hierarchyLinks.length})
+              </button>
+              {hierarchyExpanded ? (
+                <div className="mt-1.5 space-y-1.5" data-testid="req-links-hierarchy">
+                  {hierarchyLinks.map((l) => (
+                    <LinkRow
+                      key={`${l.type}-${l.targetSlug}`}
+                      link={l}
+                      targetName={nameBySlug?.get(l.targetSlug) ?? l.targetSlug}
+                      isPending={
+                        pendingDelete?.type === l.type && pendingDelete?.targetSlug === l.targetSlug
+                      }
+                      deleting={deleting}
+                      onRequestDelete={onRequestDelete}
+                      onCancelDelete={onCancelDelete}
+                      onConfirmDelete={onConfirmDelete}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Other link types: always visible */}
+          {otherLinks.length > 0 ? (
+            <div className="space-y-1.5" data-testid="req-links-other">
+              {otherLinks.map((l) => (
+                <LinkRow
+                  key={`${l.type}-${l.targetSlug}`}
+                  link={l}
+                  targetName={nameBySlug?.get(l.targetSlug) ?? l.targetSlug}
+                  isPending={
+                    pendingDelete?.type === l.type && pendingDelete?.targetSlug === l.targetSlug
+                  }
+                  deleting={deleting}
+                  onRequestDelete={onRequestDelete}
+                  onCancelDelete={onCancelDelete}
+                  onConfirmDelete={onConfirmDelete}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       )}
     </div>

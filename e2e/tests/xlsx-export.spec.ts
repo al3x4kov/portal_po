@@ -3,9 +3,8 @@ import { expect, test } from '@playwright/test';
 import { addRequirement, createProject, uniqueName } from './helpers/app.js';
 
 /**
- * T-1202 · S18 — Excel export. The footer `export-xlsx` anchor points at
- * GET /api/projects/:id/export.xlsx with a `download` attribute. The downloaded
- * file must be a valid, non-empty .xlsx (a ZIP container, magic bytes PK\x03\x04).
+ * T-1202 · S18 — Excel export via ExportModal (footer-export → select-all → xlsx).
+ * The downloaded file must be a valid, non-empty .xlsx (ZIP container, magic PK).
  */
 test('S18 Excel export downloads a valid non-empty .xlsx (PK signature)', async ({
   page,
@@ -14,9 +13,13 @@ test('S18 Excel export downloads a valid non-empty .xlsx (PK signature)', async 
   await addRequirement(page, { kind: 'function', name: uniqueName('F-x'), criticality: 'HIGH' });
   await addRequirement(page, { kind: 'nfr', name: uniqueName('N-x'), criticality: 'MEDIUM' });
 
+  // Open ExportModal, advance to format step, click xlsx.
+  await page.getByTestId('footer-export').click();
+  await page.getByTestId('export-next').click();
+
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByTestId('export-xlsx').click(),
+    page.getByTestId('export-fmt-xlsx').click(),
   ]);
 
   expect(download.suggestedFilename()).toMatch(/\.xlsx$/);

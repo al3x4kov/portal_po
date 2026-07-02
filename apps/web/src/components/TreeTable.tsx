@@ -27,8 +27,6 @@ interface TreeTableProps {
   rows: VisibleRow[];
   /** Project-wide slug → name map, to render link targets by name. */
   nameBySlug: Map<string, string>;
-  /** Slugs whose acceptance criterion is missing/incomplete (SA-4/SA-6). */
-  incompleteSet?: ReadonlySet<string>;
   onAdd: () => void;
   onEdit: (req: Requirement) => void;
   onLink: (req: Requirement) => void;
@@ -53,7 +51,6 @@ interface TreeTableProps {
 function Row({
   row,
   nameBySlug,
-  incomplete,
   onEdit,
   onLink,
   onAddNfr,
@@ -65,7 +62,6 @@ function Row({
 }: {
   row: VisibleRow;
   nameBySlug: Map<string, string>;
-  incomplete: boolean;
   onEdit: (r: Requirement) => void;
   onLink: (r: Requirement) => void;
   onAddNfr?: (r: Requirement) => void;
@@ -138,18 +134,6 @@ function Row({
               data-testid={`ancestor-label-${req.slug}`}
             >
               предок
-            </span>
-          ) : null}
-          {incomplete ? (
-            <span
-              className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-              style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning-fg)' }}
-              data-testid="incomplete-badge"
-              data-slug={req.slug}
-              title="Нет полного критерия приёмки (сценария WHEN/THEN)"
-              aria-label="Нет полного критерия приёмки"
-            >
-              <span aria-hidden="true">⚠</span> без критерия
             </span>
           ) : null}
           {collapsedBranch ? (
@@ -262,7 +246,6 @@ export function TreeTable({
   count,
   rows,
   nameBySlug,
-  incompleteSet,
   onAdd,
   onEdit,
   onLink,
@@ -330,7 +313,6 @@ export function TreeTable({
                   key={row.requirement.slug}
                   row={row}
                   nameBySlug={nameBySlug}
-                  incomplete={incompleteSet?.has(row.requirement.slug) ?? false}
                   onEdit={onEdit}
                   onLink={onLink}
                   onAddNfr={onAddNfr}

@@ -32,6 +32,8 @@ interface RequirementModalProps {
   /** T4: after creating this NFR, link it from this source slug. */
   linkFrom?: string;
   linkType?: LinkType;
+  /** Called when the user requests to add a new link (opens LinkModal in Main). */
+  onAddLink?: () => void;
   onClose: () => void;
 }
 
@@ -55,6 +57,7 @@ export function RequirementModal({
   nameBySlug,
   linkFrom,
   linkType,
+  onAddLink,
   onClose,
 }: RequirementModalProps): React.ReactElement {
   const isEdit = Boolean(requirement);
@@ -479,6 +482,7 @@ export function RequirementModal({
               onRequestDelete={(l) => setPendingDelete({ type: l.type, targetSlug: l.targetSlug })}
               onCancelDelete={() => setPendingDelete(null)}
               onConfirmDelete={() => void confirmDeleteLink()}
+              onAddLink={onAddLink}
             />
           </>
         ) : null}

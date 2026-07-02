@@ -260,51 +260,17 @@ describe('TreeTable (T-1102, FR-7)', () => {
     expect(rowEl.querySelector('[data-testid="delete-btn-f1"]')).not.toBeNull();
   });
 
-  it('UX-1: row actions are visible without hover (not opacity-0) and focus-reachable', () => {
+  it('UX-1/UX-9: row actions are always visible (no opacity dimming) and keyboard-reachable', () => {
     renderTree(false);
     const actions = screen.getByTestId('row-actions-r2');
+    // Actions are fully visible at rest — no opacity-70 dimming (UX-9: dimming dropped
+    // contrast below AA; emphasis now comes from the btn-ghost hover background instead).
     expect(actions.className).not.toContain('opacity-0');
-    expect(actions.className).toContain('group-focus-within:opacity-100');
+    expect(actions.className).not.toContain('opacity-70');
     // The action buttons are always in the DOM inside the row card (keyboard-reachable).
     const rowEl = screen.getByTestId('tree-row-r2');
     expect(rowEl.contains(actions)).toBe(true);
     expect(actions.querySelector('[data-testid="delete-btn-r2"]')).not.toBeNull();
-  });
-
-  it('SA-6: renders an incomplete-badge for requirements missing an acceptance criterion', () => {
-    const req = makeReq({ slug: 'f1', name: 'Функция без критерия' });
-    const rows = computeVisibleRows({
-      forest: buildForest([req]),
-      search: '',
-      collapsed: false,
-      expanded: new Set(),
-      criticalityFilter: NO_CRIT,
-    }).rows;
-    renderWithProviders(
-      <TreeTable
-        title="Ф"
-        addLabel="+"
-        testidPrefix="function"
-        count={1}
-        rows={rows}
-        nameBySlug={new Map([['f1', 'Функция без критерия']])}
-        incompleteSet={new Set(['f1'])}
-        onAdd={vi.fn()}
-        onEdit={vi.fn()}
-        onLink={vi.fn()}
-        onDelete={vi.fn()}
-        onDescExpand={vi.fn()}
-        onExpandNode={vi.fn()}
-      />,
-    );
-    const badge = screen.getByTestId('incomplete-badge');
-    expect(badge).toHaveAttribute('data-slug', 'f1');
-    expect(badge).toHaveAttribute('aria-label', 'Нет полного критерия приёмки');
-  });
-
-  it('SA-6: renders no incomplete-badge when the slug is not flagged', () => {
-    renderTree(false);
-    expect(screen.queryByTestId('incomplete-badge')).not.toBeInTheDocument();
   });
 
   it('UX-7: an interactive chevron toggles the node in collapse mode', async () => {

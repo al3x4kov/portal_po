@@ -259,9 +259,12 @@ export async function exportArchive(
   format: 'zip' | 'targz',
   testInfo: TestInfo,
 ): Promise<string> {
+  // Open the ExportModal (footer button), skip selection step, pick the format.
+  await page.getByTestId('footer-export').click();
+  await page.getByTestId('export-next').click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByTestId(format === 'zip' ? 'export-zip' : 'export-targz').click(),
+    page.getByTestId(format === 'zip' ? 'export-fmt-zip' : 'export-fmt-targz').click(),
   ]);
   const target = testInfo.outputPath(download.suggestedFilename());
   await download.saveAs(target);

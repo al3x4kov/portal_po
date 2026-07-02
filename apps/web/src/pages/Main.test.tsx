@@ -78,35 +78,36 @@ describe('Main page (E11 integration)', () => {
     });
   });
 
-  it('UX-8: Excel export is a button routed through the same fetch/blob path (D7)', async () => {
-    // never resolves during the assertion window → keeps the busy state on
+  it('UX-8: "Экспорт" footer button opens ExportModal', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    const btn = await screen.findByTestId('footer-export');
+    expect(btn.tagName).toBe('BUTTON');
+    await user.click(btn);
+    expect(await screen.findByTestId('export-modal')).toBeInTheDocument();
+  });
+
+  it('UX-8: ExportModal shows format buttons on step 2 and calls exportXlsx', async () => {
     exportXlsx.mockReturnValue(new Promise(() => {}));
     const user = userEvent.setup();
     renderMain();
-    const xlsx = await screen.findByTestId('export-xlsx');
-    expect(xlsx.tagName).toBe('BUTTON');
-    expect(xlsx).not.toHaveAttribute('href');
-    await user.click(xlsx);
+    await user.click(await screen.findByTestId('footer-export'));
+    // advance to format step
+    await user.click(await screen.findByTestId('export-next'));
+    const xlsxBtn = await screen.findByTestId('export-fmt-xlsx');
+    expect(xlsxBtn.tagName).toBe('BUTTON');
+    await user.click(xlsxBtn);
     expect(exportXlsx).toHaveBeenCalledWith('proj-1');
   });
 
-  it('UX-8: an xlsx export error is surfaced like the archive exports', async () => {
+  it('UX-8: ExportModal surfaces xlsx error on step 2', async () => {
     exportXlsx.mockRejectedValueOnce(new Error('Не удалось собрать Excel'));
     const user = userEvent.setup();
     renderMain();
-    await user.click(await screen.findByTestId('export-xlsx'));
-    expect(await screen.findByTestId('export-error')).toHaveTextContent('Не удалось собрать Excel');
-  });
-
-  it('UX-8: all three export buttons are disabled while an export is in flight', async () => {
-    exportXlsx.mockReturnValue(new Promise(() => {})); // stays pending
-    const user = userEvent.setup();
-    renderMain();
-    await user.click(await screen.findByTestId('export-xlsx'));
-    expect(await screen.findByTestId('export-busy')).toBeInTheDocument();
-    expect(screen.getByTestId('export-xlsx')).toBeDisabled();
-    expect(screen.getByTestId('export-zip')).toBeDisabled();
-    expect(screen.getByTestId('export-targz')).toBeDisabled();
+    await user.click(await screen.findByTestId('footer-export'));
+    await user.click(await screen.findByTestId('export-next'));
+    await user.click(await screen.findByTestId('export-fmt-xlsx'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось собрать Excel');
   });
 
   it('renders both requirement sections after loading', async () => {
@@ -149,15 +150,6 @@ describe('Main page (E11 integration)', () => {
     const panel = await screen.findByTestId('broken-panel');
     expect(panel).toHaveTextContent('functions/oops.md');
     expect(panel).toHaveTextContent('Ошибка разбора');
-  });
-
-  it('SA-6: flags requirements without an acceptance criterion (incomplete-badge)', async () => {
-    listRequirements.mockResolvedValue({ requirements, broken: [], incomplete: ['pay'] });
-    renderMain();
-    await screen.findByTestId('tree-row-pay');
-    const badges = screen.getAllByTestId('incomplete-badge');
-    expect(badges).toHaveLength(1);
-    expect(badges[0]).toHaveAttribute('data-slug', 'pay');
   });
 
   it('UX-6: offers "Сбросить фильтры" when filters hide everything, and restores the tree', async () => {

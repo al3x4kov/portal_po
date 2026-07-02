@@ -15,6 +15,8 @@ export type ModalState =
     }
   | { kind: 'link'; source: Requirement }
   | { kind: 'delete'; requirement: Requirement }
+  | { kind: 'export' }
+  | { kind: 'export-tasks' }
   | null;
 
 export type Theme = 'light' | 'dark';

@@ -247,9 +247,11 @@ test.describe('T-1502 · E15 PO UX', () => {
     });
     await addRequirement(page, { kind: 'nfr', name: uniqueName('N-x'), criticality: 'MEDIUM' });
 
+    await page.getByTestId('footer-export').click();
+    await page.getByTestId('export-next').click();
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByTestId('export-xlsx').click(),
+      page.getByTestId('export-fmt-xlsx').click(),
     ]);
     expect(download.suggestedFilename()).toMatch(/\.xlsx$/);
     const savedPath = testInfo.outputPath(download.suggestedFilename());

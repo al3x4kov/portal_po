@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import type { Requirement } from '@po/core';
 import { useProject, useRequirements, useDeleteRequirement } from '../api/hooks';
-import { projectsApi } from '../api/endpoints';
 import { ApiError, errorMessage } from '../api/client';
 import { useUiStore } from '../store/ui';
 import { ancestorNamesOf, buildForest, childCountOf } from '../lib/tree';
@@ -15,9 +14,8 @@ import { DescPanel } from '../components/DescPanel';
 import { RequirementModal } from '../components/RequirementModal';
 import { LinkModal } from '../components/LinkModal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-
-/** Export formats offered in the footer (archives + Excel), UX-8. */
-type ExportFormat = 'xlsx' | 'zip' | 'targz';
+import { ExportModal } from '../components/ExportModal';
+import { ExportTasksModal } from '../components/ExportTasksModal';
 
 export function Main(): React.ReactElement {
   const { id = '' } = useParams<{ id: string }>();
@@ -38,16 +36,10 @@ export function Main(): React.ReactElement {
 
   const deleteMut = useDeleteRequirement(id);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<ExportFormat | null>(null);
   const [descReq, setDescReq] = useState<Requirement | null>(null);
 
   const requirements = reqQuery.data?.requirements ?? [];
   const broken = reqQuery.data?.broken ?? [];
-  const incompleteSet = useMemo(
-    () => new Set(reqQuery.data?.incomplete ?? []),
-    [reqQuery.data?.incomplete],
-  );
   const functional = requirements.filter((r) => r.type === 'FUNCTION');
   const nfr = requirements.filter((r) => r.type === 'NFR');
   const collapsed = treeMode === 'collapse';
@@ -94,28 +86,6 @@ export function Main(): React.ReactElement {
   // UX-6: empty purely because of the criticality/implementation filters (no search).
   const filtersEmpty = !searchActive && filtersActive && shown === 0 && total > 0;
 
-  const onExport = async (format: ExportFormat): Promise<void> => {
-    if (exporting) return; // one export at a time (buttons are disabled meanwhile)
-    setExportError(null);
-    setExporting(format);
-    try {
-      const { blob, filename } =
-        format === 'xlsx' ? await projectsApi.exportXlsx(id) : await projectsApi.export(id, format);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setExportError(errorMessage(err));
-    } finally {
-      setExporting(null);
-    }
-  };
-
   const onEdit = (req: Requirement): void => {
     setDescReq(null);
     openModal({ kind: 'requirement', reqType: req.type, requirement: req });
@@ -135,6 +105,8 @@ export function Main(): React.ReactElement {
       <PathHeader
         name={projectQuery.data?.name ?? id}
         mainPath={projectQuery.data?.mainPath ?? ''}
+        projectId={id}
+        activePage="requirements"
       />
 
       {!reqQuery.isLoading && !reqQuery.isError ? (
@@ -315,7 +287,6 @@ export function Main(): React.ReactElement {
               count={functional.length}
               rows={fnVis.rows}
               nameBySlug={nameBySlug}
-              incompleteSet={incompleteSet}
               onAdd={() => openModal({ kind: 'requirement', reqType: 'FUNCTION' })}
               onEdit={onEdit}
               onLink={onLink}
@@ -333,7 +304,6 @@ export function Main(): React.ReactElement {
               count={nfr.length}
               rows={nfrVis.rows}
               nameBySlug={nameBySlug}
-              incompleteSet={incompleteSet}
               onAdd={() => openModal({ kind: 'requirement', reqType: 'NFR' })}
               onEdit={onEdit}
               onLink={onLink}
@@ -371,57 +341,21 @@ export function Main(): React.ReactElement {
           </button>
         </div>
         <div className="flex items-center gap-2">
-          {exportError ? (
-            <span
-              className="text-xs"
-              role="alert"
-              style={{ color: 'var(--color-danger)' }}
-              data-testid="export-error"
-            >
-              {exportError}
-            </span>
-          ) : null}
-          <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
-            Экспорт:
-          </span>
-          {exporting ? (
-            <span
-              className="text-xs"
-              role="status"
-              style={{ color: 'var(--color-text-3)' }}
-              data-testid="export-busy"
-            >
-              Экспорт…
-            </span>
-          ) : null}
-          {/* UX-8: xlsx now shares the archives' fetch/blob path — errors surface in
-              `export-error` and all three buttons are disabled while exporting. */}
           <button
             type="button"
             className="btn btn-secondary text-sm"
-            data-testid="export-xlsx"
-            disabled={exporting !== null}
-            onClick={() => void onExport('xlsx')}
+            data-testid="footer-export"
+            onClick={() => openModal({ kind: 'export' })}
           >
-            Excel (.xlsx)
+            Экспорт
           </button>
           <button
             type="button"
             className="btn btn-secondary text-sm"
-            data-testid="export-zip"
-            disabled={exporting !== null}
-            onClick={() => void onExport('zip')}
+            data-testid="footer-export-tasks"
+            onClick={() => openModal({ kind: 'export-tasks' })}
           >
-            .zip
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary text-sm"
-            data-testid="export-targz"
-            disabled={exporting !== null}
-            onClick={() => void onExport('targz')}
-          >
-            .tar.gz
+            Экспорт задач
           </button>
         </div>
       </footer>
@@ -444,6 +378,15 @@ export function Main(): React.ReactElement {
           nameBySlug={nameBySlug}
           linkFrom={modal.linkFrom}
           linkType={modal.linkType}
+          onAddLink={
+            modal.requirement
+              ? () => {
+                  const req = modal.requirement!;
+                  closeModal();
+                  openModal({ kind: 'link', source: req });
+                }
+              : undefined
+          }
           onClose={closeModal}
         />
       ) : null}
@@ -500,6 +443,14 @@ export function Main(): React.ReactElement {
             );
           })()
         : null}
+
+      {modal?.kind === 'export' ? (
+        <ExportModal projectId={id} requirements={requirements} onClose={closeModal} />
+      ) : null}
+
+      {modal?.kind === 'export-tasks' ? (
+        <ExportTasksModal projectId={id} requirements={requirements} onClose={closeModal} />
+      ) : null}
     </div>
   );
 }
