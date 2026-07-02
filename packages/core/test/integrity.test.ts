@@ -30,7 +30,7 @@ describe('T-205 createLinkPair / inverseLinkType', () => {
 });
 
 describe('T-205 assertNoSelfLink', () => {
-  it('rejects a self link', () => {
+  it('S11 rejects a self link', () => {
     expect(() => assertNoSelfLink('A', 'A')).toThrow(SelfLinkError);
   });
   it('allows linking two distinct requirements', () => {
@@ -60,7 +60,7 @@ describe('T-205 assertSingleParent', () => {
     expect(() => assertSingleParent([child], 'C', 'P1')).not.toThrow();
   });
 
-  it('rejects adding a second, different parent', () => {
+  it('S13 rejects adding a second, different parent', () => {
     const child = makeReq({ slug: 'C', links: [link('CHILD_OF', 'P1')] });
     expect(() => assertSingleParent([child], 'C', 'P2')).toThrow(MultipleParentError);
   });
@@ -77,7 +77,7 @@ describe('T-205 assertSingleParent', () => {
 });
 
 describe('T-205 assertNoCycle', () => {
-  it('rejects a hierarchy cycle and reports the path', () => {
+  it('S12 rejects a hierarchy cycle and reports the path', () => {
     const a = makeReq({ slug: 'A', links: [link('PARENT_OF', 'B')] });
     const b = makeReq({ slug: 'B', links: [link('PARENT_OF', 'C')] });
     const c = makeReq({ slug: 'C', links: [] });

@@ -49,3 +49,29 @@ describe('UX-9 · secondary text token meets WCAG AA (4.5:1)', () => {
     expect(contrastRatio(text3, readToken(dark, '--color-bg'))).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+describe('UX-9 · semantic badge/chip text meets WCAG AA (4.5:1)', () => {
+  const css = readFileSync(resolve(process.cwd(), 'apps/web/src/index.css'), 'utf8');
+  const light = block(css, ':root');
+  const dark = block(css, 'html.dark');
+  // Every tinted badge/chip/note box pairs `--color-<tone>-fg` text on
+  // `--color-<tone>-bg`. The base `--color-<tone>` colours are reserved for
+  // solid buttons / dots / focus rings, where the surface is white/dark.
+  const tones = ['success', 'warning', 'danger', 'info'] as const;
+
+  for (const tone of tones) {
+    it(`light theme --color-${tone}-fg clears 4.5:1 on --color-${tone}-bg`, () => {
+      const fg = readToken(light, `--color-${tone}-fg`);
+      const bg = readToken(light, `--color-${tone}-bg`);
+      expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it(`dark theme --color-${tone}-fg clears 4.5:1 on --color-${tone}-bg`, () => {
+      // Dark overrides both -fg and -bg; fall back to the light -fg only if a
+      // tone were left un-overridden (it is not — this guards regressions).
+      const fg = readToken(dark, `--color-${tone}-fg`);
+      const bg = readToken(dark, `--color-${tone}-bg`);
+      expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+});

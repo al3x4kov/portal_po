@@ -10,7 +10,7 @@ import { FsProjectRepo } from '../src/repositories/FsProjectRepo.js';
 import { FsRequirementRepo } from '../src/repositories/FsRequirementRepo.js';
 import { RequirementService } from '../src/services/RequirementService.js';
 import { LinkService } from '../src/services/LinkService.js';
-import { ConflictError } from '../src/lib/errors.js';
+import { ConflictError, NotFoundError } from '../src/lib/errors.js';
 import { cleanup, fixedNow, makeTmpRoot, reqInput } from './helpers.js';
 
 describe('T-805 LinkService (slug-based)', () => {
@@ -85,6 +85,14 @@ describe('T-805 LinkService (slug-based)', () => {
     await expect(
       links.create({ sourceSlug: a.slug, type: 'RELATES_TO', targetSlug: b.slug }),
     ).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('S16 rejects a link to a nonexistent target (no dangling references, 404)', async () => {
+    await expect(
+      links.create({ sourceSlug: a.slug, type: 'RELATES_TO', targetSlug: 'ghost' }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    // The source file must be untouched — a rejected link leaves no partial edge.
+    expect((await load(a.slug)).links).toEqual([]);
   });
 
   it('cascade delete removes back-references in other files (FR-9.2)', async () => {

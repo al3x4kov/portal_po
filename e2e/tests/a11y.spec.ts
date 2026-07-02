@@ -14,16 +14,13 @@ import { addRequirement, createProject, rowByName, uniqueName } from './helpers/
 const IMPACTS = ['serious', 'critical'] as const;
 
 /**
- * Baselined, already-reported product defect that this QA pass may NOT fix
- * (edits are limited to e2e/): the amber "warning" badges (`--color-warning`
- * #d97706 on `--color-warning-bg` #fef3c7, ~2.86:1 at 10px) fail WCAG AA —
- * UX-9 contrast fix is incomplete on the Main screen (12 nodes). Excluding the
- * rule from the *gate* keeps regression protection on every OTHER serious/
- * critical rule (ARIA, names, roles, focus order…) while the contrast defect is
- * tracked in the QA report and docs/qa. Remove this once the badge contrast is
- * fixed in apps/web. Any NEW serious/critical rule still fails the suite.
+ * No baselined a11y defects: UX-9 fixed the amber "warning" badge contrast by
+ * introducing a dedicated `--color-warning-fg` token (amber-800 light /
+ * amber-400 dark, both ≥4.5:1 on the amber background), so `color-contrast` is
+ * no longer excluded. Any serious/critical rule — contrast included — now fails
+ * the suite. Keep this set empty; add a rule only with a tracked defect ticket.
  */
-const KNOWN_DEFECT_RULES = new Set<string>(['color-contrast']);
+const KNOWN_DEFECT_RULES = new Set<string>();
 
 /** Run axe on the current page and fail on any (non-baselined) serious/critical violation. */
 async function expectNoSeriousA11y(page: Page, context: string): Promise<void> {
@@ -46,7 +43,9 @@ async function expectNoSeriousA11y(page: Page, context: string): Promise<void> {
 async function focusInside(page: Page, testid: string): Promise<boolean> {
   return page.evaluate((id) => {
     const modal = document.querySelector(`[data-testid="${id}"]`);
-    return modal != null && document.activeElement != null && modal.contains(document.activeElement);
+    return (
+      modal != null && document.activeElement != null && modal.contains(document.activeElement)
+    );
   }, testid);
 }
 
@@ -105,7 +104,9 @@ test.describe('QA-1 · focus-trap, Esc and focus return (UX-5)', () => {
     // Tab many times: focus must never escape the dialog (forward wrap).
     for (let i = 0; i < 16; i += 1) {
       await page.keyboard.press('Tab');
-      expect(await focusInside(page, 'requirement-modal'), `Tab #${i} escaped the modal`).toBe(true);
+      expect(await focusInside(page, 'requirement-modal'), `Tab #${i} escaped the modal`).toBe(
+        true,
+      );
     }
     // Shift+Tab is also trapped (backward wrap).
     for (let i = 0; i < 4; i += 1) {
@@ -113,14 +114,12 @@ test.describe('QA-1 · focus-trap, Esc and focus return (UX-5)', () => {
       expect(await focusInside(page, 'requirement-modal'), `Shift+Tab #${i} escaped`).toBe(true);
     }
 
-    // Esc closes the dialog.
+    // Esc closes the dialog and returns focus to the trigger (UX-5). The opener
+    // is captured during Modal's first render, before the name field's autoFocus
+    // fires, so focus is restored to the trigger rather than lost to <body>.
     await page.keyboard.press('Escape');
     await expect(modal).toBeHidden();
-    // NOTE (reported defect): focus is NOT returned to the trigger here — the
-    // form's autoFocus'd name field is captured as "previously focused" by the
-    // focus-trap effect, so on close focus is lost to <body> instead of the
-    // opener. Focus-return-to-trigger is verified on the ConfirmDialog path
-    // below (which has no competing autoFocus and works correctly).
+    await expect(trigger).toBeFocused();
   });
 
   test('delete dialog defaults focus to the safe Cancel button and traps Tab', async ({ page }) => {

@@ -10,9 +10,9 @@ const REL_TYPES: readonly LinkType[] = ['RELATES_TO', 'DEPENDS_ON', 'BLOCKED_BY'
 function relChipStyle(type: LinkType): React.CSSProperties {
   switch (type) {
     case 'BLOCKED_BY':
-      return { background: 'var(--color-danger-bg)', color: 'var(--color-danger)' };
+      return { background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' };
     case 'DEPENDS_ON':
-      return { background: 'var(--color-warning-bg)', color: 'var(--color-warning)' };
+      return { background: 'var(--color-warning-bg)', color: 'var(--color-warning-fg)' };
     default:
       return { background: 'var(--color-primary-soft)', color: 'var(--color-primary)' };
   }
@@ -143,7 +143,7 @@ function Row({
           {incomplete ? (
             <span
               className="inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-              style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning)' }}
+              style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning-fg)' }}
               data-testid="incomplete-badge"
               data-slug={req.slug}
               title="Нет полного критерия приёмки (сценария WHEN/THEN)"
@@ -213,11 +213,12 @@ function Row({
         </button>
       </td>
       <td className="w-[210px] py-2.5 pr-4 align-middle text-right">
-        {/* UX-1: actions stay visible (subtle by default), and any focused button
-            becomes fully visible via group-focus-within — keyboard-reachable and
-            identical on desktop/mobile, while remaining inside the row card. */}
+        {/* UX-1 / UX-9: actions stay fully visible and keyboard-reachable,
+            identical on desktop/mobile. Emphasis on hover/focus comes from the
+            btn-ghost background — never from opacity, which would drop the text
+            below the WCAG AA contrast floor in the resting state (QA-1). */}
         <div
-          className="inline-flex flex-nowrap justify-end gap-1 whitespace-nowrap opacity-70 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+          className="inline-flex flex-nowrap justify-end gap-1 whitespace-nowrap"
           data-testid={`row-actions-${req.slug}`}
         >
           {canAddNfr ? (

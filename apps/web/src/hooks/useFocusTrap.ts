@@ -27,6 +27,15 @@ interface FocusTrapOptions {
   initialFocus?: RefObject<HTMLElement | null>;
   /** Return focus to the previously-focused element on unmount (default true). */
   returnFocus?: boolean;
+  /**
+   * Explicit element to restore focus to on unmount (UX-5). Required when the
+   * dialog auto-focuses an inner field via the `autoFocus` DOM attribute: that
+   * fires BEFORE this effect runs, so `document.activeElement` at mount time is
+   * already the inner field, not the opener. Capture the opener during render
+   * (before children mount) and pass it here so Esc returns focus to the trigger
+   * instead of losing it to <body>.
+   */
+  restoreTo?: RefObject<HTMLElement | null>;
 }
 
 /**
@@ -39,13 +48,17 @@ export function useFocusTrap(
   containerRef: RefObject<HTMLElement | null>,
   options: FocusTrapOptions = {},
 ): void {
-  const { initialFocus, returnFocus = true } = options;
+  const { initialFocus, returnFocus = true, restoreTo } = options;
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const previouslyFocused = document.activeElement as HTMLElement | null;
+    // Prefer the explicitly-captured opener (see restoreTo) — it survives an
+    // inner `autoFocus` that would otherwise poison `document.activeElement`.
+    const captured = document.activeElement as HTMLElement | null;
+    const previouslyFocused =
+      restoreTo?.current ?? (captured && container.contains(captured) ? null : captured);
     trapStack.push(container);
 
     // Move focus inside — unless something in the container is already focused
@@ -97,5 +110,5 @@ export function useFocusTrap(
     };
     // Refs are stable and `returnFocus` is constant per call site, so this runs
     // once per mount (the trap's whole lifecycle).
-  }, [containerRef, initialFocus, returnFocus]);
+  }, [containerRef, initialFocus, returnFocus, restoreTo]);
 }

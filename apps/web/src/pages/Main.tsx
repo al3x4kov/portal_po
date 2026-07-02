@@ -190,7 +190,7 @@ export function Main(): React.ReactElement {
           <p
             className="rounded-lg p-3 text-sm"
             role="alert"
-            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
             data-testid="main-error"
           >
             {errorMessage(reqQuery.error)}

@@ -17,9 +17,9 @@ interface ToastApi {
 const ToastContext = createContext<ToastApi>({ show: () => {} });
 
 const TONE_STYLE: Record<ToastTone, React.CSSProperties> = {
-  success: { background: 'var(--color-success-bg)', color: 'var(--color-success)' },
-  error: { background: 'var(--color-danger-bg)', color: 'var(--color-danger)' },
-  info: { background: 'var(--color-info-bg)', color: 'var(--color-info)' },
+  success: { background: 'var(--color-success-bg)', color: 'var(--color-success-fg)' },
+  error: { background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' },
+  info: { background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' },
 };
 
 const AUTO_DISMISS_MS = 3500;

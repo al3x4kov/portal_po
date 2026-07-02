@@ -190,9 +190,7 @@ export async function linkRequirements(
     // Incompatible target: disabled with a reason, and submit stays disabled.
     await expect(candidate).toHaveAttribute('data-disabled', 'true');
     await expect(candidate).toBeDisabled();
-    await expect(
-      candidate.locator('[data-testid^="link-result-reason-"]'),
-    ).toBeVisible();
+    await expect(candidate.locator('[data-testid^="link-result-reason-"]')).toBeVisible();
     await expect(page.getByTestId('link-submit')).toBeDisabled();
     await page.getByTestId('link-cancel').click();
     await expect(modal).toBeHidden();

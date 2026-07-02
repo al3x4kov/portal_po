@@ -31,8 +31,16 @@ export function Modal({
   badge,
 }: ModalProps): React.ReactElement {
   const cardRef = useRef<HTMLDivElement>(null);
+  // UX-5: capture the opener during the first render — before the form's inner
+  // `autoFocus` field mounts and steals `document.activeElement` — so Esc/close
+  // returns focus to the trigger instead of dropping it to <body>.
+  const openerRef = useRef<HTMLElement | null>(null);
+  if (openerRef.current === null) {
+    openerRef.current =
+      typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null;
+  }
   // UX-5: keep focus inside the dialog; preserves an inner autoFocus (see hook).
-  useFocusTrap(cardRef);
+  useFocusTrap(cardRef, { restoreTo: openerRef });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -64,7 +72,7 @@ export function Modal({
             {badge ? (
               <span
                 className="badge"
-                style={{ background: 'var(--color-info-bg)', color: 'var(--color-info)' }}
+                style={{ background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }}
                 data-testid={`${testid}-badge`}
               >
                 {badge}

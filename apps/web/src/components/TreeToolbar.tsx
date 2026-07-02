@@ -36,7 +36,7 @@ const IMPL_OPTIONS: {
     testid: 'impl-opt-planned',
     label: 'Не реализовано',
     bg: 'var(--color-warning-bg)',
-    fg: 'var(--color-warning)',
+    fg: 'var(--color-warning-fg)',
   },
 ];
 

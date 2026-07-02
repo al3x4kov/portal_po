@@ -25,7 +25,7 @@ export function OpenExisting(): React.ReactElement {
         <p
           className="mt-6 rounded-lg p-3 text-sm"
           role="alert"
-          style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+          style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
           data-testid="open-error"
         >
           {errorMessage(error)}

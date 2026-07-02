@@ -52,8 +52,8 @@ export function ConfirmDialog({
 
   const noteStyle =
     note?.tone === 'danger'
-      ? { background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }
-      : { background: 'var(--color-warning-bg)', color: 'var(--color-warning)' };
+      ? { background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }
+      : { background: 'var(--color-warning-bg)', color: 'var(--color-warning-fg)' };
 
   return (
     <div
@@ -72,7 +72,7 @@ export function ConfirmDialog({
         {danger ? (
           <div
             className="mb-4 grid h-11 w-11 place-items-center rounded-full text-xl"
-            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
             aria-hidden="true"
           >
             🗑
@@ -98,7 +98,7 @@ export function ConfirmDialog({
         {error ? (
           <div
             className="mb-5 rounded-lg p-3 text-sm"
-            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
             role="alert"
             data-testid={`${testid}-error`}
           >

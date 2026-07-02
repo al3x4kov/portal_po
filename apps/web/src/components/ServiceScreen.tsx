@@ -343,7 +343,7 @@ export function ServiceScreen({ service, onClose }: ServiceScreenProps): React.R
           <div className="flex items-center gap-3">
             <span
               className="badge"
-              style={{ background: 'var(--color-info-bg)', color: 'var(--color-info)' }}
+              style={{ background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }}
             >
               Сервис
             </span>

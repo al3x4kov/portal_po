@@ -64,7 +64,7 @@ export function DescPanel({
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <span
                 className="badge"
-                style={{ background: 'var(--color-info-bg)', color: 'var(--color-info)' }}
+                style={{ background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }}
               >
                 {typeLabel}
               </span>

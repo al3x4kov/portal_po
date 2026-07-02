@@ -33,7 +33,7 @@ describe('T-204 assertUniqueName', () => {
     expect(() => assertUniqueName(reqs, { type: 'NFR', name: 'Login' })).not.toThrow();
   });
 
-  it('allows self-rename to the same name (own id excluded)', () => {
+  it('S10 allows a self-rename (own id excluded; slug/file/links stay intact)', () => {
     expect(() =>
       assertUniqueName(reqs, { slug: fn.slug, type: 'FUNCTION', name: 'login' }),
     ).not.toThrow();

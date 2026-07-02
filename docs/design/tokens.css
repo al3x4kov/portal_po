@@ -25,6 +25,11 @@
   --color-danger-bg: #fee2e2;
   --color-info:      #0284c7;
   --color-info-bg:   #e0f2fe;
+  /* UX-9: text-on-tint tokens, each >=4.5:1 on the matching *-bg. */
+  --color-success-fg:#166534;
+  --color-warning-fg:#92400e;
+  --color-danger-fg: #b91c1c;
+  --color-info-fg:   #075985;
 
   /* Критичность требований */
   --crit-low:      #16a34a;
@@ -66,6 +71,11 @@ html.dark {
   --color-warning-bg:#451a03;
   --color-danger-bg: #450a0a;
   --color-info-bg:   #082f49;
+  /* UX-9: lighter text-on-tint (dark), each >=4.5:1. */
+  --color-success-fg:#4ade80;
+  --color-warning-fg:#fbbf24;
+  --color-danger-fg: #fca5a5;
+  --color-info-fg:   #7dd3fc;
 }
 
 /* Утилиты на токенах (чтобы не хардкодить в разметке) */

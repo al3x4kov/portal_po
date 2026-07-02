@@ -250,7 +250,7 @@ export function RequirementModal({
           <div
             className="rounded-lg p-3 text-sm"
             role="alert"
-            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
+            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
             data-testid="req-error"
           >
             {apiError}
@@ -261,7 +261,7 @@ export function RequirementModal({
         {linkFrom ? (
           <div
             className="flex items-start gap-3 rounded-lg p-3 text-sm"
-            style={{ background: 'var(--color-info-bg)', color: 'var(--color-info)' }}
+            style={{ background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }}
             data-testid="nfr-from-ft-hint"
           >
             <span>

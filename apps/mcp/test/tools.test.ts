@@ -212,7 +212,7 @@ describe('T-1002 MCP tools wrapper (S31–S34)', () => {
     expect(req.links).toContainEqual({ type: 'PARENT_OF', targetSlug: 'child' });
   });
 
-  it('link_requirements self-link → SELF_LINK error', async () => {
+  it('S11 link_requirements self-link → SELF_LINK error', async () => {
     await call(tools, 'create_requirement', {
       projectId: 'P',
       type: 'FUNCTION',

@@ -4,10 +4,9 @@
 Владелец: BE (unit/интеграция), QA (e2e).
 
 Колонка **«Тест (файл::имя)»** `[ДОБАВЛЕНО — BA-7]` даёт трассировку «ситуация → автотест».
-Для **S10–S13, S16** известное покрытие уже есть по смыслу (unit/интеграция ниже), но
-явный **S-тег** в имени теста будет проставлен **QA-волной** (T-12xx) — до этого клетка
-помечена «(S-тег: QA-волна)». Строки трассируются на шаги product use cases §10 `project.md`
-(PUC-3/6/8/9/10).
+Для **S10–S13, S16** явный **S-тег** проставлен в имени соответствующего теста (QA-волна,
+BA-7), поэтому клетка ссылается прямо на него. Строки трассируются на шаги product use cases
+§10 `project.md` (PUC-3/6/8/9/10).
 
 ## Хранилище / парсинг OpenSpec
 | # | Ситуация | Ожидание | Тип | Тест (файл::имя) |
@@ -25,17 +24,17 @@
 | S7 | Два ФТ с именами, дающими один slug | второй получает `-2` | U | `core/test/slug.test.ts::appends -2 for the first collision` (PUC-6) |
 | S8 | Дубль имени в одном типе (case-insensitive) | отклонить (uniqueness) | U/E | `core/test/uniqueness.test.ts::rejects a case-insensitive duplicate` · `e2e/tests/edge-cases.spec.ts::S8 duplicate requirement name … blocked` (PUC-6) |
 | S9 | Одинаковое имя в разных типах (FUNCTION/NFR) | разрешить | U | `core/test/uniqueness.test.ts::allows the same name under a different type` (PUC-6) |
-| S10 | Переименование `name` | slug/файл не меняются, связи целы | U | (S-тег: QA-волна) — соответствие: `core/test/uniqueness.test.ts::allows self-rename …` + `RequirementService` (PUC-6) |
+| S10 | Переименование `name` | slug/файл не меняются, связи целы | U | `core/test/uniqueness.test.ts::S10 allows a self-rename (own id excluded; slug/file/links stay intact)` (PUC-6) |
 
 ## Целостность связей
 | # | Ситуация | Ожидание | Тип | Тест (файл::имя) |
 |---|----------|----------|-----|------------------|
-| S11 | Self-link | отклонить | U | (S-тег: QA-волна) — соответствие: `core/test/integrity.test.ts::rejects a self link` · `apps/mcp/test/tools.test.ts::link_requirements self-link → SELF_LINK error` (PUC-8) |
-| S12 | Цикл PARENT_OF/CHILD_OF | отклонить | U | (S-тег: QA-волна) — соответствие: `core/test/integrity.test.ts::rejects a hierarchy cycle and reports the path` (PUC-8) |
-| S13 | Второй родитель | отклонить (один родитель) | U | (S-тег: QA-волна) — соответствие: `core/test/integrity.test.ts::rejects adding a second, different parent` (PUC-8) |
+| S11 | Self-link | отклонить | U | `core/test/integrity.test.ts::S11 rejects a self link` · `apps/mcp/test/tools.test.ts::S11 link_requirements self-link → SELF_LINK error` (PUC-8) |
+| S12 | Цикл PARENT_OF/CHILD_OF | отклонить | U | `core/test/integrity.test.ts::S12 rejects a hierarchy cycle and reports the path` (PUC-8) |
+| S13 | Второй родитель | отклонить (один родитель) | U | `core/test/integrity.test.ts::S13 rejects adding a second, different parent` (PUC-8) |
 | S14 | Удаление требования | каскадная чистка обратных ссылок | U/E | `core/test/cascade.test.ts::removes the deleted requirement and strips all back-references` · `e2e/tests/edge-cases.spec.ts::S14 deleting a requirement cleans up reverse links` (PUC-9) |
 | S15 | Удаление узла с потомками | запрет + подсказка (FR-9.3) | E | `core/test/cascade.test.ts::rejects deleting a node that still has children (FR-9.3)` · `e2e/tests/edge-cases.spec.ts::S15 deleting a node with children is blocked with a hint` (PUC-9) |
-| S16 | Связь на несуществующий slug | отклонить (нет висячих) | U | (S-тег: QA-волна) — соответствие: интегрити-проверка `LinkService`/`@po/core` (targetSlug существует) (PUC-8) |
+| S16 | Связь на несуществующий slug | отклонить (нет висячих) | U | `apps/server/test/links.test.ts::S16 rejects a link to a nonexistent target (no dangling references, 404)` (PUC-8) |
 
 ## Импорт / экспорт
 | # | Ситуация | Ожидание | Тип | Тест (файл::имя) |

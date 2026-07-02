@@ -1,5 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
-import { apiCreateRequirement, createProject, projectIdFromUrl, uniqueName } from './helpers/app.js';
+import {
+  apiCreateRequirement,
+  createProject,
+  projectIdFromUrl,
+  uniqueName,
+} from './helpers/app.js';
 
 /**
  * QA-2 (e2e part) · usability at scale. Seeds a large project (~300 functional
