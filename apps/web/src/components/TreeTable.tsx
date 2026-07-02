@@ -181,16 +181,22 @@ function Row({
     >
       <td className="py-2.5 pr-3 align-middle">
         <div className="flex min-w-0 items-center gap-1.5">
-          {/* T-507: CSS tree line guides — one span per ancestor level */}
-          {lineGuides.map((guide, k) => (
-            <span
-              key={k}
-              className={`tree-guide tree-guide--${guide}`}
+          {/* T-507: CSS tree line guides — wrapped in a zero-gap div so vertical lines connect */}
+          {lineGuides.length > 0 && (
+            <div
               aria-hidden="true"
-              style={{ flexShrink: 0, width: '20px', position: 'relative', alignSelf: 'stretch' }}
-            />
-          ))}
-          {/* Chevron / bullet indicator */}
+              style={{ display: 'flex', alignSelf: 'stretch', flexShrink: 0 }}
+            >
+              {lineGuides.map((guide, k) => (
+                <span
+                  key={k}
+                  className={`tree-guide tree-guide--${guide}`}
+                  style={{ flexShrink: 0, width: '20px', position: 'relative', alignSelf: 'stretch' }}
+                />
+              ))}
+            </div>
+          )}
+          {/* Chevron indicator — only for nodes with children */}
           {row.hasChildren ? (
             interactiveChevron ? (
               <button
@@ -216,15 +222,7 @@ function Row({
                 {collapsedBranch ? '▸' : '▾'}
               </span>
             )
-          ) : (
-            <span
-              className="px-1 text-sm"
-              style={{ color: 'var(--color-text-3)' }}
-              aria-hidden="true"
-            >
-              •
-            </span>
-          )}
+          ) : null}
           {/* UX-10: name is an explicit edit affordance (link-style button). */}
           <button
             type="button"

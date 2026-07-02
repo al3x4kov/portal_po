@@ -110,21 +110,25 @@ html.dark {
   align-self: stretch;
   flex-shrink: 0;
 }
+
+/* vert: continuous vertical line spanning full row height (+ 2px overlap for row borders) */
 .tree-guide--vert::before {
   content: '';
   position: absolute;
   left: 50%;
-  top: 0;
-  bottom: 0;
+  top: -2px;
+  bottom: -2px;
   width: var(--tree-line-width, 1px);
   background: var(--tree-line-color, #cbd5e1);
 }
+
+/* tee: full vertical line + horizontal branch at midpoint (├) */
 .tree-guide--tee::before {
   content: '';
   position: absolute;
   left: 50%;
-  top: 0;
-  bottom: 50%;
+  top: -2px;
+  bottom: -2px;       /* full height — vertical line continues below this node */
   width: var(--tree-line-width, 1px);
   background: var(--tree-line-color, #cbd5e1);
 }
@@ -137,12 +141,14 @@ html.dark {
   height: var(--tree-line-width, 1px);
   background: var(--tree-line-color, #cbd5e1);
 }
+
+/* elbow: vertical line from top to midpoint + horizontal branch (└) */
 .tree-guide--elbow::before {
   content: '';
   position: absolute;
   left: 50%;
-  top: 0;
-  bottom: 50%;
+  top: -2px;
+  bottom: 50%;        /* stops at midpoint — no more siblings below */
   width: var(--tree-line-width, 1px);
   background: var(--tree-line-color, #cbd5e1);
 }
@@ -155,8 +161,10 @@ html.dark {
   height: var(--tree-line-width, 1px);
   background: var(--tree-line-color, #cbd5e1);
 }
+
+/* space: empty indent, no lines */
 .tree-guide--space {
-  /* empty spacer, no lines */
+  /* empty spacer */
 }
 
 @layer components {
