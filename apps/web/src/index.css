@@ -51,6 +51,18 @@
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
   --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.16);
+
+  /* Sidebar (T-502) — always dark, same in light and dark themes */
+  --sidebar-width: 56px;
+  --sidebar-bg: #1e1b4b;
+  --sidebar-icon: #a5b4fc;
+  --sidebar-icon-active: #ffffff;
+  --sidebar-active-bg: #4338ca;
+  --sidebar-hover-bg: #312e81;
+
+  /* Tree lines (T-507) */
+  --tree-line-color: #cbd5e1;
+  --tree-line-width: 1px;
 }
 
 html.dark {
@@ -77,6 +89,9 @@ html.dark {
   --color-warning-fg: #fbbf24;
   --color-danger-fg: #fca5a5;
   --color-info-fg: #7dd3fc;
+
+  /* Tree lines — darker in dark theme */
+  --tree-line-color: #334155;
 }
 
 @layer base {
