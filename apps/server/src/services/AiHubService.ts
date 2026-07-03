@@ -46,6 +46,26 @@ function sanitize(message: string, apiKey: string): string {
 }
 
 /**
+ * Flatten an error and its `cause` chain into one readable line. The `openai`
+ * SDK reports transport failures as a generic "Connection error.", hiding the
+ * real reason (e.g. a TLS `UNABLE_TO_VERIFY_LEAF_SIGNATURE` or `ECONNREFUSED`)
+ * one or two `cause` levels down — so we surface the whole chain.
+ */
+function describeError(err: unknown): string {
+  const parts: string[] = [];
+  let cur: unknown = err;
+  for (let i = 0; cur != null && i < 6; i++) {
+    const e = cur as { message?: unknown; code?: unknown; cause?: unknown };
+    const msg = typeof e.message === 'string' && e.message ? e.message : String(cur);
+    const code = e.code ? ` (${String(e.code)})` : '';
+    const line = `${msg}${code}`;
+    if (parts[parts.length - 1] !== line) parts.push(line);
+    cur = e.cause;
+  }
+  return parts.join(' ← ');
+}
+
+/**
  * Use-case service for AI Hub: reads the stored config, builds an OpenAI-style
  * client via the injected factory, and exposes model listing + description
  * generation. Missing key/model → {@link BadRequestError} (400); any upstream
@@ -73,7 +93,7 @@ export class AiHubService {
       data = res.data ?? [];
     } catch (err) {
       throw new AiUpstreamError(
-        sanitize(`Failed to load models from AI Hub: ${(err as Error).message}`, cfg.apiKey),
+        sanitize(`Failed to load models from AI Hub: ${describeError(err)}`, cfg.apiKey),
       );
     }
     const ids = new Set<string>();
@@ -109,7 +129,7 @@ export class AiHubService {
       content = res.choices?.[0]?.message?.content ?? null;
     } catch (err) {
       throw new AiUpstreamError(
-        sanitize(`AI Hub generation failed: ${(err as Error).message}`, cfg.apiKey),
+        sanitize(`AI Hub generation failed: ${describeError(err)}`, cfg.apiKey),
       );
     }
 
