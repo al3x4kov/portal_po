@@ -1,4 +1,4 @@
-import type { Requirement, RequirementType } from '@po/core';
+import type { ExportOptionalField, Requirement, RequirementType } from '@po/core';
 import { apiDownload, apiRequest } from './client';
 import type {
   CheckNameResult,
@@ -11,6 +11,19 @@ import type {
 
 export type ArchiveFormat = 'zip' | 'targz';
 
+/**
+ * T-203: serialize the optional-fields selection into a query parameter.
+ * The contract (`@po/core`) is: `fields` absent ⇒ all optional fields; empty
+ * ⇒ none (minimum). We therefore build the parameter *explicitly* from the
+ * caller's selection — `undefined` omits it entirely (lossless default), an
+ * array (including `[]`) always emits `fields=...` so the server honours the
+ * exact choice instead of falling back to "all".
+ */
+function fieldsQuery(sep: '?' | '&', fields?: ExportOptionalField[]): string {
+  if (fields === undefined) return '';
+  return `${sep}fields=${fields.join(',')}`;
+}
+
 export const projectsApi = {
   list: (): Promise<ProjectSummary[]> => apiRequest('/projects'),
   get: (id: string): Promise<ProjectSummary> => apiRequest(`/projects/${encodeURIComponent(id)}`),
@@ -22,19 +35,28 @@ export const projectsApi = {
     fd.append('file', file);
     return apiRequest('/projects/import', { method: 'POST', formData: fd });
   },
-  export: (id: string, format: ArchiveFormat) =>
-    apiDownload(`/projects/${encodeURIComponent(id)}/export?format=${format}`),
+  export: (id: string, format: ArchiveFormat, fields?: ExportOptionalField[]) =>
+    apiDownload(
+      `/projects/${encodeURIComponent(id)}/export?format=${format}${fieldsQuery('&', fields)}`,
+    ),
   /** T-523: Selective archive export via POST /api/projects/:id/export/selected.
-   *  Returns the same { blob, filename } shape as apiDownload. */
+   *  Returns the same { blob, filename } shape as apiDownload.
+   *  T-203: carries the optional-fields selection in the body. */
   exportSelected: async (
     id: string,
     format: ArchiveFormat,
     slugs: string[],
+    fields?: ExportOptionalField[],
   ): Promise<{ blob: Blob; filename: string }> => {
+    const body: { format: ArchiveFormat; slugs: string[]; fields?: ExportOptionalField[] } = {
+      format,
+      slugs,
+    };
+    if (fields !== undefined) body.fields = fields;
     const res = await fetch(`/api/projects/${encodeURIComponent(id)}/export/selected`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ format, slugs }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const text = await res.text();
@@ -49,7 +71,8 @@ export const projectsApi = {
   },
   /** UX-8: Excel export goes through the same fetch/blob path as the archives so
    *  errors and the busy state are handled uniformly (no bare `<a download>`). */
-  exportXlsx: (id: string) => apiDownload(`/projects/${encodeURIComponent(id)}/export.xlsx`),
+  exportXlsx: (id: string, fields?: ExportOptionalField[]) =>
+    apiDownload(`/projects/${encodeURIComponent(id)}/export.xlsx${fieldsQuery('?', fields)}`),
 };
 
 export const requirementsApi = {

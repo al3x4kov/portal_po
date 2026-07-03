@@ -10,7 +10,7 @@ import { FsRequirementRepo } from '../repositories/FsRequirementRepo.js';
 import { createProjectRepo, createProjectService, type ServiceContext } from '../factory.js';
 import { parseInput } from '../lib/parseInput.js';
 import { contentDisposition } from '../lib/contentDisposition.js';
-import { DomainError } from '@po/core';
+import { DomainError, exportFieldsSchema, parseExportFields } from '@po/core';
 import { ArchiveError, BadRequestError, NotFoundError } from '../lib/errors.js';
 import type { ArchiveFormat } from '../repositories/types.js';
 import type { AppDeps } from './deps.js';
@@ -20,6 +20,12 @@ const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreads
 /** Query for archive export; also documented in OpenAPI (E14). */
 export const exportQuery = z.object({
   format: z.enum(['zip', 'targz']).default('zip'),
+  /**
+   * Optional-field selection (Task 2), a comma list e.g.
+   * `source,description,info,links`. Absent ⇒ all fields (lossless copy);
+   * empty string ⇒ no optional fields. Parsed with core `parseExportFields`.
+   */
+  fields: z.string().optional(),
 });
 
 /**
@@ -40,6 +46,11 @@ export const exportSelectedBody = z.object({
         .regex(SLUG_RE, 'Slug must contain only lowercase alphanumerics and hyphens'),
     )
     .min(1, 'At least one slug is required'),
+  /**
+   * Optional-field selection (Task 2). Absent ⇒ all fields; an unknown value
+   * fails validation (→ 400), unlike the tolerant query parser.
+   */
+  fields: exportFieldsSchema.optional(),
 });
 
 /** Path params (BE-6): zod-validated instead of unchecked `as {…}` casts. */
@@ -87,8 +98,10 @@ export async function archiveRoutes(app: FastifyInstance, deps: AppDeps): Promis
 
   app.get('/api/projects/:id/export', async (req, reply) => {
     const { id } = parseInput(idParams, req.params);
-    const { format } = parseInput(exportQuery, req.query);
-    const result = await service.export(id, format as ArchiveFormat);
+    const { format, fields } = parseInput(exportQuery, req.query);
+    // Absent `fields` ⇒ undefined ⇒ lossless copy path; present (even '') ⇒ mask.
+    const parsedFields = fields === undefined ? undefined : parseExportFields(fields);
+    const result = await service.export(id, format as ArchiveFormat, parsedFields);
 
     reply.header('content-type', result.contentType);
     reply.header('content-disposition', contentDisposition(result.filename));
@@ -104,8 +117,8 @@ export async function archiveRoutes(app: FastifyInstance, deps: AppDeps): Promis
     if (!bodyResult.success) {
       throw new BadRequestError(bodyResult.error.issues.map((i) => i.message).join('; '));
     }
-    const { format, slugs } = bodyResult.data;
-    const result = await service.exportSelected(id, slugs, format as ArchiveFormat);
+    const { format, slugs, fields } = bodyResult.data;
+    const result = await service.exportSelected(id, slugs, format as ArchiveFormat, fields);
 
     reply.header('content-type', result.contentType);
     reply.header('content-disposition', contentDisposition(result.filename));
@@ -115,12 +128,16 @@ export async function archiveRoutes(app: FastifyInstance, deps: AppDeps): Promis
   // Excel export (T-902): export-only workbook of requirements + links.
   app.get('/api/projects/:id/export.xlsx', async (req, reply) => {
     const { id } = parseInput(idParams, req.params);
+    const { fields } = parseInput(exportQuery, req.query);
+    const parsedFields = fields === undefined ? undefined : parseExportFields(fields);
     if (!(await projectRepo.exists(id))) {
       throw new NotFoundError(`Project not found: "${id}".`);
     }
+    // NOTE (out of scope, Task 2): export.xlsx exports ALL requirements of the
+    // project, ignoring any slug selection — only the field selection is applied.
     const repo = new FsRequirementRepo(deps.projectsRoot, id);
     const { requirements } = await repo.loadAll();
-    const buffer = await ExcelExportService.buildWorkbook(requirements);
+    const buffer = await ExcelExportService.buildWorkbook(requirements, parsedFields);
 
     reply.header('content-type', XLSX_CONTENT_TYPE);
     reply.header('content-disposition', contentDisposition(`${id}.xlsx`));

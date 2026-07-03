@@ -4,6 +4,7 @@ export * from './domain/ids.js';
 export * from './domain/slug.js';
 export * from './domain/errors.js';
 export * from './domain/folders.js';
+export * from './domain/exportFields.js';
 
 // Validation
 export * from './validation/schema.js';

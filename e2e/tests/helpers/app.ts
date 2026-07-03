@@ -22,6 +22,8 @@ export interface RequirementOptions {
   quarter?: Quarter;
   year?: number;
   description?: string;
+  /** FR-19: «Источник требования». Filter chips group case-insensitively. */
+  source?: string;
 }
 
 /** Extract the current project id from the `/p/:id` main-screen URL. */
@@ -53,6 +55,7 @@ export async function apiCreateRequirement(
     body.targetYear = opts.year ?? 2027;
   }
   if (opts.description) body.description = opts.description;
+  if (opts.source) body.source = opts.source;
 
   const res = await page.request.post(
     `/api/projects/${encodeURIComponent(projectId)}/requirements`,
@@ -115,6 +118,8 @@ export async function addRequirement(page: Page, opts: RequirementOptions): Prom
     await page.getByTestId('req-quarter').selectOption(opts.quarter ?? 'Q1');
     await page.getByTestId('req-year').fill(String(opts.year ?? 2027));
   }
+
+  if (opts.source) await page.getByTestId('req-source').fill(opts.source);
 
   if (opts.description) await page.getByTestId('req-description').fill(opts.description);
 

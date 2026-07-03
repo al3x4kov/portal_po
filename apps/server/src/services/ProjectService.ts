@@ -1,12 +1,15 @@
+import { REQUIREMENT_FOLDER, serialize, type ExportOptionalField } from '@po/core';
 import { withProjectLock } from '../lib/projectLock.js';
 import { sanitizeProjectName } from '../lib/projectName.js';
 import { withOpLog, type OpLogger } from '../lib/logger.js';
+import type { ArchiveRepo } from '../repositories/ArchiveRepo.js';
 import type {
   ArchiveFormat,
   ArchivePort,
   ExportResult,
   ProjectRepo,
   ProjectSummary,
+  RequirementRepo,
 } from '../repositories/types.js';
 
 /** Collaborators + configuration injected into {@link ProjectService} (BE-1 / DIP). */
@@ -17,6 +20,12 @@ export interface ProjectServiceDeps {
   repo: ProjectRepo;
   /** Archive import/export port. */
   archive: ArchivePort;
+  /**
+   * Factory for a project's requirement repo — used to reserialize archives with
+   * a field mask (Task 2). Only needed when an export carries a `fields`
+   * selection; the copy/import paths do not use it.
+   */
+  makeRequirementRepo?: (projectId: string) => Pick<RequirementRepo, 'loadAll'>;
   /** Clock for deterministic timestamps in tests. */
   now?: () => string;
   /** Optional structured logger (ARCH-7). */
@@ -32,6 +41,7 @@ export class ProjectService {
   private readonly projectsRoot: string;
   private readonly repo: ProjectRepo;
   private readonly archive: ArchivePort;
+  private readonly makeRequirementRepo?: (projectId: string) => Pick<RequirementRepo, 'loadAll'>;
   private readonly now: () => string;
   private readonly log?: OpLogger;
 
@@ -39,6 +49,7 @@ export class ProjectService {
     this.projectsRoot = deps.projectsRoot;
     this.repo = deps.repo;
     this.archive = deps.archive;
+    this.makeRequirementRepo = deps.makeRequirementRepo;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.log = deps.log;
   }
@@ -59,25 +70,85 @@ export class ProjectService {
     );
   }
 
-  /** Export an existing project as a downloadable archive. */
-  async export(id: string, format: ArchiveFormat): Promise<ExportResult> {
+  /**
+   * Export an existing project as a downloadable archive. `fields` selects which
+   * optional sections each `.md` carries (Task 2): when omitted (`undefined`) the
+   * on-disk files are copied verbatim (fast, lossless); when provided every
+   * requirement is reserialized through core `serialize()` with that mask.
+   */
+  async export(
+    id: string,
+    format: ArchiveFormat,
+    fields?: ExportOptionalField[],
+  ): Promise<ExportResult> {
     return withOpLog(this.log, { op: 'export', projectId: id }, async () => {
       const project = await this.repo.get(id); // 404 when missing
-      return this.archive.export(project.mainPath, format, project.id);
+      if (fields === undefined) {
+        return this.archive.export(project.mainPath, format, project.id);
+      }
+      return this.exportReserialized(project, undefined, fields, format, project.id);
     });
   }
 
   /**
    * Export a partial archive containing only the listed requirement slugs plus
-   * the project manifest (T-523). Unknown slugs are silently ignored.
+   * the project manifest (T-523). Unknown slugs are silently ignored. When
+   * `fields` is given, the selected requirements are reserialized with that mask
+   * (Task 2) and links pointing at excluded slugs are dropped so the archive
+   * stays internally consistent and re-imports cleanly.
    */
-  async exportSelected(id: string, slugs: string[], format: ArchiveFormat): Promise<ExportResult> {
+  async exportSelected(
+    id: string,
+    slugs: string[],
+    format: ArchiveFormat,
+    fields?: ExportOptionalField[],
+  ): Promise<ExportResult> {
     return withOpLog(this.log, { op: 'exportSelected', projectId: id }, async () => {
       const project = await this.repo.get(id); // 404 when missing
       // ArchivePort doesn't declare exportSelected — call through the concrete type.
-      const archiveRepo = this.archive as import('../repositories/ArchiveRepo.js').ArchiveRepo;
-      return archiveRepo.exportSelected(project.mainPath, slugs, format, project.id);
+      const archiveRepo = this.archive as ArchiveRepo;
+      if (fields === undefined) {
+        return archiveRepo.exportSelected(project.mainPath, slugs, format, project.id);
+      }
+      return this.exportReserialized(
+        project,
+        new Set(slugs),
+        fields,
+        format,
+        `${project.id}-partial`,
+      );
     });
+  }
+
+  /**
+   * Reserialize a project's requirements with a field mask and pack them (Task 2).
+   * `slugFilter` restricts the set (partial export); when it excludes a link's
+   * target the link is dropped so no dangling reference reaches the archive.
+   */
+  private async exportReserialized(
+    project: ProjectSummary,
+    slugFilter: Set<string> | undefined,
+    fields: ExportOptionalField[],
+    format: ArchiveFormat,
+    baseName: string,
+  ): Promise<ExportResult> {
+    if (!this.makeRequirementRepo) {
+      throw new Error('makeRequirementRepo is required to export with a field mask.');
+    }
+    const { requirements } = await this.makeRequirementRepo(project.id).loadAll();
+    const included = slugFilter ? requirements.filter((r) => slugFilter.has(r.slug)) : requirements;
+    const includedSlugs = new Set(included.map((r) => r.slug));
+
+    const files = included.map((req) => ({
+      rel: `openspec/specs/${REQUIREMENT_FOLDER[req.type]}/${req.slug}.md`,
+      content: serialize(
+        { ...req, links: req.links.filter((l) => includedSlugs.has(l.targetSlug)) },
+        { fields },
+      ),
+    }));
+
+    const archiveRepo = this.archive as ArchiveRepo;
+    return archiveRepo.packReserialized(files, project.mainPath, format, baseName);
   }
 
   /** Import an archive as a new project; returns the opened project summary.

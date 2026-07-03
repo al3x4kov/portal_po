@@ -57,16 +57,26 @@ export function RequirementPickerModal({
     return [...pairs].sort();
   }, [requirements]);
 
+  // Sources are matched case-insensitively: values differing only by case
+  // (e.g. «АС21» / «ас21») collapse into one. `key` is the normalized
+  // (trimmed, lowercased) value used for filtering; `label` is the canonical
+  // display — the first original spelling seen. Empty source → «Не задан».
   const availableSources = useMemo(() => {
-    const vals = new Set<string>();
+    const map = new Map<string, string>();
     for (const r of requirements) {
-      vals.add(r.source ?? '');
+      const raw = r.source ?? '';
+      const key = raw.trim().toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, key === '' ? '' : raw.trim());
+      }
     }
-    return [...vals].sort((a, b) => {
-      if (a === '') return 1; // «Не задан» — в конец
-      if (b === '') return -1;
-      return a.localeCompare(b);
-    });
+    return [...map.entries()]
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => {
+        if (a.key === '') return 1; // «Не задан» — в конец
+        if (b.key === '') return -1;
+        return a.label.localeCompare(b.label);
+      });
   }, [requirements]);
 
   const functional = useMemo(
@@ -86,7 +96,8 @@ export function RequirementPickerModal({
         !quarterFilter.has(`${r.targetQuarter}-${r.targetYear}`))
     )
       return false;
-    if (sourceFilter.size > 0 && !sourceFilter.has(r.source ?? '')) return false;
+    if (sourceFilter.size > 0 && !sourceFilter.has((r.source ?? '').trim().toLowerCase()))
+      return false;
     return true;
   }
 
@@ -215,80 +226,28 @@ export function RequirementPickerModal({
       footer={footer}
     >
       <div className="space-y-4">
-        {/* Filters */}
+        {/* Filters — split into named groups */}
         <div
-          className="space-y-3 rounded-lg p-3"
+          className="space-y-4 rounded-lg p-3"
           style={{ background: 'var(--color-surface-2)' }}
           data-testid="export-filter-zone"
         >
-          <p
-            className="text-xs font-semibold uppercase tracking-wide"
-            style={{ color: 'var(--color-text-3)' }}
-          >
-            Фильтры
-          </p>
-          {/* Criticality chips */}
-          <div className="flex flex-wrap gap-1.5">
-            {CRITICALITIES.map((c) => (
-              <button
-                key={c}
-                type="button"
-                className="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
-                style={
-                  critFilter.has(c)
-                    ? {
-                        background: 'var(--color-primary)',
-                        color: '#fff',
-                        borderColor: 'var(--color-primary)',
-                      }
-                    : { borderColor: 'var(--color-border)', color: 'var(--color-text-2)' }
-                }
-                onClick={() => toggleCrit(c)}
-                data-testid={`export-filter-crit-${c}`}
-              >
-                {CRITICALITY_LABEL[c]}
-              </button>
-            ))}
-          </div>
-          {/* Implementation filter */}
-          <div className="flex gap-1.5">
-            {(['all', 'done', 'planned'] as const).map((v) => {
-              const labels = { all: 'Все', done: 'Реализовано', planned: 'Запланировано' };
-              return (
-                <button
-                  key={v}
-                  type="button"
-                  className="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
-                  style={
-                    implFilter === v
-                      ? {
-                          background: 'var(--color-primary)',
-                          color: '#fff',
-                          borderColor: 'var(--color-primary)',
-                        }
-                      : { borderColor: 'var(--color-border)', color: 'var(--color-text-2)' }
-                  }
-                  onClick={() => {
-                    setImplFilter(v);
-                    setQuarterFilter(new Set());
-                  }}
-                  data-testid={`export-filter-impl-${v}`}
-                >
-                  {labels[v]}
-                </button>
-              );
-            })}
-          </div>
-          {/* Source chips — only when there are 2+ distinct values */}
-          {availableSources.length > 1 ? (
+          {/* Group: Критичность */}
+          <div className="space-y-1.5" role="group" aria-label="Критичность">
+            <p
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: 'var(--color-text-3)' }}
+            >
+              Критичность
+            </p>
             <div className="flex flex-wrap gap-1.5">
-              {availableSources.map((val) => (
+              {CRITICALITIES.map((c) => (
                 <button
-                  key={val === '' ? '__empty__' : val}
+                  key={c}
                   type="button"
                   className="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
                   style={
-                    sourceFilter.has(val)
+                    critFilter.has(c)
                       ? {
                           background: 'var(--color-primary)',
                           color: '#fff',
@@ -296,26 +255,33 @@ export function RequirementPickerModal({
                         }
                       : { borderColor: 'var(--color-border)', color: 'var(--color-text-2)' }
                   }
-                  onClick={() => toggleSource(val)}
-                  data-testid={`export-filter-src-${val === '' ? 'empty' : val}`}
+                  onClick={() => toggleCrit(c)}
+                  data-testid={`export-filter-crit-${c}`}
                 >
-                  {val === '' ? 'Не задан' : val}
+                  {CRITICALITY_LABEL[c]}
                 </button>
               ))}
             </div>
-          ) : null}
-          {/* Quarter chips — only when 'planned' */}
-          {implFilter === 'planned' && availableQuarters.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {availableQuarters.map((key) => {
-                const label = key.replace('-', ' ');
+          </div>
+
+          {/* Group: Реализация (implementation + quarter chips) */}
+          <div className="space-y-1.5" role="group" aria-label="Реализация">
+            <p
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: 'var(--color-text-3)' }}
+            >
+              Реализация
+            </p>
+            <div className="flex gap-1.5">
+              {(['all', 'done', 'planned'] as const).map((v) => {
+                const labels = { all: 'Все', done: 'Реализовано', planned: 'Запланировано' };
                 return (
                   <button
-                    key={key}
+                    key={v}
                     type="button"
-                    className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                    className="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
                     style={
-                      quarterFilter.has(key)
+                      implFilter === v
                         ? {
                             background: 'var(--color-primary)',
                             color: '#fff',
@@ -323,31 +289,104 @@ export function RequirementPickerModal({
                           }
                         : { borderColor: 'var(--color-border)', color: 'var(--color-text-2)' }
                     }
-                    onClick={() => toggleQuarter(key)}
-                    data-testid={`export-filter-q-${key}`}
+                    onClick={() => {
+                      setImplFilter(v);
+                      setQuarterFilter(new Set());
+                    }}
+                    data-testid={`export-filter-impl-${v}`}
                   >
-                    {label}
+                    {labels[v]}
                   </button>
                 );
               })}
             </div>
+            {/* Quarter chips — only when 'planned' */}
+            {implFilter === 'planned' && availableQuarters.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {availableQuarters.map((key) => {
+                  const label = key.replace('-', ' ');
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                      style={
+                        quarterFilter.has(key)
+                          ? {
+                              background: 'var(--color-primary)',
+                              color: '#fff',
+                              borderColor: 'var(--color-primary)',
+                            }
+                          : { borderColor: 'var(--color-border)', color: 'var(--color-text-2)' }
+                      }
+                      onClick={() => toggleQuarter(key)}
+                      data-testid={`export-filter-q-${key}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Group: Источник — only when there are 2+ distinct (normalized) values */}
+          {availableSources.length > 1 ? (
+            <div className="space-y-1.5" role="group" aria-label="Источник">
+              <p
+                className="text-xs font-semibold uppercase tracking-wide"
+                style={{ color: 'var(--color-text-3)' }}
+              >
+                Источник
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {availableSources.map(({ key, label }) => (
+                  <button
+                    key={key === '' ? '__empty__' : key}
+                    type="button"
+                    className="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+                    style={
+                      sourceFilter.has(key)
+                        ? {
+                            background: 'var(--color-primary)',
+                            color: '#fff',
+                            borderColor: 'var(--color-primary)',
+                          }
+                        : { borderColor: 'var(--color-border)', color: 'var(--color-text-2)' }
+                    }
+                    onClick={() => toggleSource(key)}
+                    data-testid={`export-filter-src-${key === '' ? 'empty' : label}`}
+                  >
+                    {key === '' ? 'Не задан' : label}
+                  </button>
+                ))}
+              </div>
+            </div>
           ) : null}
         </div>
 
-        {/* Select / deselect all */}
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="text-xs underline"
-            style={{ color: 'var(--color-primary)' }}
-            onClick={toggleAll}
-            data-testid="export-toggle-all"
+        {/* Group: Выбор — select all / deselect + counter */}
+        <div className="space-y-1.5" role="group" aria-label="Выбор">
+          <p
+            className="text-xs font-semibold uppercase tracking-wide"
+            style={{ color: 'var(--color-text-3)' }}
           >
-            {allVisibleSelected ? 'Снять выделение' : 'Выбрать все'}
-          </button>
-          <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
-            {selectedCount} из {requirements.length} выбрано
-          </span>
+            Выбор
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              className="text-xs underline"
+              style={{ color: 'var(--color-primary)' }}
+              onClick={toggleAll}
+              data-testid="export-toggle-all"
+            >
+              {allVisibleSelected ? 'Снять выделение' : 'Выбрать все'}
+            </button>
+            <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
+              {selectedCount} из {requirements.length} выбрано
+            </span>
+          </div>
         </div>
 
         {/* Requirement list: ФТ tree + НФТ flat */}

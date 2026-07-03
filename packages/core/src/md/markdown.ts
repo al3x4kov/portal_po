@@ -8,6 +8,7 @@ import type {
   ScenarioKeyword,
 } from '../domain/types.js';
 import { LINK_TYPES, SCENARIO_KEYWORDS } from '../domain/types.js';
+import type { ExportOptionalField } from '../domain/exportFields.js';
 import { ParseError } from '../domain/errors.js';
 import { formatZodError, requirementSchema } from '../validation/schema.js';
 import { checkTargetRule } from '../validation/targetRule.js';
@@ -40,13 +41,34 @@ const LINK_RE = /^-\s+(\w+):\s*(.+?)\s*$/;
 const INFO_ITEM_RE = /^-\s+(.+?):\s+(.*)$/;
 const TARGET_RE = /^Q([1-4])\s+(\d{4})$/;
 
+/** Options controlling which optional sections {@link serialize} emits. */
+export interface SerializeOptions {
+  /**
+   * Optional fields to include (Task 2 export selection). A section is written
+   * ⇔ its field is present here AND the value is non-empty. Mandatory data
+   * (header, criticality, implemented(+target), createdAt/updatedAt) is always
+   * written. `undefined` (or omitting `opts` entirely) includes everything, so
+   * the output is byte-for-byte identical to the unmasked serialize.
+   */
+  fields?: ExportOptionalField[];
+}
+
 /**
  * Serialize a Requirement into an OpenSpec `.md` document (ADR-001 §3):
  * `### Requirement:` header, metadata bullets, markdown body, optional
  * `#### Scenario:` blocks and a `#### Links` section. `slug`/`type` are NOT
  * emitted — they live in the file name and folder respectively.
+ *
+ * Passing `opts.fields` masks the optional sections (Task 2). `description`
+ * governs both the body and the `#### Scenario:` blocks; `info` → `#### Info`;
+ * `links` → `#### Links`; `source` → the `- source:` bullet. Without `opts`
+ * (or with `fields === undefined`) the result is unchanged.
  */
-export function serialize(req: Requirement): string {
+export function serialize(req: Requirement, opts?: SerializeOptions): string {
+  const fields = opts?.fields;
+  const has = (field: ExportOptionalField): boolean =>
+    fields === undefined || fields.includes(field);
+
   const lines: string[] = [];
   lines.push(`### Requirement: ${req.name}`);
   lines.push(`- criticality: ${req.criticality}`);
@@ -56,24 +78,26 @@ export function serialize(req: Requirement): string {
   }
   lines.push(`- createdAt: ${req.createdAt}`);
   lines.push(`- updatedAt: ${req.updatedAt}`);
-  if (req.source !== undefined) {
+  if (has('source') && req.source !== undefined) {
     lines.push(`- source: ${req.source}`);
   }
 
-  if (req.description !== undefined && req.description.length > 0) {
+  if (has('description') && req.description !== undefined && req.description.length > 0) {
     lines.push('');
     lines.push(req.description);
   }
 
-  for (const scenario of req.scenarios ?? []) {
-    lines.push('');
-    lines.push(`#### Scenario: ${scenario.name}`);
-    for (const step of scenario.steps) {
-      lines.push(`- ${step.keyword} ${step.text}`);
+  if (has('description')) {
+    for (const scenario of req.scenarios ?? []) {
+      lines.push('');
+      lines.push(`#### Scenario: ${scenario.name}`);
+      for (const step of scenario.steps) {
+        lines.push(`- ${step.keyword} ${step.text}`);
+      }
     }
   }
 
-  if (req.links.length > 0) {
+  if (has('links') && req.links.length > 0) {
     lines.push('');
     lines.push('#### Links');
     for (const l of req.links) {
@@ -81,7 +105,7 @@ export function serialize(req: Requirement): string {
     }
   }
 
-  if (req.infoItems && req.infoItems.length > 0) {
+  if (has('info') && req.infoItems && req.infoItems.length > 0) {
     lines.push('');
     lines.push('#### Info');
     for (const item of req.infoItems) {

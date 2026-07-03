@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import ExcelJS from 'exceljs';
-import type { Requirement } from '@po/core';
+import type { ExportOptionalField, Requirement } from '@po/core';
 import { ExcelExportService } from '../src/services/ExcelExportService.js';
 
-const HEADERS = ['Требование', 'Тип', 'Критичность', 'Реализация', 'Описание', 'Связи'];
+/** Default (all optional fields) column layout — 8 columns (Task 2). */
+const HEADERS = [
+  'Требование',
+  'Тип',
+  'Критичность',
+  'Реализация',
+  'Источник',
+  'Описание',
+  'Справочная информация',
+  'Связи',
+];
 
 function req(overrides: Partial<Requirement> = {}): Requirement {
   return {
@@ -35,13 +45,14 @@ function headerOf(ws: ExcelJS.Worksheet): string[] {
   return out;
 }
 
-/** Read the data rows (row 2..end) of the sheet as arrays of stringified cells. */
+/** Read data rows (row 2..end) as arrays of stringified cells across all columns. */
 function dataRows(ws: ExcelJS.Worksheet): string[][] {
   const out: string[][] = [];
+  const cols = ws.columnCount || 0;
   for (let r = 2; r <= ws.rowCount; r += 1) {
     const row = ws.getRow(r);
     const cells: string[] = [];
-    for (let c = 1; c <= 6; c += 1) cells.push(String(row.getCell(c).value ?? ''));
+    for (let c = 1; c <= cols; c += 1) cells.push(String(row.getCell(c).value ?? ''));
     out.push(cells);
   }
   return out;
@@ -61,7 +72,7 @@ describe('T5 ExcelExportService.buildWorkbook — human-readable single sheet (E
     expect(wb.worksheets.map((w) => w.name)).toEqual(['Требования']);
   });
 
-  it('writes the human-readable column headers in order', async () => {
+  it('writes 8 column headers in order by default (all optional fields)', async () => {
     const wb = await loadBack(await ExcelExportService.buildWorkbook([req()]));
     expect(headerOf(wb.getWorksheet('Требования')!)).toEqual(HEADERS);
   });
@@ -105,21 +116,24 @@ describe('T5 ExcelExportService.buildWorkbook — human-readable single sheet (E
     const rows = dataRows(ws);
     const parentIdx = rows.findIndex((r) => r[0].includes('Parent'));
     const childIdx = rows.findIndex((r) => r[0].includes('Child'));
-    // Child comes after parent.
     expect(childIdx).toBeGreaterThan(parentIdx);
-    // Child is indented deeper than the (root) parent.
     const parentIndent = ws.getRow(parentIdx + 2).getCell(1).alignment?.indent ?? 0;
     const childIndent = ws.getRow(childIdx + 2).getCell(1).alignment?.indent ?? 0;
     expect(childIndent).toBeGreaterThan(parentIndent);
   });
 
-  it('renders implementation, criticality and links in words', async () => {
+  it('renders type, criticality, implementation, source, info and links in words', async () => {
     const reqs = [
       req({
         slug: 'pay',
         name: 'Оплата картой',
         criticality: 'CRITICAL',
         implemented: true,
+        source: 'АС21',
+        infoItems: [
+          { type: 'Регламент', value: 'РД-42' },
+          { type: 'Владелец', value: 'Финансы' },
+        ],
         links: [{ type: 'BLOCKED_BY', targetSlug: 'pci' }],
       }),
       req({
@@ -152,11 +166,26 @@ describe('T5 ExcelExportService.buildWorkbook — human-readable single sheet (E
     // Реализация
     expect(payRow[3]).toBe('Реализовано');
     expect(pciRow[3]).toBe('Q3 2026');
-    // Описание (plain / empty)
+    // Источник
+    expect(payRow[4]).toBe('АС21');
     expect(pciRow[4]).toBe('');
-    // Связи (words + target names)
-    expect(payRow[5]).toBe('блокируется «Соответствие PCI DSS»');
-    expect(pciRow[5]).toBe('зависит от «Оплата картой»; связана с «Оплата картой»');
+    // Описание (plain / empty)
+    expect(pciRow[5]).toBe('');
+    // Справочная информация — «type: value» построчно
+    expect(payRow[6]).toBe('Регламент: РД-42\nВладелец: Финансы');
+    expect(pciRow[6]).toBe('');
+    // Связи (words + target names) — last column
+    expect(payRow[7]).toBe('блокируется «Соответствие PCI DSS»');
+    expect(pciRow[7]).toBe('зависит от «Оплата картой»; связана с «Оплата картой»');
+  });
+
+  it('wraps multi-line "Справочная информация" cells', async () => {
+    const wb = await loadBack(
+      await ExcelExportService.buildWorkbook([req({ infoItems: [{ type: 'A', value: '1' }] })]),
+    );
+    const ws = wb.getWorksheet('Требования')!;
+    // Info is column 7 in the default layout.
+    expect(ws.getRow(2).getCell(7).alignment?.wrapText).toBe(true);
   });
 
   it('makes the header row bold', async () => {
@@ -169,5 +198,46 @@ describe('T5 ExcelExportService.buildWorkbook — human-readable single sheet (E
     const wb = await loadBack(await ExcelExportService.buildWorkbook([]));
     expect(wb.worksheets.map((w) => w.name)).toEqual(['Требования']);
     expect(wb.getWorksheet('Требования')!.rowCount).toBe(1);
+  });
+});
+
+describe('T-202 ExcelExportService dynamic columns (field mask)', () => {
+  it('emits only the 4 base columns when no optional fields are selected', async () => {
+    const wb = await loadBack(await ExcelExportService.buildWorkbook([req()], []));
+    expect(headerOf(wb.getWorksheet('Требования')!)).toEqual([
+      'Требование',
+      'Тип',
+      'Критичность',
+      'Реализация',
+    ]);
+  });
+
+  it('emits selected optional columns in the fixed source→description→info→links order', async () => {
+    const fields: ExportOptionalField[] = ['links', 'source'];
+    const wb = await loadBack(await ExcelExportService.buildWorkbook([req()], fields));
+    expect(headerOf(wb.getWorksheet('Требования')!)).toEqual([
+      'Требование',
+      'Тип',
+      'Критичность',
+      'Реализация',
+      'Источник',
+      'Связи',
+    ]);
+  });
+
+  it('keeps criticality fill and name indent regardless of the mask', async () => {
+    const reqs = [
+      req({ slug: 'p', name: 'P', links: [{ type: 'PARENT_OF', targetSlug: 'c' }] }),
+      req({ slug: 'c', name: 'C', links: [{ type: 'CHILD_OF', targetSlug: 'p' }] }),
+    ];
+    const wb = await loadBack(await ExcelExportService.buildWorkbook(reqs, []));
+    const ws = wb.getWorksheet('Требования')!;
+    const rows = dataRows(ws);
+    const parentIdx = rows.findIndex((r) => r[0].includes('P'));
+    const childIdx = rows.findIndex((r) => r[0].includes('C'));
+    const parentIndent = ws.getRow(parentIdx + 2).getCell(1).alignment?.indent ?? 0;
+    const childIndent = ws.getRow(childIdx + 2).getCell(1).alignment?.indent ?? 0;
+    expect(childIndent).toBeGreaterThan(parentIndent);
+    expect(ws.getRow(2).getCell(3).fill).toBeTruthy();
   });
 });

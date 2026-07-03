@@ -99,7 +99,8 @@ describe('Main page (E11 integration)', () => {
     const xlsxBtn = await screen.findByTestId('export-fmt-xlsx');
     expect(xlsxBtn.tagName).toBe('BUTTON');
     await user.click(xlsxBtn);
-    expect(exportXlsx).toHaveBeenCalledWith('proj-1');
+    // Task 2: default selection has all optional fields enabled.
+    expect(exportXlsx).toHaveBeenCalledWith('proj-1', ['source', 'description', 'info', 'links']);
   });
 
   it('UX-8: ExportModal surfaces xlsx error on step 2', async () => {

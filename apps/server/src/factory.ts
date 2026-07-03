@@ -29,6 +29,7 @@ export function createProjectService(ctx: ServiceContext): ProjectService {
     projectsRoot: ctx.projectsRoot,
     repo: new FsProjectRepo(ctx.projectsRoot),
     archive: new ArchiveRepo(ctx.projectsRoot),
+    makeRequirementRepo: (projectId) => new FsRequirementRepo(ctx.projectsRoot, projectId),
     now: ctx.now,
     log: ctx.log,
   });

@@ -198,6 +198,67 @@ export class ArchiveRepo implements ArchivePort {
     }
   }
 
+  /**
+   * Pack a set of already-serialized files into an archive (T-202). Unlike
+   * {@link export}/{@link exportSelected} — which copy the on-disk `.md` verbatim
+   * — this path is fed content that the service produced via core `serialize()`
+   * with a field mask, so the resulting archive contains only the selected
+   * sections. The project manifest (`openspec/project.md`) is read from
+   * `projectDir` and included when present so the archive re-imports as a
+   * project. zip is packed in-memory; tar.gz uses a temp dir inside
+   * PROJECTS_ROOT that is always cleaned up.
+   */
+  async packReserialized(
+    files: ReadonlyArray<{ rel: string; content: string }>,
+    projectDir: string,
+    format: ArchiveFormat,
+    baseName: string,
+  ): Promise<ExportResult> {
+    // Include the manifest verbatim when the source project has one.
+    const entries = [...files];
+    try {
+      const manifestRaw = await fs.readFile(path.join(projectDir, MANIFEST), 'utf8');
+      entries.push({ rel: MANIFEST.split(path.sep).join('/'), content: manifestRaw });
+    } catch {
+      /* no manifest — import synthesizes one */
+    }
+
+    if (format === 'zip') {
+      const zip = new AdmZip();
+      for (const { rel, content } of entries) {
+        zip.addFile(rel.split(path.sep).join('/'), Buffer.from(content, 'utf8'));
+      }
+      return {
+        body: zip.toBuffer(),
+        filename: `${baseName}.zip`,
+        contentType: 'application/zip',
+      };
+    }
+
+    const tmpDir = resolveSafe(this.projectsRoot, `.reserialize-${randomBytes(6).toString('hex')}`);
+    try {
+      for (const { rel, content } of entries) {
+        const dest = resolveSafe(tmpDir, rel);
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        await fs.writeFile(dest, content, 'utf8');
+      }
+      const stream = tar.create({ gzip: true, cwd: tmpDir }, ['.']) as unknown as Readable;
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+        stream.on('end', resolve);
+        stream.on('error', reject);
+      });
+      return {
+        body: Buffer.concat(chunks),
+        filename: `${baseName}.tar.gz`,
+        contentType: 'application/gzip',
+      };
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
   private async extract(format: ArchiveFormat, archivePath: string, dest: string): Promise<void> {
     // Cumulative bomb-guard counters shared across the whole archive.
     let entries = 0;
