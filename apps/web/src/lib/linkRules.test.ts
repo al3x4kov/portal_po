@@ -63,6 +63,32 @@ describe('linkCandidateStatus (UX-4, reuses @po/core predicates)', () => {
     expect(linkCandidateStatus([fn, nfr], fn, 'RELATES_TO', nfr).ok).toBe(true);
   });
 
+  it('PARENT_OF: rejects when the target already has a parent (у цели уже есть родитель)', () => {
+    // b is already CHILD_OF x. Adding PARENT_OF a→b would give b a second parent.
+    const a = makeReq({ slug: 'a', name: 'A', type: 'FUNCTION' });
+    const b = makeReq({
+      slug: 'b',
+      name: 'B',
+      type: 'FUNCTION',
+      links: [{ type: 'CHILD_OF', targetSlug: 'x' }],
+    });
+    const x = makeReq({
+      slug: 'x',
+      name: 'X',
+      type: 'FUNCTION',
+      links: [{ type: 'PARENT_OF', targetSlug: 'b' }],
+    });
+    const status = linkCandidateStatus([a, b, x], a, 'PARENT_OF', b);
+    expect(status.ok).toBe(false);
+    expect(status.reason).toBe('у цели уже есть родитель');
+  });
+
+  it('PARENT_OF: a valid parent link to a same-type, parent-less target is available', () => {
+    const a = makeReq({ slug: 'a', name: 'A', type: 'FUNCTION' });
+    const b = makeReq({ slug: 'b', name: 'B', type: 'FUNCTION' });
+    expect(linkCandidateStatus([a, b], a, 'PARENT_OF', b).ok).toBe(true);
+  });
+
   it('DEPENDS_ON: a different-type target is allowed but a cycle is still blocked', () => {
     const fn = makeReq({ slug: 'fn', name: 'Функция', type: 'FUNCTION' });
     const nfr = makeReq({ slug: 'nfr', name: 'НФТ', type: 'NFR' });

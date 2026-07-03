@@ -12,14 +12,24 @@ import reactPkg from 'react';
 vi.mock('@xyflow/react', () => {
   const ReactFlow = ({
     nodes,
+    edges,
     children,
   }: {
-    nodes: Array<{ id: string; data: { slug: string } }>;
+    nodes: Array<{ id: string; data: { slug: string; onClick?: (slug: string) => void } }>;
+    edges?: Array<{ id: string; label?: unknown }>;
     children?: React.ReactNode;
   }) => (
-    <div data-testid="mock-react-flow">
+    <div data-testid="mock-react-flow" data-node-count={nodes.length}>
       {nodes.map((n) => (
-        <div key={n.id} data-testid={`flow-node-${n.data.slug}`} />
+        <button
+          type="button"
+          key={n.id}
+          data-testid={`flow-node-${n.data.slug}`}
+          onClick={() => n.data.onClick?.(n.data.slug)}
+        />
+      ))}
+      {(edges ?? []).map((e) => (
+        <div key={e.id} data-testid={`flow-edge-${e.id}`} data-label={String(e.label ?? '')} />
       ))}
       {children}
     </div>
@@ -50,13 +60,11 @@ vi.mock('elkjs/lib/elk.bundled.js', () => {
   return {
     default: vi.fn().mockImplementation(() => ({
       layout: vi.fn().mockImplementation(async (graph: { children?: Array<{ id: string }> }) => {
-        const children = (graph.children ?? []).map(
-          (child: { id: string }, i: number) => ({
-            ...child,
-            x: i * 260,
-            y: 0,
-          }),
-        );
+        const children = (graph.children ?? []).map((child: { id: string }, i: number) => ({
+          ...child,
+          x: i * 260,
+          y: 0,
+        }));
         return { ...graph, children };
       }),
     })),
@@ -90,11 +98,13 @@ function makeReq(slug: string, name: string): Requirement {
   } as unknown as Requirement;
 }
 
-function makeQueryResult(overrides: Partial<{
-  isLoading: boolean;
-  isError: boolean;
-  data: RequirementListResult | undefined;
-}> = {}) {
+function makeQueryResult(
+  overrides: Partial<{
+    isLoading: boolean;
+    isError: boolean;
+    data: RequirementListResult | undefined;
+  }> = {},
+) {
   return {
     isLoading: false,
     isError: false,
@@ -197,5 +207,122 @@ describe('GraphView', () => {
     await waitFor(() => {
       expect(screen.getByTestId('graph-toolbar')).toBeInTheDocument();
     });
+  });
+
+  it('perf-gate keeps roots + direct children visible when over the limit with hierarchy edges', async () => {
+    // 201 nodes → over PERF_LIMIT. req-0 is the parent of req-1 (a direct child).
+    const reqs = Array.from({ length: 201 }, (_, i) => makeReq(`req-${i}`, `Req ${i}`));
+    (reqs[0] as unknown as { links: unknown[] }).links = [
+      { type: 'PARENT_OF', targetSlug: 'req-1' },
+    ];
+    (reqs[1] as unknown as { links: unknown[] }).links = [
+      { type: 'CHILD_OF', targetSlug: 'req-0' },
+    ];
+    mockUseRequirements.mockReturnValue(
+      makeQueryResult({ data: { requirements: reqs, broken: [], incomplete: [] } }),
+    );
+    renderWithProviders(<GraphView projectId="proj-1" />);
+    // req-1 has a parent (req-0) → it is a direct child of a root and stays visible.
+    expect(await screen.findByTestId('flow-node-req-1')).toBeInTheDocument();
+    // req-0 is a root → visible.
+    expect(screen.getByTestId('flow-node-req-0')).toBeInTheDocument();
+    // The perf banner is shown because we exceeded the limit.
+    expect(screen.getByTestId('graph-perf-banner')).toBeInTheDocument();
+  });
+
+  it('opens the requirement modal when a node is clicked', async () => {
+    const user = userEvent.setup();
+    const reqs = [makeReq('req-1', 'Req 1')];
+    mockUseRequirements.mockReturnValue(
+      makeQueryResult({ data: { requirements: reqs, broken: [], incomplete: [] } }),
+    );
+    renderWithProviders(<GraphView projectId="proj-1" />);
+    const node = await screen.findByTestId('flow-node-req-1');
+    await user.click(node);
+    await waitFor(() => {
+      const modal = useUiStore.getState().modal;
+      expect(modal).toMatchObject({ kind: 'requirement', reqType: 'FUNCTION' });
+    });
+  });
+
+  it('hides NFR nodes when the НФТ toggle is turned off', async () => {
+    const user = userEvent.setup();
+    const fn = makeReq('fn-1', 'Функция');
+    const nfr = { ...makeReq('nfr-1', 'НФТ'), type: 'NFR' } as unknown as Requirement;
+    mockUseRequirements.mockReturnValue(
+      makeQueryResult({ data: { requirements: [fn, nfr], broken: [], incomplete: [] } }),
+    );
+    renderWithProviders(<GraphView projectId="proj-1" />);
+    await screen.findByTestId('flow-node-nfr-1');
+    await user.click(screen.getByTestId('graph-toggle-nfr'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('flow-node-nfr-1')).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('flow-node-fn-1')).toBeInTheDocument();
+  });
+
+  it('renders edge labels only after the "Метки рёбер" toggle is enabled', async () => {
+    const user = userEvent.setup();
+    const a = {
+      ...makeReq('a', 'A'),
+      links: [{ type: 'RELATES_TO', targetSlug: 'b' }],
+    } as unknown as Requirement;
+    const b = {
+      ...makeReq('b', 'B'),
+      links: [{ type: 'RELATES_TO', targetSlug: 'a' }],
+    } as unknown as Requirement;
+    mockUseRequirements.mockReturnValue(
+      makeQueryResult({ data: { requirements: [a, b], broken: [], incomplete: [] } }),
+    );
+    renderWithProviders(<GraphView projectId="proj-1" />);
+    const edge = await screen.findByTestId('flow-edge-a->b:RELATES_TO');
+    expect(edge).toHaveAttribute('data-label', '');
+    await user.click(screen.getByTestId('graph-toggle-labels'));
+    await waitFor(() => {
+      expect(screen.getByTestId('flow-edge-a->b:RELATES_TO')).toHaveAttribute(
+        'data-label',
+        'RELATES_TO',
+      );
+    });
+  });
+
+  it('re-runs layout when the "Перерасставить" button is clicked', async () => {
+    const user = userEvent.setup();
+    const reqs = [makeReq('req-1', 'Req 1')];
+    mockUseRequirements.mockReturnValue(
+      makeQueryResult({ data: { requirements: reqs, broken: [], incomplete: [] } }),
+    );
+    renderWithProviders(<GraphView projectId="proj-1" />);
+    await screen.findByTestId('graph-relayout');
+    await user.click(screen.getByTestId('graph-relayout'));
+    // canvas still present after relayout completes
+    await waitFor(() => {
+      expect(screen.getByTestId('graph-canvas')).toBeInTheDocument();
+    });
+    // clicking a node after relayout opens the modal via the relayout onClick closure
+    await user.click(await screen.findByTestId('flow-node-req-1'));
+    await waitFor(() => {
+      expect(useUiStore.getState().modal).toMatchObject({ kind: 'requirement' });
+    });
+  });
+
+  it('renders broken requirements as nodes even without valid requirements', async () => {
+    const user = userEvent.setup();
+    mockUseRequirements.mockReturnValue(
+      makeQueryResult({
+        data: {
+          requirements: [],
+          broken: [{ file: 'bad.md', error: 'parse error' }],
+          incomplete: [],
+        },
+      }),
+    );
+    renderWithProviders(<GraphView projectId="proj-1" />);
+    const brokenNode = await screen.findByTestId('flow-node-broken-bad.md');
+    // not the empty state
+    expect(screen.queryByTestId('graph-empty')).not.toBeInTheDocument();
+    // broken node has a no-op onClick — clicking it does not open any modal
+    await user.click(brokenNode);
+    expect(useUiStore.getState().modal).toBeNull();
   });
 });
