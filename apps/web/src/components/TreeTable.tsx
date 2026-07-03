@@ -1,11 +1,9 @@
-import { Fragment, useState } from 'react';
 import type { LinkType, Requirement } from '@po/core';
 import type { VisibleRow } from '../lib/visibility';
 import { buildLineGuides, type LineGuide } from '../lib/treeLines';
 import { nestedLabel } from '../lib/plural';
 import { LINK_TYPE_LABEL, describeLink } from '../lib/linkTypes';
 import { CriticalityBadge, ImplementationBadge } from './badges';
-import { InlineAddChildForm } from './InlineAddChildForm';
 
 /** Link types shown as inline relationship chips (hierarchy is shown by the tree itself). */
 const REL_TYPES: readonly LinkType[] = ['RELATES_TO', 'DEPENDS_ON', 'BLOCKED_BY'];
@@ -113,10 +111,8 @@ interface TreeTableProps {
   onLink: (req: Requirement) => void;
   /** T4: add an NFR pre-linked to a functional requirement (only wired for the ФТ section). */
   onAddNfr?: (req: Requirement) => void;
-  /** T-509: add a child functional requirement (FUNCTION rows only). */
+  /** T-509: add a child functional requirement (FUNCTION rows only); opens the create modal. */
   onAddChild?: (req: Requirement) => void;
-  /** T-510: inline add-child form handler (parentSlug, childName) => Promise. */
-  onInlineAddChild?: (parentSlug: string, name: string) => Promise<void>;
   onDelete: (req: Requirement) => void;
   onDescExpand: (req: Requirement) => void;
   /** Expand a collapsed branch (collapse mode chip). */
@@ -391,7 +387,6 @@ export function TreeTable({
   onLink,
   onAddNfr,
   onAddChild,
-  onInlineAddChild,
   onDelete,
   onDescExpand,
   onExpandNode,
@@ -400,9 +395,6 @@ export function TreeTable({
 }: TreeTableProps): React.ReactElement {
   // T-507: compute tree line guides for all visible rows in one pass.
   const guides = buildLineGuides(rows);
-
-  // T-510: slug of the parent row that triggered the inline add-child form (null = hidden).
-  const [addingChildAfter, setAddingChildAfter] = useState<string | null>(null);
 
   return (
     <section className="card mb-5 overflow-hidden" data-testid={`section-${testidPrefix}`}>
@@ -458,37 +450,21 @@ export function TreeTable({
             </thead>
             <tbody>
               {rows.map((row, i) => (
-                <Fragment key={row.requirement.slug}>
-                  <Row
-                    row={row}
-                    lineGuides={guides[i]}
-                    nameBySlug={nameBySlug}
-                    onEdit={onEdit}
-                    onLink={onLink}
-                    onAddNfr={onAddNfr}
-                    onAddChild={
-                      onInlineAddChild
-                        ? (req) => setAddingChildAfter(req.slug)
-                        : onAddChild
-                    }
-                    onDelete={onDelete}
-                    onDescExpand={onDescExpand}
-                    onExpandNode={onExpandNode}
-                    onToggleNode={onToggleNode}
-                    interactiveChevron={interactiveChevron}
-                  />
-                  {addingChildAfter === row.requirement.slug ? (
-                    <InlineAddChildForm
-                      parentSlug={row.requirement.slug}
-                      depth={row.depth + 1}
-                      onSave={async (name) => {
-                        await onInlineAddChild!(row.requirement.slug, name);
-                        setAddingChildAfter(null);
-                      }}
-                      onCancel={() => setAddingChildAfter(null)}
-                    />
-                  ) : null}
-                </Fragment>
+                <Row
+                  key={row.requirement.slug}
+                  row={row}
+                  lineGuides={guides[i]}
+                  nameBySlug={nameBySlug}
+                  onEdit={onEdit}
+                  onLink={onLink}
+                  onAddNfr={onAddNfr}
+                  onAddChild={onAddChild}
+                  onDelete={onDelete}
+                  onDescExpand={onDescExpand}
+                  onExpandNode={onExpandNode}
+                  onToggleNode={onToggleNode}
+                  interactiveChevron={interactiveChevron}
+                />
               ))}
             </tbody>
           </table>

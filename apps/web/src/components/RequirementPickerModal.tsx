@@ -181,6 +181,15 @@ export function RequirementPickerModal({
 
   const footer = (
     <>
+      {selectedCount === 0 ? (
+        <span
+          className="mr-auto self-center text-xs"
+          style={{ color: 'var(--color-text-3)' }}
+          data-testid="export-next-hint"
+        >
+          Выберите хотя бы одно требование
+        </span>
+      ) : null}
       <button type="button" className="btn btn-secondary" onClick={onClose}>
         Отменить
       </button>
@@ -189,6 +198,7 @@ export function RequirementPickerModal({
         className="btn btn-primary"
         disabled={selectedCount === 0}
         data-testid="export-next"
+        title={selectedCount === 0 ? 'Выберите хотя бы одно требование' : undefined}
         onClick={() => onConfirm(selected)}
       >
         {confirmLabel} ({selectedCount})

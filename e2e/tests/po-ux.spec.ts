@@ -295,48 +295,51 @@ test.describe('Wave 1-2 UX', () => {
     await expect(page.getByTestId('main-page')).toBeVisible();
   });
 
-  // ── T-512 · Inline add child ─────────────────────────────────────────────────
-  test('T-512 UX-1 — добавить дочерний ФТ через inline форму', async ({ page }) => {
-    await createProject(page, uniqueName('inline-child-proj'));
+  // ── T-512 · Add child via modal (FR-7.5) ─────────────────────────────────────
+  test('T-512 UX-1 — добавить дочерний ФТ через модалку', async ({ page }) => {
+    await createProject(page, uniqueName('modal-child-proj'));
     const parent = uniqueName('F-parent');
     await addRequirement(page, { kind: 'function', name: parent, criticality: 'HIGH' });
 
-    // Навести на строку ФТ-типа и нажать кнопку «добавить дочерний».
+    // Навести на строку ФТ и нажать кнопку «добавить дочернее требование».
     const parentRow = page.locator(`tr[data-req-name="${parent}"]`);
     await parentRow.hover();
     await parentRow.getByTestId('row-add-child').click();
 
-    // Inline-форма должна появиться.
-    await expect(page.getByTestId('inline-add-child-form')).toBeVisible();
+    // Открывается модалка создания с подсказкой про дочернюю связь.
+    await expect(page.getByTestId('requirement-modal')).toBeVisible();
+    await expect(page.getByTestId('nfr-from-ft-hint')).toContainText('дочерней для');
 
-    // Вводим имя нового дочернего ФТ.
-    const childName = uniqueName('F-child-inline');
-    await page.getByTestId('inline-add-child-input').fill(childName);
+    // Заполняем обязательные поля (критичность и реализация не предзаполнены — FR-21).
+    const childName = uniqueName('F-child-modal');
+    await page.getByTestId('req-name').fill(childName);
+    await page.getByTestId('req-criticality-medium').click();
+    await page.getByTestId('req-implemented-yes').click();
+    await page.getByTestId('req-submit').click();
 
-    // Сохраняем — форма исчезает, строка появляется в дереве.
-    await page.getByTestId('inline-add-child-save').click();
-    await expect(page.getByTestId('inline-add-child-form')).toBeHidden();
+    // Модалка закрывается, новая строка появляется в дереве под родителем.
+    await expect(page.getByTestId('requirement-modal')).toBeHidden();
     await expect(page.locator(`tr[data-req-name="${childName}"]`)).toBeVisible();
   });
 
-  // ── T-512b · Отмена inline add child ────────────────────────────────────────
-  test('T-512b UX-1 — отмена inline-формы не создаёт требование', async ({ page }) => {
-    await createProject(page, uniqueName('inline-cancel-proj'));
+  // ── T-512b · Cancel add-child modal ──────────────────────────────────────────
+  test('T-512b UX-1 — отмена модалки не создаёт требование', async ({ page }) => {
+    await createProject(page, uniqueName('modal-cancel-proj'));
     const parent = uniqueName('F-cancel-parent');
     await addRequirement(page, { kind: 'function', name: parent });
 
     const parentRow = page.locator(`tr[data-req-name="${parent}"]`);
     await parentRow.hover();
     await parentRow.getByTestId('row-add-child').click();
-    await expect(page.getByTestId('inline-add-child-form')).toBeVisible();
+    await expect(page.getByTestId('requirement-modal')).toBeVisible();
 
-    // Ввести имя и отменить.
+    // Ввести имя и отменить (закрыть без сохранения).
     const cancelledName = uniqueName('F-cancelled');
-    await page.getByTestId('inline-add-child-input').fill(cancelledName);
-    await page.getByTestId('inline-add-child-cancel').click();
+    await page.getByTestId('req-name').fill(cancelledName);
+    await page.getByTestId('req-cancel').click();
 
-    // Форма скрыта, новая строка не появилась.
-    await expect(page.getByTestId('inline-add-child-form')).toBeHidden();
+    // Модалка скрыта, новая строка не появилась.
+    await expect(page.getByTestId('requirement-modal')).toBeHidden();
     await expect(page.locator(`tr[data-req-name="${cancelledName}"]`)).toBeHidden();
   });
 

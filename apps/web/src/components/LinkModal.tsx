@@ -57,8 +57,25 @@ export function LinkModal({
     }
   };
 
+  // UX: explain why «Связать» is inactive instead of a silent dead button.
+  const disabledReason =
+    !createMut.isPending && (!target || !targetOk)
+      ? !target
+        ? 'Выберите требование для связи'
+        : 'Требование несовместимо с выбранным типом связи'
+      : null;
+
   const footer = (
     <>
+      {disabledReason ? (
+        <span
+          className="mr-auto self-center text-xs"
+          style={{ color: 'var(--color-text-3)' }}
+          data-testid="link-submit-hint"
+        >
+          {disabledReason}
+        </span>
+      ) : null}
       <button
         type="button"
         className="btn btn-secondary"
@@ -72,6 +89,7 @@ export function LinkModal({
         className="btn btn-primary"
         data-testid="link-submit"
         disabled={!target || !targetOk || createMut.isPending}
+        title={disabledReason ?? undefined}
         onClick={() => void submit()}
       >
         Связать

@@ -23,14 +23,15 @@ const LABELS: Record<string, string> = {
 };
 
 /**
- * Collapsible legend overlay in the bottom-left corner of the ReactFlow canvas.
- * FR-G7.3.
+ * Collapsible legend overlay in the top-left corner of the ReactFlow canvas.
+ * Kept out of the bottom-left corner so it never overlaps the zoom Controls
+ * (bottom-left) or the MiniMap (bottom-right). FR-G7.3.
  */
 export function GraphLegend(): React.ReactElement {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <Panel position="bottom-left" data-testid="graph-legend">
+    <Panel position="top-left" data-testid="graph-legend">
       <div
         className="rounded-lg border shadow-sm overflow-hidden"
         style={{

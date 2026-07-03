@@ -38,6 +38,23 @@ describe('LinkModal (T-606, FR-8)', () => {
     expect(screen.queryByTestId('link-result-s1')).not.toBeInTheDocument();
   });
 
+  it('explains why «Связать» is disabled until a target is picked', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <LinkModal projectId="p1" source={source} requirements={requirements} onClose={vi.fn()} />,
+    );
+    // No target yet → button disabled with a visible reason.
+    expect(screen.getByTestId('link-submit')).toBeDisabled();
+    expect(screen.getByTestId('link-submit-hint')).toHaveTextContent(
+      'Выберите требование для связи',
+    );
+    // Pick a compatible target → hint disappears and the button enables.
+    await user.type(screen.getByTestId('link-search'), 'Оплата');
+    await user.click(screen.getByTestId('link-result-a1'));
+    expect(screen.queryByTestId('link-submit-hint')).not.toBeInTheDocument();
+    expect(screen.getByTestId('link-submit')).toBeEnabled();
+  });
+
   it('shows the readable relationship sentence after picking a target', async () => {
     const user = userEvent.setup();
     renderWithProviders(

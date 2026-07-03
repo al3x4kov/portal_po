@@ -165,6 +165,17 @@ export function RequirementModal({
     !criticality ||
     implemented == null;
 
+  // UX: never leave «Сохранить» disabled without telling the user what is missing.
+  const missingFields: string[] = [];
+  if ((name ?? '').trim().length === 0) missingFields.push('название');
+  else if (nameTaken) missingFields.push('другое название (текущее занято)');
+  if (!criticality) missingFields.push('критичность');
+  if (implemented == null) missingFields.push('статус реализации');
+  const disabledReason =
+    submitDisabled && !busy && missingFields.length > 0
+      ? `Заполните: ${missingFields.join(', ')}`
+      : null;
+
   const buildPayload = (values: RequirementFormValues) => ({
     name: values.name.trim(),
     criticality: values.criticality,
@@ -241,6 +252,15 @@ export function RequirementModal({
 
   const footer = (
     <>
+      {disabledReason ? (
+        <span
+          className="mr-auto self-center text-xs"
+          style={{ color: 'var(--color-text-3)' }}
+          data-testid="req-submit-hint"
+        >
+          {disabledReason}
+        </span>
+      ) : null}
       <button
         type="button"
         className="btn btn-secondary"
@@ -255,6 +275,7 @@ export function RequirementModal({
         className="btn btn-primary"
         data-testid="req-submit"
         disabled={submitDisabled}
+        title={disabledReason ?? undefined}
       >
         Сохранить
       </button>

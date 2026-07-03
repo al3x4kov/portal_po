@@ -469,6 +469,32 @@ describe('RequirementModal (T-1106, FR-6)', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
+  // ── Disabled-Save hint (never a silent dead button) ──────────────────────────
+  it('shows a reason next to «Сохранить» while it is disabled, and hides it once ready', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <RequirementModal projectId="p1" reqType="FUNCTION" noDefaultCriticality onClose={vi.fn()} />,
+    );
+    // Nothing filled → disabled with an explicit hint listing what's missing.
+    expect(screen.getByTestId('req-submit')).toBeDisabled();
+    const hint = screen.getByTestId('req-submit-hint');
+    expect(hint).toHaveTextContent('название');
+    expect(hint).toHaveTextContent('критичность');
+    expect(hint).toHaveTextContent('статус реализации');
+
+    // Fill everything required.
+    await user.type(screen.getByTestId('req-name'), 'Экспорт отчёта');
+    await waitFor(() =>
+      expect(screen.getByTestId('req-name-status')).toHaveAttribute('data-state', 'ok'),
+    );
+    await user.click(screen.getByTestId('req-criticality-medium'));
+    await user.click(screen.getByTestId('req-implemented-yes'));
+
+    // Ready → hint gone, button enabled.
+    expect(screen.queryByTestId('req-submit-hint')).not.toBeInTheDocument();
+    expect(screen.getByTestId('req-submit')).toBeEnabled();
+  });
+
   // ── FR-21 fix · «Добавить дочернее требование» (preset CHILD_OF direction) ─────
   it('FR-21: child hint reads that the NEW function will be a child of the parent', () => {
     const nameBySlug = new Map([['parent', 'Личный кабинет']]);
