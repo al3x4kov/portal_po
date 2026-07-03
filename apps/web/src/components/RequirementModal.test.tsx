@@ -25,6 +25,12 @@ vi.mock('../api/endpoints', () => ({
     create: (...a: unknown[]) => linkCreate(...a),
     remove: (...a: unknown[]) => linkRemove(...a),
   },
+  aiApi: {
+    getConfig: vi.fn().mockResolvedValue({ baseURL: '', hasApiKey: false }),
+    saveConfig: vi.fn(),
+    listModels: vi.fn(),
+    generateDescription: vi.fn(),
+  },
 }));
 
 describe('RequirementModal (T-1106, FR-6)', () => {

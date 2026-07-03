@@ -1,0 +1,122 @@
+import { AI_GEN_MAX_TOKENS, AI_GEN_TEMPERATURE, type GenerateDescriptionRequest } from '@po/core';
+import type { AiConfigRepo } from '../repositories/AiConfigRepo.js';
+import { AiUpstreamError, BadRequestError } from '../lib/errors.js';
+import type { OpLogger } from '../lib/logger.js';
+import { buildDescriptionMessages, type AiChatMessage } from './aiPrompt.js';
+
+/** Parameters passed to a chat completion (subset we rely on). */
+export interface AiChatCompletionParams {
+  model: string;
+  messages: AiChatMessage[];
+  temperature: number;
+  max_tokens: number;
+}
+
+/** Minimal OpenAI-compatible client surface used by the service. */
+export interface AiClient {
+  models: {
+    list(): Promise<{ data: Array<{ id: string }> }>;
+  };
+  chat: {
+    completions: {
+      create(
+        params: AiChatCompletionParams,
+      ): Promise<{ choices: Array<{ message: { content: string | null } }> }>;
+    };
+  };
+}
+
+/**
+ * Factory building a client bound to a key+baseURL. Injected so tests supply a
+ * mock and production supplies the real `openai` wrapper. The baseURL always
+ * comes from the stored config (important for the e2e stub), never hard-coded.
+ */
+export type AiClientFactory = (apiKey: string, baseURL: string) => AiClient;
+
+export interface AiHubServiceDeps {
+  repo: AiConfigRepo;
+  makeClient: AiClientFactory;
+  log?: OpLogger;
+}
+
+/** Redact any occurrence of the secret key from an outbound message. */
+function sanitize(message: string, apiKey: string): string {
+  if (!apiKey) return message;
+  return message.split(apiKey).join('***');
+}
+
+/**
+ * Use-case service for AI Hub: reads the stored config, builds an OpenAI-style
+ * client via the injected factory, and exposes model listing + description
+ * generation. Missing key/model → {@link BadRequestError} (400); any upstream
+ * failure → {@link AiUpstreamError} (502) with a key-free message.
+ */
+export class AiHubService {
+  private readonly repo: AiConfigRepo;
+  private readonly makeClient: AiClientFactory;
+
+  constructor(deps: AiHubServiceDeps) {
+    this.repo = deps.repo;
+    this.makeClient = deps.makeClient;
+  }
+
+  /** List available model ids (sorted, de-duplicated). Requires a stored key. */
+  async listModels(): Promise<string[]> {
+    const cfg = await this.repo.read();
+    if (!cfg.apiKey) {
+      throw new BadRequestError('AI Hub API key is not configured.');
+    }
+    const client = this.makeClient(cfg.apiKey, cfg.baseURL);
+    let data: Array<{ id: string }>;
+    try {
+      const res = await client.models.list();
+      data = res.data ?? [];
+    } catch (err) {
+      throw new AiUpstreamError(
+        sanitize(`Failed to load models from AI Hub: ${(err as Error).message}`, cfg.apiKey),
+      );
+    }
+    const ids = new Set<string>();
+    for (const m of data) if (m && typeof m.id === 'string' && m.id) ids.add(m.id);
+    return [...ids].sort((a, b) => a.localeCompare(b));
+  }
+
+  /**
+   * Generate a requirement description. Requires a stored key AND a per-project
+   * model. Returns the trimmed model output.
+   */
+  async generateDescription(input: GenerateDescriptionRequest): Promise<string> {
+    const cfg = await this.repo.read();
+    if (!cfg.apiKey) {
+      throw new BadRequestError('AI Hub API key is not configured.');
+    }
+    const model = cfg.modelByProject[input.projectId];
+    if (!model) {
+      throw new BadRequestError('No AI model is selected for this project.');
+    }
+
+    const client = this.makeClient(cfg.apiKey, cfg.baseURL);
+    const messages = buildDescriptionMessages(input);
+
+    let content: string | null;
+    try {
+      const res = await client.chat.completions.create({
+        model,
+        messages,
+        temperature: AI_GEN_TEMPERATURE,
+        max_tokens: AI_GEN_MAX_TOKENS,
+      });
+      content = res.choices?.[0]?.message?.content ?? null;
+    } catch (err) {
+      throw new AiUpstreamError(
+        sanitize(`AI Hub generation failed: ${(err as Error).message}`, cfg.apiKey),
+      );
+    }
+
+    const text = (content ?? '').trim();
+    if (!text) {
+      throw new AiUpstreamError('AI Hub returned an empty description.');
+    }
+    return text;
+  }
+}

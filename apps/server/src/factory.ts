@@ -4,6 +4,9 @@ import { LinkService } from './services/LinkService.js';
 import { FsProjectRepo } from './repositories/FsProjectRepo.js';
 import { FsRequirementRepo } from './repositories/FsRequirementRepo.js';
 import { ArchiveRepo } from './repositories/ArchiveRepo.js';
+import { AiConfigRepo } from './repositories/AiConfigRepo.js';
+import { AiHubService, type AiClientFactory } from './services/AiHubService.js';
+import { createOpenAiClientFactory } from './services/openaiClient.js';
 import type { OpLogger } from './lib/logger.js';
 
 /**
@@ -16,6 +19,11 @@ export interface ServiceContext {
   projectsRoot: string;
   now: () => string;
   log?: OpLogger;
+  /**
+   * Optional AI client factory injection point. Tests pass a mock; when absent
+   * the production `openai`-backed factory is used (Task 8).
+   */
+  makeAiClient?: AiClientFactory;
 }
 
 /** Project persistence port, wired to the filesystem. */
@@ -51,5 +59,23 @@ export function createLinkService(ctx: ServiceContext, projectId: string): LinkS
   return new LinkService(new FsRequirementRepo(ctx.projectsRoot, projectId), ctx.now, {
     log: ctx.log,
     projectId,
+  });
+}
+
+/** Global AI Hub config repository (single `.ai-config.json` under the root). */
+export function createAiConfigRepo(ctx: ServiceContext): AiConfigRepo {
+  return new AiConfigRepo(ctx.projectsRoot);
+}
+
+/**
+ * AI Hub service, wired to the config repo and a client factory. Uses the
+ * injected `makeAiClient` when present (tests), otherwise the real `openai`
+ * wrapper (production).
+ */
+export function createAiHubService(ctx: ServiceContext): AiHubService {
+  return new AiHubService({
+    repo: new AiConfigRepo(ctx.projectsRoot),
+    makeClient: ctx.makeAiClient ?? createOpenAiClientFactory(),
+    log: ctx.log,
   });
 }

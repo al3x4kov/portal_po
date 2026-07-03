@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 export interface SidebarProps {
   projectId: string;
-  activePage: 'requirements' | 'dashboard';
+  activePage: 'requirements' | 'dashboard' | 'ai';
   onOpenExport: () => void;
   onOpenTasks: () => void;
 }
@@ -88,6 +88,25 @@ function IconClipboardList(): React.ReactElement {
       <rect x="8" y="2" width="8" height="4" rx="1" />
       <path d="M9 12h6" />
       <path d="M9 16h6" />
+    </svg>
+  );
+}
+
+function IconSparkle(): React.ReactElement {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4z" />
+      <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z" />
     </svg>
   );
 }
@@ -254,6 +273,18 @@ export function Sidebar({
 
       {/* Divider */}
       <div style={dividerStyle} role="separator" aria-hidden="true" />
+
+      {/* AI */}
+      <NavBtn
+        label="AI"
+        testId="sidebar-nav-ai"
+        active={activePage === 'ai'}
+        hovered={hoveredBtn === 'ai'}
+        {...hover('ai')}
+        onClick={() => navigate(`/p/${projectId}/ai`)}
+      >
+        <IconSparkle />
+      </NavBtn>
 
       {/* Export */}
       <NavBtn

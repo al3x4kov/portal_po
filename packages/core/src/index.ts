@@ -8,6 +8,7 @@ export * from './domain/exportFields.js';
 
 // Validation
 export * from './validation/schema.js';
+export * from './validation/ai.js';
 export * from './validation/rules.js';
 export * from './validation/targetRule.js';
 export * from './validation/contracts.js';

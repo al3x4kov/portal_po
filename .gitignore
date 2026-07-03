@@ -6,6 +6,8 @@ playwright-report/
 test-results/
 .DS_Store
 Projects/
+# AI Hub config (plaintext API key) — lives under PROJECTS_ROOT, never committed (Task 8)
+.ai-config.json
 
 # Генерируемые артефакты скилов/графа знаний (регенерируются, в архив/коммит не идут)
 graphify-out/

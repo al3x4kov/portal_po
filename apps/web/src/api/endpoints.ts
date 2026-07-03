@@ -1,4 +1,13 @@
-import type { ExportOptionalField, Requirement, RequirementType } from '@po/core';
+import type {
+  AiConfigUpdate,
+  AiConfigView,
+  AiModelsView,
+  ExportOptionalField,
+  GenerateDescriptionRequest,
+  GenerateDescriptionResponse,
+  Requirement,
+  RequirementType,
+} from '@po/core';
 import { apiDownload, apiRequest } from './client';
 import type {
   CheckNameResult,
@@ -114,6 +123,21 @@ export const requirementsApi = {
         method: 'DELETE',
       },
     ),
+};
+
+/**
+ * T-803: AI Hub client (Task 8). The server never returns the API key — only
+ * `hasApiKey` — so `getConfig` is safe to cache. Model selection is per-project
+ * (`projectId` carries the association on save).
+ */
+export const aiApi = {
+  getConfig: (projectId: string): Promise<AiConfigView> =>
+    apiRequest(`/ai/config?projectId=${encodeURIComponent(projectId)}`),
+  saveConfig: (update: AiConfigUpdate): Promise<AiConfigView> =>
+    apiRequest('/ai/config', { method: 'PUT', body: update }),
+  listModels: (): Promise<AiModelsView> => apiRequest('/ai/models'),
+  generateDescription: (input: GenerateDescriptionRequest): Promise<GenerateDescriptionResponse> =>
+    apiRequest('/ai/generate-description', { method: 'POST', body: input }),
 };
 
 export const linksApi = {

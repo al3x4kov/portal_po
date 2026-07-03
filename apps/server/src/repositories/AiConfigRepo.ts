@@ -1,0 +1,82 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import { AI_DEFAULT_BASE_URL, type AiConfigUpdate, type AiConfigView } from '@po/core';
+import { atomicWrite } from '../lib/atomicWrite.js';
+
+/** On-disk shape of `<PROJECTS_ROOT>/.ai-config.json` (plaintext, gitignored). */
+export interface AiConfigFile {
+  baseURL: string;
+  /** Personal API key, plaintext. Absent when never configured. NEVER logged/returned. */
+  apiKey?: string;
+  /** Per-project selected model, keyed by projectId (kept out of Projects/<id>/). */
+  modelByProject: Record<string, string>;
+}
+
+/** Fixed filename for the global AI config, resolved against the projects root. */
+export const AI_CONFIG_FILENAME = '.ai-config.json';
+
+/**
+ * Repository for the single global AI Hub config file. Reads tolerate a missing
+ * file (defaults), writes are atomic (temp + rename). The API key is stored on
+ * disk but the {@link getView} projection never exposes it — only `hasApiKey`.
+ */
+export class AiConfigRepo {
+  private readonly file: string;
+
+  constructor(projectsRoot: string) {
+    this.file = path.join(projectsRoot, AI_CONFIG_FILENAME);
+  }
+
+  /** Read the config, returning safe defaults when the file is absent/blank. */
+  async read(): Promise<AiConfigFile> {
+    let raw: string;
+    try {
+      raw = await fs.readFile(this.file, 'utf8');
+    } catch {
+      return { baseURL: AI_DEFAULT_BASE_URL, modelByProject: {} };
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { baseURL: AI_DEFAULT_BASE_URL, modelByProject: {} };
+    }
+    const obj = (parsed ?? {}) as Partial<AiConfigFile>;
+    return {
+      baseURL: typeof obj.baseURL === 'string' && obj.baseURL ? obj.baseURL : AI_DEFAULT_BASE_URL,
+      apiKey: typeof obj.apiKey === 'string' && obj.apiKey.length > 0 ? obj.apiKey : undefined,
+      modelByProject:
+        obj.modelByProject && typeof obj.modelByProject === 'object' ? obj.modelByProject : {},
+    };
+  }
+
+  /**
+   * Safe projection for `GET /api/ai/config`: baseURL, whether a key is stored,
+   * and the model selected for `projectId`. NEVER includes the key itself.
+   */
+  async getView(projectId?: string): Promise<AiConfigView> {
+    const cfg = await this.read();
+    const model = projectId ? cfg.modelByProject[projectId] : undefined;
+    return {
+      baseURL: cfg.baseURL,
+      hasApiKey: Boolean(cfg.apiKey),
+      ...(model ? { model } : {}),
+    };
+  }
+
+  /**
+   * Apply a partial update and persist atomically. `apiKey` is written only when
+   * passed non-empty (blank keeps the existing key); `model` is stored under
+   * `modelByProject[projectId]` (requires `projectId`). Returns the safe view.
+   */
+  async update(patch: AiConfigUpdate): Promise<AiConfigView> {
+    const cfg = await this.read();
+
+    if (patch.baseURL) cfg.baseURL = patch.baseURL;
+    if (patch.apiKey && patch.apiKey.trim().length > 0) cfg.apiKey = patch.apiKey;
+    if (patch.projectId && patch.model) cfg.modelByProject[patch.projectId] = patch.model;
+
+    await atomicWrite(this.file, JSON.stringify(cfg, null, 2));
+    return this.getView(patch.projectId);
+  }
+}

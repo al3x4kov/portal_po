@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
-import type { Requirement } from '@po/core';
+import type {
+  AiConfigUpdate,
+  AiConfigView,
+  AiModelsView,
+  GenerateDescriptionRequest,
+  GenerateDescriptionResponse,
+  Requirement,
+} from '@po/core';
 import { useToast } from '../components/Toast';
-import { linksApi, projectsApi, requirementsApi } from './endpoints';
+import { aiApi, linksApi, projectsApi, requirementsApi } from './endpoints';
 import type {
   LinkInput,
   ProjectSummary,
@@ -14,6 +21,7 @@ export const queryKeys = {
   projects: ['projects'] as const,
   project: (id: string) => ['projects', id] as const,
   requirements: (projectId: string) => ['projects', projectId, 'requirements'] as const,
+  aiConfig: (projectId: string) => ['ai', 'config', projectId] as const,
 };
 
 export function useProjects(): UseQueryResult<ProjectSummary[]> {
@@ -91,6 +99,40 @@ export function useDeleteRequirement(projectId: string) {
       invalidateRequirements(qc, projectId);
       toast.show('Требование удалено');
     },
+  });
+}
+
+/* ── AI Hub (Task 8, T-803) ──────────────────────────────────────────────── */
+
+export function useAiConfig(projectId: string | undefined): UseQueryResult<AiConfigView> {
+  return useQuery({
+    queryKey: queryKeys.aiConfig(projectId ?? ''),
+    queryFn: () => aiApi.getConfig(projectId as string),
+    enabled: Boolean(projectId),
+  });
+}
+
+/** Saves the AI config (key/baseURL global, model per-project). Invalidates the
+ *  cached config so `hasApiKey` / model status refresh immediately. */
+export function useSaveAiConfig(projectId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<AiConfigView, Error, AiConfigUpdate>({
+    mutationFn: (update) => aiApi.saveConfig(update),
+    onSuccess: () => {
+      if (projectId) void qc.invalidateQueries({ queryKey: queryKeys.aiConfig(projectId) });
+    },
+  });
+}
+
+export function useListAiModels() {
+  return useMutation<AiModelsView, Error, void>({
+    mutationFn: () => aiApi.listModels(),
+  });
+}
+
+export function useGenerateDescription() {
+  return useMutation<GenerateDescriptionResponse, Error, GenerateDescriptionRequest>({
+    mutationFn: (input) => aiApi.generateDescription(input),
   });
 }
 

@@ -24,6 +24,7 @@ import { useNameCheck } from '../hooks/useNameCheck';
 import { Modal } from './Modal';
 import { LinkList } from './LinkList';
 import { ConfirmDialog } from './ConfirmDialog';
+import { AiGenerationPanel } from './AiGenerationPanel';
 
 interface RequirementModalProps {
   projectId: string;
@@ -593,6 +594,22 @@ export function RequirementModal({
           <p className="mt-1 text-xs" style={{ color: 'var(--color-text-3)' }}>
             Поддерживается Markdown.
           </p>
+
+          {/* T-803 · AI Hub generation (append to description, human-in-the-loop) */}
+          <AiGenerationPanel
+            projectId={projectId}
+            requirementName={name ?? ''}
+            requirementType={reqType}
+            criticality={criticality}
+            currentDescription={description}
+            onApply={(generated) => {
+              const cur = getValues('description') ?? '';
+              setValue('description', cur ? `${cur}\n${generated}` : generated, {
+                shouldDirty: true,
+                shouldValidate: true,
+              });
+            }}
+          />
         </div>
 
         {/* Block 4b · infoItems (FR-20) */}

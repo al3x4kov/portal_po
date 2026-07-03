@@ -12,8 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
 import { cleanup, fixedNow, makeTmpRoot } from './helpers.js';
 
-const XLSX_CONTENT_TYPE =
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 function md(name: string): string {
   return [

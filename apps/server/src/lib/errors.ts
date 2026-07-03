@@ -36,6 +36,17 @@ export class BadRequestError extends DomainError {
 }
 
 /**
+ * An upstream AI Hub call failed (network, auth, rate-limit, empty response).
+ * Maps to HTTP 502. The message is sanitized upstream so the API key never
+ * appears in it (Task 8 security).
+ */
+export class AiUpstreamError extends DomainError {
+  constructor(message: string) {
+    super('AI_UPSTREAM', message);
+  }
+}
+
+/**
  * Structured, machine-readable details for specific domain errors (ARCH-11).
  * Shared by the REST error handler and the MCP tool wrapper so both transports
  * surface the same payload (e.g. a cycle's `path`, a node's blocking `children`)
@@ -58,6 +69,8 @@ export function httpStatusForCode(code: string): number {
       return 400;
     case 'NOT_FOUND':
       return 404;
+    case 'AI_UPSTREAM':
+      return 502;
     case 'UNIQUENESS':
     case 'CONFLICT':
     case 'CYCLE':
