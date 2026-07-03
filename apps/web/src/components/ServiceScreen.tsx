@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
-export type ServiceKind = 'ai' | 'rest' | 'mcp';
+export type ServiceKind = 'ai' | 'rest' | 'mcp' | 'skill';
 
 interface ServiceScreenProps {
   service: ServiceKind;
@@ -12,6 +12,7 @@ const TITLES: Record<ServiceKind, string> = {
   ai: 'AI-ready API',
   rest: 'REST API',
   mcp: 'MCP',
+  skill: 'Skill',
 };
 
 /** Monospace code / config block, styled with design tokens. */
@@ -94,6 +95,17 @@ const MCP_CONFIG = `{
     }
   }
 }`;
+
+/** Downloadable `/extract` skill (served as a static asset) + GigaCode CLI links. */
+const SKILL_DOWNLOAD_URL = '/skills/project-po-extract.skill.md';
+const GIGACODE_URL = 'https://gitverse.ru/features/gigacode/';
+
+const SKILL_GIGACODE_SETUP = `# 1. каталог скилла в домашней конфигурации GigaCode
+mkdir -p ~/.gigacode/skills/project-po-extract
+
+# 2. положить скачанный файл как SKILL.md
+mv ~/Downloads/project-po-extract.skill.md \\
+   ~/.gigacode/skills/project-po-extract/SKILL.md`;
 
 /** Explains the two identifiers used across the REST / AI endpoints. */
 function IdentifiersNote({ withSlug = true }: { withSlug?: boolean }): React.ReactElement {
@@ -298,6 +310,73 @@ function McpContent(): React.ReactElement {
   );
 }
 
+function SkillContent(): React.ReactElement {
+  return (
+    <>
+      <Section title="Что это">
+        <p>
+          <b>Skill «/extract»</b> — сценарий для ИИ-агента в терминале (GigaCode CLI, Claude Code):
+          по переданному источнику (ссылка на веб-документацию, локальный PDF или Word) он{' '}
+          <b>вычленяет</b> функциональные (ФТ) и нефункциональные (НФТ) требования — строго из
+          источника, без домысливания — и наполняет ими проект в этом портале через <b>MCP</b>.
+          Требует запущенного MCP-сервера <code>project-po</code> (см. панель «MCP»).
+        </p>
+      </Section>
+
+      <Section title="1. Скачать Skill с портала">
+        <p>Скачайте файл скилла — портал отдаёт его напрямую:</p>
+        <p>
+          <a
+            data-testid="skill-download-link"
+            href={SKILL_DOWNLOAD_URL}
+            download="project-po-extract.skill.md"
+            className="btn btn-primary inline-flex"
+            style={{ textDecoration: 'none' }}
+          >
+            ↓ Скачать SKILL.md
+          </a>
+        </p>
+        <p className="text-xs" style={{ color: 'var(--color-text-3)' }}>
+          Прямая ссылка: <code>{SKILL_DOWNLOAD_URL}</code>. Скачивание доступно, когда приложение
+          открыто с локального сервера (<code>node apps/server/dist/main.js</code>).
+        </p>
+      </Section>
+
+      <Section title="2. Настроить локально под GigaCode CLI">
+        <p>
+          Положите скачанный файл в домашнюю конфигурацию GigaCode CLI — каталог{' '}
+          <code>~/.gigacode/</code> — под именем <code>SKILL.md</code>:
+        </p>
+        <CodeBlock>{SKILL_GIGACODE_SETUP}</CodeBlock>
+        <p>
+          После этого перезапустите GigaCode CLI и вызывайте скилл командой <code>/extract</code>{' '}
+          (или попросите агента «извлеки требования из …»). Подробнее о GigaCode CLI:{' '}
+          <a
+            data-testid="gigacode-link"
+            href={GIGACODE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="underline"
+            style={{ color: 'var(--color-primary)' }}
+          >
+            {GIGACODE_URL}
+          </a>
+        </p>
+        <div
+          className="rounded-lg border p-3 text-xs"
+          style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-2)' }}
+        >
+          <p>
+            Чтобы скилл мог наполнять портал, у агента должен быть подключён MCP-сервер{' '}
+            <code>project-po</code> с переменной <code>PROJECTS_ROOT</code>, указывающей на каталог{' '}
+            <code>Projects/</code> портала (конфигурацию см. в панели «MCP»).
+          </p>
+        </div>
+      </Section>
+    </>
+  );
+}
+
 /**
  * Wide, scrollable description screen for a service (E13 · T-1302). Built on the
  * Modal shell pattern: dimmed scrim, Esc / close-button / scrim-click to close,
@@ -367,6 +446,7 @@ export function ServiceScreen({ service, onClose }: ServiceScreenProps): React.R
           {service === 'ai' ? <AiContent /> : null}
           {service === 'rest' ? <RestContent /> : null}
           {service === 'mcp' ? <McpContent /> : null}
+          {service === 'skill' ? <SkillContent /> : null}
         </div>
       </div>
     </div>

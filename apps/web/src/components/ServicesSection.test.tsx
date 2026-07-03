@@ -5,17 +5,18 @@ import { ServicesSection } from './ServicesSection';
 import { renderWithProviders } from '../test/utils';
 
 describe('ServicesSection (E13 · revised — Start screen)', () => {
-  it('renders the three service items as a section', () => {
+  it('renders the four service items as a section', () => {
     renderWithProviders(<ServicesSection />);
     expect(screen.getByTestId('services-section')).toBeInTheDocument();
     expect(screen.getByTestId('service-open-ai')).toBeInTheDocument();
     expect(screen.getByTestId('service-open-rest')).toBeInTheDocument();
     expect(screen.getByTestId('service-open-mcp')).toBeInTheDocument();
+    expect(screen.getByTestId('service-open-skill')).toBeInTheDocument();
     // No screen open until an item is clicked.
     expect(screen.queryByTestId('service-screen')).not.toBeInTheDocument();
   });
 
-  async function openService(kind: 'ai' | 'rest' | 'mcp'): Promise<void> {
+  async function openService(kind: 'ai' | 'rest' | 'mcp' | 'skill'): Promise<void> {
     const user = userEvent.setup();
     renderWithProviders(<ServicesSection />);
     await user.click(screen.getByTestId(`service-open-${kind}`));
@@ -60,6 +61,23 @@ describe('ServicesSection (E13 · revised — Start screen)', () => {
     // Working with a specific project is explained.
     expect(el).toHaveTextContent('projectId');
     expect(el).toHaveTextContent('list_projects');
+  });
+
+  it('opens the Skill screen with the portal download link and GigaCode setup', async () => {
+    await openService('skill');
+    const el = screen.getByTestId('service-screen');
+    expect(el).toHaveAttribute('data-service', 'skill');
+    expect(screen.getByTestId('service-screen-title')).toHaveTextContent('Skill');
+    // 1) Download the skill from the portal (direct static asset).
+    const download = screen.getByTestId('skill-download-link');
+    expect(download).toHaveAttribute('href', '/skills/project-po-extract.skill.md');
+    expect(download).toHaveAttribute('download');
+    // 2) Configure locally under GigaCode CLI in ~/.gigacode/.
+    expect(el).toHaveTextContent('~/.gigacode/');
+    expect(screen.getByTestId('gigacode-link')).toHaveAttribute(
+      'href',
+      'https://gitverse.ru/features/gigacode/',
+    );
   });
 
   it('closes the screen via the close button', async () => {

@@ -29,6 +29,13 @@ const ITEMS: ReadonlyArray<{
     testid: 'service-open-mcp',
     glyph: '◆',
   },
+  {
+    kind: 'skill',
+    label: 'Skill',
+    hint: 'Скилл /extract для ИИ-агента: скачать с портала и настроить под GigaCode CLI.',
+    testid: 'service-open-skill',
+    glyph: '✦',
+  },
 ];
 
 /**
@@ -46,7 +53,7 @@ export function ServicesSection(): React.ReactElement {
         Программные интерфейсы для интеграций и ИИ-агентов.
       </p>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-3">
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {ITEMS.map((item) => (
           <button
             key={item.kind}
