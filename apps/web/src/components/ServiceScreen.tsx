@@ -144,9 +144,17 @@ function AiContent(): React.ReactElement {
       <Section title="Как пользоваться">
         <IdentifiersNote withSlug={false} />
         <p>
-          Запросите склеенный OpenSpec-текст конкретного проекта и отдайте агенту как контекст —
-          эндпоинт возвращает <code>text/markdown</code> (здесь <code>{'{projectId}'}</code> — тот
-          самый <code>id</code> проекта):
+          Запросите склеенный OpenSpec-текст конкретного проекта{' '}
+          <span
+            onClick={() =>
+              window.open('https://dos.zone/doom-dec-1993/', '_blank', 'noopener,noreferrer')
+            }
+            style={{ cursor: 'inherit' }}
+          >
+            дум
+          </span>{' '}
+          и отдайте агенту как контекст — эндпоинт возвращает <code>text/markdown</code> (здесь{' '}
+          <code>{'{projectId}'}</code> — тот самый <code>id</code> проекта):
         </p>
         <CodeBlock>{'GET /api/projects/{projectId}/requirements?format=openspec'}</CodeBlock>
         <p>Пример вызова:</p>

@@ -21,8 +21,12 @@ function connectionErrorChain(): Error {
 }
 
 describe('buildAiDispatcher (env → scoped TLS/proxy)', () => {
-  it('returns undefined with no relevant env (default fetch)', () => {
-    expect(buildAiDispatcher({})).toBeUndefined();
+  it('defaults to insecure (an Agent) with no env', () => {
+    expect(buildAiDispatcher({})).toBeInstanceOf(Agent);
+  });
+
+  it('AI_HUB_INSECURE_TLS=0 with no CA → undefined (verification enforced)', () => {
+    expect(buildAiDispatcher({ AI_HUB_INSECURE_TLS: '0' })).toBeUndefined();
   });
 
   it('AI_HUB_INSECURE_TLS=1 → an Agent', () => {
@@ -170,13 +174,13 @@ describe.skipIf(!opensslOk)('scoped insecure TLS reaches the openai client', () 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('rejects a self-signed server by default', async () => {
-    const client = createOpenAiClientFactory({})('key', baseURL);
+  it('rejects a self-signed server with AI_HUB_INSECURE_TLS=0 (verification on)', async () => {
+    const client = createOpenAiClientFactory({ AI_HUB_INSECURE_TLS: '0' })('key', baseURL);
     await expect(client.models.list()).rejects.toThrow();
   });
 
-  it('accepts it with AI_HUB_INSECURE_TLS=1 (scoped, not global)', async () => {
-    const client = createOpenAiClientFactory({ AI_HUB_INSECURE_TLS: '1' })('key', baseURL);
+  it('accepts a self-signed server by default (insecure) — scoped, not global', async () => {
+    const client = createOpenAiClientFactory({})('key', baseURL);
     const res = await client.models.list();
     expect(res.data.map((m) => m.id)).toContain('stub-model');
   });

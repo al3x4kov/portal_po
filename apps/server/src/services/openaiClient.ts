@@ -11,16 +11,23 @@ import type { AiClient, AiClientFactory } from './AiHubService.js';
  * - `AI_HUB_CA_CERT` — path to a PEM CA bundle to additionally trust. Use this
  *   when AI Hub sits behind a corporate/internal root CA that Node does not ship
  *   (the secure fix: `curl` works because the OS trusts that CA, Node does not).
- * - `AI_HUB_INSECURE_TLS=1` — disable TLS certificate verification for AI Hub
- *   requests ONLY (much narrower than the global `NODE_TLS_REJECT_UNAUTHORIZED=0`).
- *   Use only against a trusted internal host when the CA file is not available.
+ * - `AI_HUB_INSECURE_TLS` — TLS verification for AI Hub. **Defaults to disabled**
+ *   (verification OFF) so the app works behind an internal CA out of the box; this
+ *   is scoped to AI Hub only, never the global `NODE_TLS_REJECT_UNAUTHORIZED=0`.
+ *   Set `AI_HUB_INSECURE_TLS=0` (or provide `AI_HUB_CA_CERT`) to enforce verification.
  * - `AI_HUB_PROXY` / `HTTPS_PROXY` — route AI Hub requests through an HTTP(S)
  *   proxy (Node's `fetch` ignores proxy env vars by default).
  */
 export function buildAiDispatcher(env: NodeJS.ProcessEnv = process.env): Dispatcher | undefined {
   const caPath = env.AI_HUB_CA_CERT?.trim();
-  const insecure = env.AI_HUB_INSECURE_TLS === '1' || env.AI_HUB_INSECURE_TLS === 'true';
   const proxy = (env.AI_HUB_PROXY ?? env.HTTPS_PROXY ?? env.https_proxy ?? '').trim();
+  // Default to insecure (verification off) unless a CA is supplied or the user
+  // explicitly opts out with AI_HUB_INSECURE_TLS=0 — AI Hub usually sits behind an
+  // internal CA that Node doesn't ship, so this keeps it working out of the box.
+  const insecure =
+    env.AI_HUB_INSECURE_TLS !== undefined
+      ? env.AI_HUB_INSECURE_TLS === '1' || env.AI_HUB_INSECURE_TLS === 'true'
+      : !caPath;
 
   const connect: { ca?: string; rejectUnauthorized?: boolean } = {};
   if (caPath) connect.ca = readFileSync(caPath, 'utf8');
