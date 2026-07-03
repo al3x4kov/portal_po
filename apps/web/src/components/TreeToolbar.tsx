@@ -47,7 +47,11 @@ const IMPL_OPTIONS: {
  * (B1), name search (B3) and the multi-select criticality filter (B5).
  * Also contains the view-mode switcher (Дерево | Граф) for T-G108.
  */
-export function TreeToolbar({ shown, total, availableSources = [] }: TreeToolbarProps): React.ReactElement {
+export function TreeToolbar({
+  shown,
+  total,
+  availableSources = [],
+}: TreeToolbarProps): React.ReactElement {
   const treeMode = useUiStore((s) => s.treeMode);
   const setTreeMode = useUiStore((s) => s.setTreeMode);
   const search = useUiStore((s) => s.search);
@@ -241,41 +245,41 @@ export function TreeToolbar({ shown, total, availableSources = [] }: TreeToolbar
 
       {/* B1 · tree display mode — only shown in tree view */}
       {!graphView ? (
-      <div
-        className="inline-flex rounded-sm border p-0.5"
-        role="group"
-        aria-label="Отображение дерева"
-        style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
-      >
-        <button
-          type="button"
-          className={segBtn(treeMode === 'expand-all')}
-          style={
-            treeMode === 'expand-all'
-              ? { background: 'var(--color-surface)', color: 'var(--color-text)' }
-              : { color: 'var(--color-text-2)' }
-          }
-          aria-pressed={treeMode === 'expand-all'}
-          data-testid="toggle-expand-all"
-          onClick={() => setTreeMode('expand-all')}
+        <div
+          className="inline-flex rounded-sm border p-0.5"
+          role="group"
+          aria-label="Отображение дерева"
+          style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
         >
-          Раскрыть все
-        </button>
-        <button
-          type="button"
-          className={segBtn(treeMode === 'collapse')}
-          style={
-            treeMode === 'collapse'
-              ? { background: 'var(--color-surface)', color: 'var(--color-text)' }
-              : { color: 'var(--color-text-2)' }
-          }
-          aria-pressed={treeMode === 'collapse'}
-          data-testid="toggle-collapse"
-          onClick={() => setTreeMode(treeMode === 'collapse' ? 'expand-all' : 'collapse')}
-        >
-          Свернуть вложенные
-        </button>
-      </div>
+          <button
+            type="button"
+            className={segBtn(treeMode === 'expand-all')}
+            style={
+              treeMode === 'expand-all'
+                ? { background: 'var(--color-surface)', color: 'var(--color-text)' }
+                : { color: 'var(--color-text-2)' }
+            }
+            aria-pressed={treeMode === 'expand-all'}
+            data-testid="toggle-expand-all"
+            onClick={() => setTreeMode('expand-all')}
+          >
+            Раскрыть все
+          </button>
+          <button
+            type="button"
+            className={segBtn(treeMode === 'collapse')}
+            style={
+              treeMode === 'collapse'
+                ? { background: 'var(--color-surface)', color: 'var(--color-text)' }
+                : { color: 'var(--color-text-2)' }
+            }
+            aria-pressed={treeMode === 'collapse'}
+            data-testid="toggle-collapse"
+            onClick={() => setTreeMode(treeMode === 'collapse' ? 'expand-all' : 'collapse')}
+          >
+            Свернуть вложенные
+          </button>
+        </div>
       ) : null}
 
       {/* B3 · name search */}

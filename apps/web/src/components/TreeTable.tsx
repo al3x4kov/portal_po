@@ -187,7 +187,12 @@ function Row({
                 <span
                   key={k}
                   className={`tree-guide tree-guide--${guide}`}
-                  style={{ flexShrink: 0, width: '20px', position: 'relative', alignSelf: 'stretch' }}
+                  style={{
+                    flexShrink: 0,
+                    width: '20px',
+                    position: 'relative',
+                    alignSelf: 'stretch',
+                  }}
                 />
               ))}
             </div>
@@ -202,19 +207,13 @@ function Row({
                 data-testid="toggle-node"
                 data-slug={req.slug}
                 aria-expanded={!collapsedBranch}
-                aria-label={
-                  collapsedBranch ? `Раскрыть «${req.name}»` : `Свернуть «${req.name}»`
-                }
+                aria-label={collapsedBranch ? `Раскрыть «${req.name}»` : `Свернуть «${req.name}»`}
                 onClick={() => onToggleNode?.(req.slug)}
               >
                 {collapsedBranch ? '▸' : '▾'}
               </button>
             ) : (
-              <span
-                className="text-sm"
-                style={{ color: 'var(--color-text-3)' }}
-                aria-hidden="true"
-              >
+              <span className="text-sm" style={{ color: 'var(--color-text-3)' }} aria-hidden="true">
                 {collapsedBranch ? '▸' : '▾'}
               </span>
             )
@@ -356,9 +355,7 @@ function Row({
           <button
             type="button"
             style={
-              deleteDisabled
-                ? { ...iconBtnBase, opacity: 0.4, cursor: 'not-allowed' }
-                : iconBtnBase
+              deleteDisabled ? { ...iconBtnBase, opacity: 0.4, cursor: 'not-allowed' } : iconBtnBase
             }
             className={deleteDisabled ? '' : 'hover:text-[var(--color-danger)]'}
             data-testid={`delete-btn-${req.slug}`}

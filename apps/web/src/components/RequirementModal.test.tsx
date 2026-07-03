@@ -404,9 +404,7 @@ describe('RequirementModal (T-1106, FR-6)', () => {
     it('Save button enabled with criticality=MEDIUM (default) and implemented=true', async () => {
       create.mockResolvedValueOnce({ slug: 'x' });
       const user = userEvent.setup();
-      renderWithProviders(
-        <RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />,
-      );
+      renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />);
       // Default: implemented=false → quarter/year panel visible
       expect(screen.getByTestId('req-target')).toBeInTheDocument();
       // Submit button is NOT disabled by submitDisabled (criticality=MEDIUM, implemented=false≠null)
@@ -422,9 +420,7 @@ describe('RequirementModal (T-1106, FR-6)', () => {
     });
 
     it('quarter/year panel visible by default (implemented=false) in normal mode', () => {
-      renderWithProviders(
-        <RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />,
-      );
+      renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />);
       expect(screen.getByTestId('req-target')).toBeInTheDocument();
       expect(screen.getByTestId('req-implemented-no')).toHaveAttribute('aria-pressed', 'true');
     });

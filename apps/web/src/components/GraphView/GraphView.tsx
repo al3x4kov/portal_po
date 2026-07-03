@@ -22,7 +22,9 @@ import { GraphLegend } from './GraphLegend';
 import type { GraphNode, GraphEdge } from './types';
 
 const NODE_TYPES: Record<string, ComponentType<NodeProps & { data: unknown; type: unknown }>> = {
-  requirementNode: RequirementNode as unknown as ComponentType<NodeProps & { data: unknown; type: unknown }>,
+  requirementNode: RequirementNode as unknown as ComponentType<
+    NodeProps & { data: unknown; type: unknown }
+  >,
 };
 
 const PERF_LIMIT = 200;
@@ -239,7 +241,15 @@ export function GraphView({ projectId }: GraphViewProps): React.ReactElement {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 0', minHeight: 400, overflow: 'hidden' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        flex: '1 1 0',
+        minHeight: 400,
+        overflow: 'hidden',
+      }}
+    >
       {/* Fixed-height header: toolbar + optional perf banner */}
       <div style={{ flexShrink: 0 }}>
         <GraphToolbar
@@ -270,9 +280,7 @@ export function GraphView({ projectId }: GraphViewProps): React.ReactElement {
             }}
             data-testid="graph-perf-banner"
           >
-            <span>
-              Граф содержит {totalNodeCount} узлов. Рекомендуется использовать фильтры.
-            </span>
+            <span>Граф содержит {totalNodeCount} узлов. Рекомендуется использовать фильтры.</span>
             <button
               type="button"
               className="ml-2 font-semibold underline"

@@ -70,15 +70,9 @@ export function GraphLegend(): React.ReactElement {
                         strokeDasharray={entry.dashed ? '4 3' : undefined}
                       />
                       {/* Arrowhead left */}
-                      <polygon
-                        points="4,3 4,9 0,6"
-                        fill={entry.color}
-                      />
+                      <polygon points="4,3 4,9 0,6" fill={entry.color} />
                       {/* Arrowhead right */}
-                      <polygon
-                        points="28,3 28,9 32,6"
-                        fill={entry.color}
-                      />
+                      <polygon points="28,3 28,9 32,6" fill={entry.color} />
                     </>
                   ) : (
                     <>
@@ -92,10 +86,7 @@ export function GraphLegend(): React.ReactElement {
                         strokeDasharray={entry.dashed ? '4 3' : undefined}
                       />
                       {/* Arrowhead right */}
-                      <polygon
-                        points="26,3 26,9 30,6"
-                        fill={entry.color}
-                      />
+                      <polygon points="26,3 26,9 30,6" fill={entry.color} />
                     </>
                   )}
                 </svg>

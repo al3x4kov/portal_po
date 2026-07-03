@@ -67,9 +67,7 @@ export function ExportModal({
         if (selected.size >= requirements.length) {
           ({ blob, filename } = await projectsApi.export(projectId, format));
         } else {
-          ({ blob, filename } = await projectsApi.exportSelected(projectId, format, [
-            ...selected,
-          ]));
+          ({ blob, filename } = await projectsApi.exportSelected(projectId, format, [...selected]));
         }
       }
 
@@ -110,8 +108,7 @@ export function ExportModal({
     >
       <div className="space-y-4">
         <p className="text-sm" style={{ color: 'var(--color-text-2)' }}>
-          Выбрано <strong>{selectedCount}</strong> требований для архива. Выберите формат
-          выгрузки:
+          Выбрано <strong>{selectedCount}</strong> требований для архива. Выберите формат выгрузки:
         </p>
         {exportError ? (
           <p

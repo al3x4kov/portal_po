@@ -245,178 +245,178 @@ export function Dashboard(): React.ReactElement {
         />
 
         <main className="w-full flex-1 space-y-6 p-6">
-        <h1 className="text-xl font-bold">Дашборд проекта</h1>
+          <h1 className="text-xl font-bold">Дашборд проекта</h1>
 
-        {isLoading ? (
-          <p className="text-sm" style={{ color: 'var(--color-text-3)' }}>
-            Загрузка…
-          </p>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <StatCard
-                label="Функций (ФТ)"
-                value={functional.length}
-                detail={`из ${requirements.length} требований`}
-              />
-              <StatCard label="НФТ" value={nfr.length} />
-              <StatCard
-                label="Корневых функций"
-                value={rootFunctions.length}
-                detail={rootFunctions.length > 0 ? '⚠ Есть ФТ без родителя' : undefined}
-                tone={rootFunctions.length > 0 ? 'danger' : 'success'}
-                testid="stat-root-functions"
-              />
-              <StatCard
-                label="ФТ без НФТ"
-                value={functionsWithoutNfr.length}
-                detail="нет связанного нефункц. требования"
-                tone={functionsWithoutNfr.length > 0 ? 'warning' : 'success'}
-              />
-            </div>
-
-            <div className="card p-5">
-              <h2 className="mb-4 font-semibold">
-                Динамика изменений ФТ/НФТ{' '}
-                <span className="text-xs font-normal" style={{ color: 'var(--color-text-3)' }}>
-                  (по дате последнего обновления, последние 30 дней)
-                </span>
-              </h2>
-              <ActivityChart byDay={activityByDay} />
-            </div>
-
-            {fnNoDesc.length > 0 || nfrNoDesc.length > 0 ? (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {fnNoDesc.length > 0 ? (
-                  <div className="card p-4" data-testid="dash-no-desc-ft">
-                    <h2 className="mb-3 font-semibold">
-                      ФТ без описания
-                      <span
-                        className="ml-2 rounded-full px-2 py-0.5 text-xs font-bold"
-                        style={{
-                          background: 'var(--color-warning-bg)',
-                          color: 'var(--color-warning-fg)',
-                        }}
-                      >
-                        {fnNoDesc.length}
-                      </span>
-                    </h2>
-                    <ul className="space-y-2">
-                      {fnNoDesc.map((r) => (
-                        <li key={r.slug} className="flex items-center gap-2">
-                          <CriticalityBadge criticality={r.criticality} />
-                          <span className="flex-1 truncate text-sm">{r.name}</span>
-                          <button
-                            type="button"
-                            className="btn btn-ghost px-2 py-0.5 text-xs"
-                            style={{ color: 'var(--color-primary)' }}
-                            data-testid={`dash-no-desc-open-${r.slug}`}
-                            onClick={() =>
-                              openModal({
-                                kind: 'requirement',
-                                reqType: r.type,
-                                requirement: r,
-                                focusField: 'description',
-                              })
-                            }
-                          >
-                            + Описание
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                {nfrNoDesc.length > 0 ? (
-                  <div className="card p-4" data-testid="dash-no-desc-nfr">
-                    <h2 className="mb-3 font-semibold">
-                      НФТ без описания
-                      <span
-                        className="ml-2 rounded-full px-2 py-0.5 text-xs font-bold"
-                        style={{
-                          background: 'var(--color-warning-bg)',
-                          color: 'var(--color-warning-fg)',
-                        }}
-                      >
-                        {nfrNoDesc.length}
-                      </span>
-                    </h2>
-                    <ul className="space-y-2">
-                      {nfrNoDesc.map((r) => (
-                        <li key={r.slug} className="flex items-center gap-2">
-                          <CriticalityBadge criticality={r.criticality} />
-                          <span className="flex-1 truncate text-sm">{r.name}</span>
-                          <button
-                            type="button"
-                            className="btn btn-ghost px-2 py-0.5 text-xs"
-                            style={{ color: 'var(--color-primary)' }}
-                            data-testid={`dash-no-desc-open-${r.slug}`}
-                            onClick={() =>
-                              openModal({
-                                kind: 'requirement',
-                                reqType: r.type,
-                                requirement: r,
-                                focusField: 'description',
-                              })
-                            }
-                          >
-                            + Описание
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
+          {isLoading ? (
+            <p className="text-sm" style={{ color: 'var(--color-text-3)' }}>
+              Загрузка…
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <StatCard
+                  label="Функций (ФТ)"
+                  value={functional.length}
+                  detail={`из ${requirements.length} требований`}
+                />
+                <StatCard label="НФТ" value={nfr.length} />
+                <StatCard
+                  label="Корневых функций"
+                  value={rootFunctions.length}
+                  detail={rootFunctions.length > 0 ? '⚠ Есть ФТ без родителя' : undefined}
+                  tone={rootFunctions.length > 0 ? 'danger' : 'success'}
+                  testid="stat-root-functions"
+                />
+                <StatCard
+                  label="ФТ без НФТ"
+                  value={functionsWithoutNfr.length}
+                  detail="нет связанного нефункц. требования"
+                  tone={functionsWithoutNfr.length > 0 ? 'warning' : 'success'}
+                />
               </div>
-            ) : null}
 
-            {functionsWithoutNfr.length > 0 ? (
               <div className="card p-5">
-                <h2 className="mb-3 font-semibold">
-                  Функции без нефункционального требования ({functionsWithoutNfr.length})
+                <h2 className="mb-4 font-semibold">
+                  Динамика изменений ФТ/НФТ{' '}
+                  <span className="text-xs font-normal" style={{ color: 'var(--color-text-3)' }}>
+                    (по дате последнего обновления, последние 30 дней)
+                  </span>
                 </h2>
-                <ul className="space-y-1.5">
-                  {functionsWithoutNfr.map((r) => (
-                    <li
-                      key={r.slug}
-                      className="flex items-center gap-2 text-sm"
-                      data-testid={`dashboard-nfr-missing-${r.slug}`}
-                    >
-                      <span
-                        className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={{ background: 'var(--color-warning)' }}
-                        aria-hidden="true"
-                      />
-                      {r.name}
-                    </li>
-                  ))}
-                </ul>
+                <ActivityChart byDay={activityByDay} />
               </div>
-            ) : null}
-          </>
-        )}
-      </main>
 
-      {modal?.kind === 'requirement' ? (
-        <RequirementModal
-          projectId={id}
-          reqType={modal.reqType}
-          requirement={modal.requirement}
-          nameBySlug={nameBySlug}
-          linkFrom={modal.linkFrom}
-          linkType={modal.linkType}
-          focusField={modal.focusField}
-          onClose={closeModal}
-        />
-      ) : null}
+              {fnNoDesc.length > 0 || nfrNoDesc.length > 0 ? (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {fnNoDesc.length > 0 ? (
+                    <div className="card p-4" data-testid="dash-no-desc-ft">
+                      <h2 className="mb-3 font-semibold">
+                        ФТ без описания
+                        <span
+                          className="ml-2 rounded-full px-2 py-0.5 text-xs font-bold"
+                          style={{
+                            background: 'var(--color-warning-bg)',
+                            color: 'var(--color-warning-fg)',
+                          }}
+                        >
+                          {fnNoDesc.length}
+                        </span>
+                      </h2>
+                      <ul className="space-y-2">
+                        {fnNoDesc.map((r) => (
+                          <li key={r.slug} className="flex items-center gap-2">
+                            <CriticalityBadge criticality={r.criticality} />
+                            <span className="flex-1 truncate text-sm">{r.name}</span>
+                            <button
+                              type="button"
+                              className="btn btn-ghost px-2 py-0.5 text-xs"
+                              style={{ color: 'var(--color-primary)' }}
+                              data-testid={`dash-no-desc-open-${r.slug}`}
+                              onClick={() =>
+                                openModal({
+                                  kind: 'requirement',
+                                  reqType: r.type,
+                                  requirement: r,
+                                  focusField: 'description',
+                                })
+                              }
+                            >
+                              + Описание
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {nfrNoDesc.length > 0 ? (
+                    <div className="card p-4" data-testid="dash-no-desc-nfr">
+                      <h2 className="mb-3 font-semibold">
+                        НФТ без описания
+                        <span
+                          className="ml-2 rounded-full px-2 py-0.5 text-xs font-bold"
+                          style={{
+                            background: 'var(--color-warning-bg)',
+                            color: 'var(--color-warning-fg)',
+                          }}
+                        >
+                          {nfrNoDesc.length}
+                        </span>
+                      </h2>
+                      <ul className="space-y-2">
+                        {nfrNoDesc.map((r) => (
+                          <li key={r.slug} className="flex items-center gap-2">
+                            <CriticalityBadge criticality={r.criticality} />
+                            <span className="flex-1 truncate text-sm">{r.name}</span>
+                            <button
+                              type="button"
+                              className="btn btn-ghost px-2 py-0.5 text-xs"
+                              style={{ color: 'var(--color-primary)' }}
+                              data-testid={`dash-no-desc-open-${r.slug}`}
+                              onClick={() =>
+                                openModal({
+                                  kind: 'requirement',
+                                  reqType: r.type,
+                                  requirement: r,
+                                  focusField: 'description',
+                                })
+                              }
+                            >
+                              + Описание
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
-      {modal?.kind === 'export' ? (
-        <ExportModal projectId={id} requirements={requirements} onClose={closeModal} />
-      ) : null}
+              {functionsWithoutNfr.length > 0 ? (
+                <div className="card p-5">
+                  <h2 className="mb-3 font-semibold">
+                    Функции без нефункционального требования ({functionsWithoutNfr.length})
+                  </h2>
+                  <ul className="space-y-1.5">
+                    {functionsWithoutNfr.map((r) => (
+                      <li
+                        key={r.slug}
+                        className="flex items-center gap-2 text-sm"
+                        data-testid={`dashboard-nfr-missing-${r.slug}`}
+                      >
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ background: 'var(--color-warning)' }}
+                          aria-hidden="true"
+                        />
+                        {r.name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </>
+          )}
+        </main>
 
-      {modal?.kind === 'export-tasks' ? (
-        <ExportTasksModal projectId={id} requirements={requirements} onClose={closeModal} />
-      ) : null}
+        {modal?.kind === 'requirement' ? (
+          <RequirementModal
+            projectId={id}
+            reqType={modal.reqType}
+            requirement={modal.requirement}
+            nameBySlug={nameBySlug}
+            linkFrom={modal.linkFrom}
+            linkType={modal.linkType}
+            focusField={modal.focusField}
+            onClose={closeModal}
+          />
+        ) : null}
+
+        {modal?.kind === 'export' ? (
+          <ExportModal projectId={id} requirements={requirements} onClose={closeModal} />
+        ) : null}
+
+        {modal?.kind === 'export-tasks' ? (
+          <ExportTasksModal projectId={id} requirements={requirements} onClose={closeModal} />
+        ) : null}
       </div>
     </>
   );

@@ -63,11 +63,6 @@ describe('buildLineGuides', () => {
       row('grandchild', 2, false),
       row('child2', 1, false),
     ];
-    expect(buildLineGuides(rows)).toEqual([
-      [],
-      ['tee'],
-      ['vert', 'elbow'],
-      ['elbow'],
-    ]);
+    expect(buildLineGuides(rows)).toEqual([[], ['tee'], ['vert', 'elbow'], ['elbow']]);
   });
 });

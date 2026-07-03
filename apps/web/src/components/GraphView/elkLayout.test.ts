@@ -6,13 +6,11 @@ vi.mock('elkjs/lib/elk.bundled.js', () => {
     default: vi.fn().mockImplementation(() => ({
       layout: vi.fn().mockImplementation(async (graph: { children?: Array<{ id: string }> }) => {
         // Simple mock: assign positions based on index
-        const children = (graph.children ?? []).map(
-          (child: { id: string }, i: number) => ({
-            ...child,
-            x: (i % 3) * 260,
-            y: Math.floor(i / 3) * 160,
-          }),
-        );
+        const children = (graph.children ?? []).map((child: { id: string }, i: number) => ({
+          ...child,
+          x: (i % 3) * 260,
+          y: Math.floor(i / 3) * 160,
+        }));
         return { ...graph, children };
       }),
     })),
@@ -22,10 +20,7 @@ vi.mock('elkjs/lib/elk.bundled.js', () => {
 import { applyELKLayout } from './elkLayout';
 import type { GraphNode, GraphEdge } from './types';
 
-function makeNode(
-  id: string,
-  type: 'FUNCTION' | 'NFR' = 'FUNCTION',
-): GraphNode {
+function makeNode(id: string, type: 'FUNCTION' | 'NFR' = 'FUNCTION'): GraphNode {
   return {
     id,
     type: 'requirementNode',
@@ -62,12 +57,7 @@ describe('applyELKLayout', () => {
   });
 
   it('assigns positions to nodes (non-zero after layout)', async () => {
-    const nodes = [
-      makeNode('a'),
-      makeNode('b'),
-      makeNode('c'),
-      makeNode('d'),
-    ];
+    const nodes = [makeNode('a'), makeNode('b'), makeNode('c'), makeNode('d')];
     const edges = [makeEdge('a', 'b'), makeEdge('b', 'c')];
     const result = await applyELKLayout(nodes, edges);
     expect(result).toHaveLength(4);
@@ -105,10 +95,7 @@ describe('applyELKLayout', () => {
   });
 
   it('does not shift NFR nodes when separateFunctionNFR=false', async () => {
-    const nodes = [
-      makeNode('fn-1', 'FUNCTION'),
-      makeNode('nfr-1', 'NFR'),
-    ];
+    const nodes = [makeNode('fn-1', 'FUNCTION'), makeNode('nfr-1', 'NFR')];
     // With mock: fn-1 at x=0, nfr-1 at x=260 (positions from index)
     // When separateFunctionNFR=false, we don't shift
     const result = await applyELKLayout(nodes, [], { separateFunctionNFR: false });

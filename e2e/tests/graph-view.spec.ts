@@ -40,8 +40,16 @@ test.describe('GraphView', () => {
     await createProject(page, project);
 
     // Создаём минимум 2 требования через UI
-    await addRequirement(page, { kind: 'function', name: uniqueName('Req-A'), criticality: 'HIGH' });
-    await addRequirement(page, { kind: 'function', name: uniqueName('Req-B'), criticality: 'MEDIUM' });
+    await addRequirement(page, {
+      kind: 'function',
+      name: uniqueName('Req-A'),
+      criticality: 'HIGH',
+    });
+    await addRequirement(page, {
+      kind: 'function',
+      name: uniqueName('Req-B'),
+      criticality: 'MEDIUM',
+    });
 
     // Переключаемся в граф
     await switchToGraph(page);
@@ -63,8 +71,16 @@ test.describe('GraphView', () => {
     const project = uniqueName('gv-nodes');
     await createProject(page, project);
 
-    await addRequirement(page, { kind: 'function', name: uniqueName('Node-X'), criticality: 'MEDIUM' });
-    await addRequirement(page, { kind: 'function', name: uniqueName('Node-Y'), criticality: 'LOW' });
+    await addRequirement(page, {
+      kind: 'function',
+      name: uniqueName('Node-X'),
+      criticality: 'MEDIUM',
+    });
+    await addRequirement(page, {
+      kind: 'function',
+      name: uniqueName('Node-Y'),
+      criticality: 'LOW',
+    });
 
     await switchToGraph(page);
 
@@ -105,8 +121,16 @@ test.describe('GraphView', () => {
     const project = uniqueName('gv-back');
     await createProject(page, project);
 
-    await addRequirement(page, { kind: 'function', name: uniqueName('Back-A'), criticality: 'MEDIUM' });
-    await addRequirement(page, { kind: 'function', name: uniqueName('Back-B'), criticality: 'LOW' });
+    await addRequirement(page, {
+      kind: 'function',
+      name: uniqueName('Back-A'),
+      criticality: 'MEDIUM',
+    });
+    await addRequirement(page, {
+      kind: 'function',
+      name: uniqueName('Back-B'),
+      criticality: 'LOW',
+    });
 
     await switchToGraph(page);
     await expect(page.getByTestId('graph-canvas')).toBeVisible({ timeout: ELK_TIMEOUT });
@@ -129,7 +153,11 @@ test.describe('GraphView', () => {
     const project = uniqueName('gv-toolbar');
     await createProject(page, project);
 
-    await addRequirement(page, { kind: 'function', name: uniqueName('TB-Req'), criticality: 'MEDIUM' });
+    await addRequirement(page, {
+      kind: 'function',
+      name: uniqueName('TB-Req'),
+      criticality: 'MEDIUM',
+    });
 
     await switchToGraph(page);
     await expect(page.getByTestId('graph-canvas')).toBeVisible({ timeout: ELK_TIMEOUT });
@@ -145,7 +173,11 @@ test.describe('GraphView', () => {
     await createProject(page, project);
 
     await addRequirement(page, { kind: 'function', name: uniqueName('RL-A'), criticality: 'HIGH' });
-    await addRequirement(page, { kind: 'function', name: uniqueName('RL-B'), criticality: 'MEDIUM' });
+    await addRequirement(page, {
+      kind: 'function',
+      name: uniqueName('RL-B'),
+      criticality: 'MEDIUM',
+    });
 
     await switchToGraph(page);
     await expect(page.getByTestId('graph-canvas')).toBeVisible({ timeout: ELK_TIMEOUT });
@@ -166,7 +198,11 @@ test.describe('GraphView', () => {
     const project = uniqueName('gv-legend-open');
     await createProject(page, project);
 
-    await addRequirement(page, { kind: 'function', name: uniqueName('Legend-Req'), criticality: 'MEDIUM' });
+    await addRequirement(page, {
+      kind: 'function',
+      name: uniqueName('Legend-Req'),
+      criticality: 'MEDIUM',
+    });
 
     await switchToGraph(page);
     await expect(page.getByTestId('graph-canvas')).toBeVisible({ timeout: ELK_TIMEOUT });
@@ -185,7 +221,11 @@ test.describe('GraphView', () => {
     const project = uniqueName('gv-legend-collapse');
     await createProject(page, project);
 
-    await addRequirement(page, { kind: 'function', name: uniqueName('LC-Req'), criticality: 'MEDIUM' });
+    await addRequirement(page, {
+      kind: 'function',
+      name: uniqueName('LC-Req'),
+      criticality: 'MEDIUM',
+    });
 
     await switchToGraph(page);
     await expect(page.getByTestId('graph-canvas')).toBeVisible({ timeout: ELK_TIMEOUT });
@@ -404,7 +444,9 @@ test.describe('GraphView', () => {
 
     // Клик по fitView через JS evaluate — Controls внутри ReactFlow canvas,
     // <main> перехватывает pointer events, поэтому Playwright click не проходит.
-    await page.locator('.react-flow__controls-fitview').evaluate((el) => (el as HTMLElement).click());
+    await page
+      .locator('.react-flow__controls-fitview')
+      .evaluate((el) => (el as HTMLElement).click());
 
     // Граф остаётся видимым, нет ошибки
     await expect(page.getByTestId('graph-canvas')).toBeVisible();
@@ -503,8 +545,7 @@ test.describe('GraphView', () => {
 
     // Записываем невалидный .md файл напрямую в папку проекта
     // Путь: {PROJECTS_ROOT}/{projectId}/openspec/specs/functions/broken-test.md
-    const projectsRoot =
-      process.env.E2E_PROJECTS_ROOT ?? path.join(os.tmpdir(), 'po-e2e-projects');
+    const projectsRoot = process.env.E2E_PROJECTS_ROOT ?? path.join(os.tmpdir(), 'po-e2e-projects');
     const brokenFilePath = path.join(
       projectsRoot,
       projectId,
@@ -568,7 +609,9 @@ test.describe('GraphView', () => {
     await expect(page.getByTestId('graph-canvas')).toBeVisible({ timeout: ELK_TIMEOUT });
 
     // Оба узла видны
-    await expect(page.getByTestId(`graph-node-${parentSlug}`)).toBeVisible({ timeout: ELK_TIMEOUT });
+    await expect(page.getByTestId(`graph-node-${parentSlug}`)).toBeVisible({
+      timeout: ELK_TIMEOUT,
+    });
     await expect(page.getByTestId(`graph-node-${childSlug}`)).toBeVisible({ timeout: ELK_TIMEOUT });
 
     // MiniMap показывает узлы (SVG внутри rf__minimap не пустой)

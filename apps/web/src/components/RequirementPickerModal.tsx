@@ -381,7 +381,12 @@ export function RequirementPickerModal({
                           key={k}
                           className={`tree-guide tree-guide--${guide}`}
                           aria-hidden="true"
-                          style={{ flexShrink: 0, width: '16px', alignSelf: 'stretch', position: 'relative' }}
+                          style={{
+                            flexShrink: 0,
+                            width: '16px',
+                            alignSelf: 'stretch',
+                            position: 'relative',
+                          }}
                         />
                       ))}
                       <span

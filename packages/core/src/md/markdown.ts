@@ -22,7 +22,14 @@ export interface ParseContext {
   type: RequirementType;
 }
 
-const META_KEYS = ['criticality', 'implemented', 'target', 'createdAt', 'updatedAt', 'source'] as const;
+const META_KEYS = [
+  'criticality',
+  'implemented',
+  'target',
+  'createdAt',
+  'updatedAt',
+  'source',
+] as const;
 const HEADER_RE = /^###\s+Requirement:\s*(.+?)\s*$/;
 const META_RE = /^-\s+(\w+):\s*(.*)$/;
 const SCENARIO_RE = /^####\s+Scenario:\s*(.+?)\s*$/;

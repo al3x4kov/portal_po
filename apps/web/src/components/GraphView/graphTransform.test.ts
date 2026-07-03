@@ -140,7 +140,11 @@ describe('transformRequirementsToGraph', () => {
 
   it('handles CHILD_OF without corresponding PARENT_OF — emits PARENT_OF edge reversed', () => {
     const reqs = [
-      makeReq({ slug: 'child', name: 'Child', links: [{ type: 'CHILD_OF', targetSlug: 'parent' }] }),
+      makeReq({
+        slug: 'child',
+        name: 'Child',
+        links: [{ type: 'CHILD_OF', targetSlug: 'parent' }],
+      }),
       makeReq({ slug: 'parent', name: 'Parent', links: [] }),
     ];
     const { edges } = transformRequirementsToGraph(reqs);

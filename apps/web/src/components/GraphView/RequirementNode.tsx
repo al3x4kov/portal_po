@@ -30,21 +30,12 @@ function truncate(str: string, max: number): string {
 export const RequirementNode = memo(function RequirementNode({
   data,
 }: NodeProps & { data: RequirementNodeData; type: unknown }) {
-  const {
-    slug,
-    name,
-    type,
-    criticality,
-    implemented,
-    isBroken,
-    onClick,
-  } = data as RequirementNodeData;
+  const { slug, name, type, criticality, implemented, isBroken, onClick } =
+    data as RequirementNodeData;
 
   const borderColor = isBroken ? 'var(--color-danger)' : CRITICALITY_BORDER[criticality];
   const bgClass =
-    type === 'FUNCTION'
-      ? 'bg-blue-50 dark:bg-blue-950'
-      : 'bg-orange-50 dark:bg-orange-950';
+    type === 'FUNCTION' ? 'bg-blue-50 dark:bg-blue-950' : 'bg-orange-50 dark:bg-orange-950';
 
   const displayName = truncate(name, 60);
 
@@ -100,10 +91,7 @@ export const RequirementNode = memo(function RequirementNode({
 
       {/* Broken error text */}
       {isBroken ? (
-        <div
-          className="mb-1 text-xs font-medium"
-          style={{ color: 'var(--color-danger, #ef4444)' }}
-        >
+        <div className="mb-1 text-xs font-medium" style={{ color: 'var(--color-danger, #ef4444)' }}>
           Ошибка парсинга
         </div>
       ) : null}

@@ -1,7 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { SOURCE_PRESETS, type Requirement, type RequirementType } from '@po/core';
-import { useProject, useRequirements, useCreateRequirement, useCreateLink, useDeleteRequirement } from '../api/hooks';
+import {
+  useProject,
+  useRequirements,
+  useCreateRequirement,
+  useCreateLink,
+  useDeleteRequirement,
+} from '../api/hooks';
 import { ApiError, errorMessage } from '../api/client';
 import { useUiStore } from '../store/ui';
 import { ancestorNamesOf, buildForest, childCountOf } from '../lib/tree';
@@ -84,7 +90,15 @@ export function Main(): React.ReactElement {
         implementationFilter,
         sourceFilter,
       }),
-    [functional, search, collapsed, expanded, criticalityFilter, implementationFilter, sourceFilter],
+    [
+      functional,
+      search,
+      collapsed,
+      expanded,
+      criticalityFilter,
+      implementationFilter,
+      sourceFilter,
+    ],
   );
   const nfrVis = useMemo(
     () =>
@@ -105,7 +119,8 @@ export function Main(): React.ReactElement {
   const matchCount = fnVis.matchCount + nfrVis.matchCount;
   const searchActive = search.trim().length > 0;
   const searchEmpty = searchActive && matchCount === 0;
-  const filtersActive = criticalityFilter.size > 0 || implementationFilter.size > 0 || sourceFilter.size > 0;
+  const filtersActive =
+    criticalityFilter.size > 0 || implementationFilter.size > 0 || sourceFilter.size > 0;
   // UX-6: empty purely because of the criticality/implementation/source filters (no search).
   const filtersEmpty = !searchActive && filtersActive && shown === 0 && total > 0;
 
@@ -160,7 +175,9 @@ export function Main(): React.ReactElement {
           <TreeToolbar shown={shown} total={total} availableSources={availableSources} />
         ) : null}
 
-        <main className={`w-full flex-1${graphView ? ' flex flex-col overflow-hidden' : ' px-4 py-5'}`}>
+        <main
+          className={`w-full flex-1${graphView ? ' flex flex-col overflow-hidden' : ' px-4 py-5'}`}
+        >
           {!reqQuery.isLoading && !reqQuery.isError && broken.length > 0 ? (
             <section
               className="card mb-5 p-4"

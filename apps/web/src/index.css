@@ -128,7 +128,7 @@ html.dark {
   position: absolute;
   left: 50%;
   top: -2px;
-  bottom: -2px;       /* full height — vertical line continues below this node */
+  bottom: -2px; /* full height — vertical line continues below this node */
   width: var(--tree-line-width, 1px);
   background: var(--tree-line-color, #cbd5e1);
 }
@@ -148,7 +148,7 @@ html.dark {
   position: absolute;
   left: 50%;
   top: -2px;
-  bottom: 50%;        /* stops at midpoint — no more siblings below */
+  bottom: 50%; /* stops at midpoint — no more siblings below */
   width: var(--tree-line-width, 1px);
   background: var(--tree-line-color, #cbd5e1);
 }

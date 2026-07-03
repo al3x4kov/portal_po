@@ -165,7 +165,10 @@ export class ArchiveRepo implements ArchivePort {
 
     // tar.gz: write files into a temp directory that mirrors the archive layout,
     // then pack it. This avoids the cwd-based API that would include everything.
-    const tmpDir = path.join(this.projectsRoot, `.partial-export-${randomBytes(6).toString('hex')}`);
+    const tmpDir = path.join(
+      this.projectsRoot,
+      `.partial-export-${randomBytes(6).toString('hex')}`,
+    );
     try {
       if (hasManifest) {
         const dest = path.join(tmpDir, MANIFEST);

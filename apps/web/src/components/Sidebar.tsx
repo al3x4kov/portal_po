@@ -222,11 +222,7 @@ export function Sidebar({
   });
 
   return (
-    <nav
-      style={containerStyle}
-      aria-label="Боковая навигация"
-      data-testid="sidebar"
-    >
+    <nav style={containerStyle} aria-label="Боковая навигация" data-testid="sidebar">
       {/* Logo */}
       <div style={logoStyle} aria-hidden="true">
         PO

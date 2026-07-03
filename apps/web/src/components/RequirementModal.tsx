@@ -159,11 +159,7 @@ export function RequirementModal({
 
   const busy = createMut.isPending || updateMut.isPending;
   const submitDisabled =
-    busy ||
-    nameTaken ||
-    (name ?? '').trim().length === 0 ||
-    !criticality ||
-    implemented == null;
+    busy || nameTaken || (name ?? '').trim().length === 0 || !criticality || implemented == null;
 
   // UX: never leave «Сохранить» disabled without telling the user what is missing.
   const missingFields: string[] = [];
@@ -741,110 +737,112 @@ export function RequirementModal({
             - FT section: hierarchy links (CHILD_OF/PARENT_OF) + links whose target is FUNCTION,
               plus unresolved links (when requirementsBySlug is absent) as a safe fallback.
             - NFR section: links whose target type is NFR (requires requirementsBySlug). */}
-        {isEdit ? (() => {
-          const HIER_TYPES = new Set<LinkType>(['CHILD_OF', 'PARENT_OF']);
+        {isEdit
+          ? (() => {
+              const HIER_TYPES = new Set<LinkType>(['CHILD_OF', 'PARENT_OF']);
 
-          const ftLinks = links.filter((l) => {
-            if (HIER_TYPES.has(l.type)) return true;
-            const targetReq = requirementsBySlug?.get(l.targetSlug);
-            if (targetReq) return targetReq.type === 'FUNCTION';
-            // Target type unknown (requirementsBySlug not provided): fall back to FT section.
-            return true;
-          });
+              const ftLinks = links.filter((l) => {
+                if (HIER_TYPES.has(l.type)) return true;
+                const targetReq = requirementsBySlug?.get(l.targetSlug);
+                if (targetReq) return targetReq.type === 'FUNCTION';
+                // Target type unknown (requirementsBySlug not provided): fall back to FT section.
+                return true;
+              });
 
-          const nfrLinks = links.filter((l) => {
-            if (HIER_TYPES.has(l.type)) return false;
-            const targetReq = requirementsBySlug?.get(l.targetSlug);
-            return targetReq ? targetReq.type === 'NFR' : false;
-          });
+              const nfrLinks = links.filter((l) => {
+                if (HIER_TYPES.has(l.type)) return false;
+                const targetReq = requirementsBySlug?.get(l.targetSlug);
+                return targetReq ? targetReq.type === 'NFR' : false;
+              });
 
-          const sharedLinkListProps = {
-            pendingDelete,
-            deleting: deleteLinkMut.isPending,
-            onRequestDelete: (l: Link) =>
-              setPendingDelete({ type: l.type, targetSlug: l.targetSlug }),
-            onCancelDelete: () => setPendingDelete(null),
-            onConfirmDelete: () => void confirmDeleteLink(),
-          };
+              const sharedLinkListProps = {
+                pendingDelete,
+                deleting: deleteLinkMut.isPending,
+                onRequestDelete: (l: Link) =>
+                  setPendingDelete({ type: l.type, targetSlug: l.targetSlug }),
+                onCancelDelete: () => setPendingDelete(null),
+                onConfirmDelete: () => void confirmDeleteLink(),
+              };
 
-          return (
-            <>
-              <hr style={{ borderColor: 'var(--color-border)' }} />
+              return (
+                <>
+                  <hr style={{ borderColor: 'var(--color-border)' }} />
 
-              {/* FT section */}
-              <div data-testid="req-links-ft">
-                <div
-                  className="mb-2 flex items-center justify-between gap-2 rounded-md px-2 py-1.5"
-                  style={{
-                    background: 'var(--color-primary-soft)',
-                    color: 'var(--color-primary)',
-                  }}
-                >
-                  <span className="text-xs font-bold uppercase tracking-wide">
-                    Связи с ФТ ({ftLinks.length})
-                  </span>
-                  {onAddLink ? (
-                    <button
-                      type="button"
-                      className="btn btn-ghost px-2 py-0.5 text-xs"
-                      data-testid="req-links-add-ft"
-                      onClick={() => onAddLink('FUNCTION')}
+                  {/* FT section */}
+                  <div data-testid="req-links-ft">
+                    <div
+                      className="mb-2 flex items-center justify-between gap-2 rounded-md px-2 py-1.5"
+                      style={{
+                        background: 'var(--color-primary-soft)',
+                        color: 'var(--color-primary)',
+                      }}
                     >
-                      + Связать с ФТ
-                    </button>
-                  ) : null}
-                </div>
-                {ftLinks.length === 0 ? (
-                  <p
-                    className="px-2 py-3 text-sm"
-                    style={{ color: 'var(--color-text-3)', fontStyle: 'italic' }}
-                    data-testid="req-links-ft-empty"
-                  >
-                    Нет связей с ФТ — добавьте первую
-                  </p>
-                ) : (
-                  <LinkList links={ftLinks} nameBySlug={nameBySlug} {...sharedLinkListProps} />
-                )}
-              </div>
+                      <span className="text-xs font-bold uppercase tracking-wide">
+                        Связи с ФТ ({ftLinks.length})
+                      </span>
+                      {onAddLink ? (
+                        <button
+                          type="button"
+                          className="btn btn-ghost px-2 py-0.5 text-xs"
+                          data-testid="req-links-add-ft"
+                          onClick={() => onAddLink('FUNCTION')}
+                        >
+                          + Связать с ФТ
+                        </button>
+                      ) : null}
+                    </div>
+                    {ftLinks.length === 0 ? (
+                      <p
+                        className="px-2 py-3 text-sm"
+                        style={{ color: 'var(--color-text-3)', fontStyle: 'italic' }}
+                        data-testid="req-links-ft-empty"
+                      >
+                        Нет связей с ФТ — добавьте первую
+                      </p>
+                    ) : (
+                      <LinkList links={ftLinks} nameBySlug={nameBySlug} {...sharedLinkListProps} />
+                    )}
+                  </div>
 
-              {/* NFR section */}
-              <div data-testid="req-links-nfr">
-                <div
-                  className="mb-2 flex items-center justify-between gap-2 rounded-md px-2 py-1.5"
-                  style={{
-                    background: 'var(--color-surface-2)',
-                    color: 'var(--color-text-2)',
-                  }}
-                >
-                  <span className="text-xs font-bold uppercase tracking-wide">
-                    Связи с НФТ ({nfrLinks.length})
-                  </span>
-                  {onAddLink ? (
-                    <button
-                      type="button"
-                      className="btn btn-ghost px-2 py-0.5 text-xs"
-                      data-testid="req-links-add-nfr"
-                      onClick={() => onAddLink('NFR')}
+                  {/* NFR section */}
+                  <div data-testid="req-links-nfr">
+                    <div
+                      className="mb-2 flex items-center justify-between gap-2 rounded-md px-2 py-1.5"
+                      style={{
+                        background: 'var(--color-surface-2)',
+                        color: 'var(--color-text-2)',
+                      }}
                     >
-                      + Связать с НФТ
-                    </button>
-                  ) : null}
-                </div>
-                {nfrLinks.length === 0 ? (
-                  <p
-                    className="px-2 py-3 text-sm"
-                    style={{ color: 'var(--color-text-3)', fontStyle: 'italic' }}
-                    data-testid="req-links-nfr-empty"
-                  >
-                    Нет связей с НФТ — добавьте первую
-                  </p>
-                ) : (
-                  <LinkList links={nfrLinks} nameBySlug={nameBySlug} {...sharedLinkListProps} />
-                )}
-              </div>
-            </>
-          );
-        })() : null}
+                      <span className="text-xs font-bold uppercase tracking-wide">
+                        Связи с НФТ ({nfrLinks.length})
+                      </span>
+                      {onAddLink ? (
+                        <button
+                          type="button"
+                          className="btn btn-ghost px-2 py-0.5 text-xs"
+                          data-testid="req-links-add-nfr"
+                          onClick={() => onAddLink('NFR')}
+                        >
+                          + Связать с НФТ
+                        </button>
+                      ) : null}
+                    </div>
+                    {nfrLinks.length === 0 ? (
+                      <p
+                        className="px-2 py-3 text-sm"
+                        style={{ color: 'var(--color-text-3)', fontStyle: 'italic' }}
+                        data-testid="req-links-nfr-empty"
+                      >
+                        Нет связей с НФТ — добавьте первую
+                      </p>
+                    ) : (
+                      <LinkList links={nfrLinks} nameBySlug={nameBySlug} {...sharedLinkListProps} />
+                    )}
+                  </div>
+                </>
+              );
+            })()
+          : null}
       </form>
 
       {confirm === 'save' ? (

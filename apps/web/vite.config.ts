@@ -12,7 +12,8 @@ export default defineConfig({
       // bundle (module #4 exports `typeof Worker !== "undefined" ? Worker : void 0`).
       // Vite/Rollup tries to treat it as an external ESM import which fails in the
       // browser. Alias it to the native browser Worker so bundling succeeds.
-      'web-worker': 'data:text/javascript,export default typeof Worker !== "undefined" ? Worker : undefined;',
+      'web-worker':
+        'data:text/javascript,export default typeof Worker !== "undefined" ? Worker : undefined;',
     },
   },
   build: {
