@@ -9,6 +9,7 @@ import { ExcelExportService } from '../services/ExcelExportService.js';
 import { FsRequirementRepo } from '../repositories/FsRequirementRepo.js';
 import { createProjectRepo, createProjectService, type ServiceContext } from '../factory.js';
 import { parseInput } from '../lib/parseInput.js';
+import { contentDisposition } from '../lib/contentDisposition.js';
 import { DomainError } from '@po/core';
 import { ArchiveError, BadRequestError, NotFoundError } from '../lib/errors.js';
 import type { ArchiveFormat } from '../repositories/types.js';
@@ -90,7 +91,7 @@ export async function archiveRoutes(app: FastifyInstance, deps: AppDeps): Promis
     const result = await service.export(id, format as ArchiveFormat);
 
     reply.header('content-type', result.contentType);
-    reply.header('content-disposition', `attachment; filename="${result.filename}"`);
+    reply.header('content-disposition', contentDisposition(result.filename));
     return reply.send(result.body);
   });
 
@@ -107,7 +108,7 @@ export async function archiveRoutes(app: FastifyInstance, deps: AppDeps): Promis
     const result = await service.exportSelected(id, slugs, format as ArchiveFormat);
 
     reply.header('content-type', result.contentType);
-    reply.header('content-disposition', `attachment; filename="${result.filename}"`);
+    reply.header('content-disposition', contentDisposition(result.filename));
     return reply.send(result.body);
   });
 
@@ -122,7 +123,7 @@ export async function archiveRoutes(app: FastifyInstance, deps: AppDeps): Promis
     const buffer = await ExcelExportService.buildWorkbook(requirements);
 
     reply.header('content-type', XLSX_CONTENT_TYPE);
-    reply.header('content-disposition', `attachment; filename="${id}.xlsx"`);
+    reply.header('content-disposition', contentDisposition(`${id}.xlsx`));
     return reply.send(buffer);
   });
 }
