@@ -111,8 +111,14 @@ export function RequirementModal({
     null,
   );
 
-  // T4: name of the functional requirement the new NFR will be linked from.
+  // T4: name of the requirement the new one will be linked to/from.
   const linkFromName = linkFrom ? (nameBySlug?.get(linkFrom) ?? linkFrom) : null;
+
+  // FR-21 fix: for a CHILD_OF preset the *newly created* requirement is the child,
+  // i.e. the SOURCE of the edge (created CHILD_OF linkFrom). For other presets
+  // (e.g. FT BLOCKED_BY new NFR) linkFrom stays the source. Getting this wrong
+  // reparents the existing node under the new one and inverts the hierarchy.
+  const createdIsSource = linkType === 'CHILD_OF';
 
   const {
     register,
@@ -178,13 +184,15 @@ export function RequirementModal({
         await updateMut.mutateAsync({ slug: requirement.slug, input: buildPayload(values) });
       } else {
         const created = await createMut.mutateAsync({ type: reqType, ...buildPayload(values) });
-        // T4: wire the preset link (ФТ BLOCKED_BY new НФТ) once the NFR exists.
+        // Wire the preset link once the requirement exists. Direction depends on the
+        // relationship: CHILD_OF ⇒ created is the child (source); otherwise linkFrom is
+        // the source (e.g. ФТ BLOCKED_BY new НФТ).
         if (linkFrom && linkType) {
-          await createLinkMut.mutateAsync({
-            sourceSlug: linkFrom,
-            type: linkType,
-            targetSlug: created.slug,
-          });
+          await createLinkMut.mutateAsync(
+            createdIsSource
+              ? { sourceSlug: created.slug, type: linkType, targetSlug: linkFrom }
+              : { sourceSlug: linkFrom, type: linkType, targetSlug: created.slug },
+          );
         }
       }
       onClose();
@@ -311,8 +319,17 @@ export function RequirementModal({
             data-testid="nfr-from-ft-hint"
           >
             <span>
-              Будет связано: «<b>{linkFromName}</b>» блокируется этим НФТ{' '}
-              <span className="opacity-80">(BLOCKED_BY)</span>.
+              {createdIsSource ? (
+                <>
+                  Создаваемая функция будет дочерней для «<b>{linkFromName}</b>»{' '}
+                  <span className="opacity-80">(CHILD_OF)</span>.
+                </>
+              ) : (
+                <>
+                  Будет связано: «<b>{linkFromName}</b>» блокируется этим НФТ{' '}
+                  <span className="opacity-80">(BLOCKED_BY)</span>.
+                </>
+              )}
             </span>
           </div>
         ) : null}

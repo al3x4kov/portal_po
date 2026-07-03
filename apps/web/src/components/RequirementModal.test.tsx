@@ -468,4 +468,68 @@ describe('RequirementModal (T-1106, FR-6)', () => {
     );
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
+
+  // ── FR-21 fix · «Добавить дочернее требование» (preset CHILD_OF direction) ─────
+  it('FR-21: child hint reads that the NEW function will be a child of the parent', () => {
+    const nameBySlug = new Map([['parent', 'Личный кабинет']]);
+    renderWithProviders(
+      <RequirementModal
+        projectId="p1"
+        reqType="FUNCTION"
+        nameBySlug={nameBySlug}
+        linkFrom="parent"
+        linkType="CHILD_OF"
+        noDefaultCriticality
+        onClose={vi.fn()}
+      />,
+    );
+    const hint = screen.getByTestId('nfr-from-ft-hint');
+    // The banner must talk about the created function being a child, NOT about being
+    // blocked by an NFR (the old, wrong copy).
+    expect(hint).toHaveTextContent('Создаваемая функция будет дочерней для');
+    expect(hint).toHaveTextContent('Личный кабинет');
+    expect(hint).toHaveTextContent('CHILD_OF');
+    expect(hint).not.toHaveTextContent('блокируется');
+  });
+
+  it('FR-21: creates the CHILD_OF link with the NEW function as source (child), not the parent', async () => {
+    // Regression: the link used to be created as parent CHILD_OF child, which reparented
+    // the existing parent under the new node and inverted the hierarchy.
+    create.mockResolvedValueOnce({ slug: 'oplata-po-podpiske' });
+    linkCreate.mockResolvedValueOnce({ ok: true });
+    const onClose = vi.fn();
+    const nameBySlug = new Map([['parent', 'Личный кабинет']]);
+    const user = userEvent.setup();
+    renderWithProviders(
+      <RequirementModal
+        projectId="p1"
+        reqType="FUNCTION"
+        nameBySlug={nameBySlug}
+        linkFrom="parent"
+        linkType="CHILD_OF"
+        noDefaultCriticality
+        onClose={onClose}
+      />,
+    );
+
+    await user.type(screen.getByTestId('req-name'), 'Оплата по подписке');
+    await waitFor(() =>
+      expect(screen.getByTestId('req-name-status')).toHaveAttribute('data-state', 'ok'),
+    );
+    // noDefaultCriticality: choose criticality + implemented explicitly to enable Save.
+    await user.click(screen.getByTestId('req-criticality-medium'));
+    await user.click(screen.getByTestId('req-implemented-yes'));
+
+    await user.click(screen.getByTestId('req-submit'));
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(linkCreate).toHaveBeenCalledWith('p1', {
+        sourceSlug: 'oplata-po-podpiske', // the NEW function is the child (source)
+        type: 'CHILD_OF',
+        targetSlug: 'parent', // linked TO the selected parent
+      }),
+    );
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
 });
