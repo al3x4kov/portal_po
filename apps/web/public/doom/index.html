@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>DOOM</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #000;
+        color: #b0b0b0;
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        min-height: 100vh;
+        overflow: hidden;
+      }
+      #stage {
+        position: relative;
+        display: grid;
+        place-items: center;
+      }
+      canvas#doom {
+        display: block;
+        background: #000;
+        /* DOOM renders at 4:3 (640x400). Scale up crisply. */
+        width: min(90vw, 960px);
+        height: auto;
+        aspect-ratio: 8 / 5;
+        image-rendering: pixelated;
+        border: 1px solid #222;
+        outline: none;
+      }
+      #loader {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        background: #000;
+        color: #6ec06e;
+        font-size: 14px;
+      }
+      #loader.completed {
+        display: none;
+      }
+      #bar {
+        width: 220px;
+        height: 6px;
+        border: 1px solid #2a2a2a;
+        background: #101010;
+      }
+      #bar > i {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: #6ec06e;
+        transition: width 0.15s linear;
+      }
+      .hint {
+        font-size: 12px;
+        color: #6a6a6a;
+        text-align: center;
+        line-height: 1.6;
+        max-width: 960px;
+        padding: 0 12px;
+      }
+      .hint b {
+        color: #9a9a9a;
+      }
+      #err {
+        color: #d66;
+        font-size: 13px;
+        max-width: 640px;
+        text-align: center;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <canvas id="doom" width="640" height="400" tabindex="0"></canvas>
+      <div id="loader">
+        <div>Загрузка DOOM…</div>
+        <div id="bar"><i></i></div>
+        <div id="pct">0%</div>
+      </div>
+    </div>
+
+    <div class="hint">
+      Управление: <b>стрелки</b> — движение, <b>Ctrl</b> — огонь, <b>Пробел</b> — открыть
+      дверь/использовать, <b>Alt+стрелки</b> — стрейф, <b>1–7</b> — выбор оружия, <b>Esc</b> — меню.
+      Кликните по окну игры, чтобы захватить клавиатуру.
+    </div>
+    <div id="err" role="alert"></div>
+
+    <script>
+      // Fully offline loader. All assets (doom1.js / doom1.wasm / doom1.data)
+      // are served locally from this same /doom/ directory. No external network.
+      (function () {
+        var canvas = document.getElementById('doom');
+        var loader = document.getElementById('loader');
+        var bar = document.querySelector('#bar > i');
+        var pct = document.getElementById('pct');
+        var errBox = document.getElementById('err');
+
+        window.Module = {
+          canvas: canvas,
+          // Keep all asset lookups relative to this page (offline / same-origin).
+          locateFile: function (p) {
+            return p;
+          },
+          printErr: function (t) {
+            // PrBoom prints diagnostics here; surface hard failures only.
+            if (/error|abort|failed/i.test(String(t))) {
+              // eslint-disable-next-line no-console
+              console.warn('[doom]', t);
+            }
+          },
+          setStatus: function (status) {
+            if (!status) return;
+            var m = status.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
+            if (m) {
+              var p = (Number(m[2]) / Number(m[4])) * 100;
+              bar.style.width = p.toFixed(1) + '%';
+              pct.textContent = p.toFixed(0) + '%';
+              if (p >= 100) {
+                setTimeout(function () {
+                  loader.classList.add('completed');
+                  canvas.focus();
+                }, 400);
+              }
+            } else if (/^Running|^$/.test(status) === false) {
+              pct.textContent = status;
+            }
+          },
+        };
+
+        // Focus the canvas on interaction so SDL receives keyboard events.
+        canvas.addEventListener('click', function () {
+          canvas.focus();
+        });
+        canvas.addEventListener('contextmenu', function (e) {
+          e.preventDefault();
+        });
+
+        window.addEventListener('error', function (e) {
+          errBox.textContent =
+            'Не удалось запустить DOOM: ' + (e && e.message ? e.message : 'ошибка загрузки');
+        });
+
+        var s = document.createElement('script');
+        s.src = './doom1.js';
+        s.onerror = function () {
+          errBox.textContent = 'Не удалось загрузить движок (./doom1.js).';
+        };
+        document.body.appendChild(s);
+      })();
+    </script>
+  </body>
+</html>

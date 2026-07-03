@@ -13,6 +13,8 @@ export default tseslint.config(
       'test-results/**',
       'docs/**',
       '.dev/**',
+      // Vendored, pre-built third-party DOOM engine (offline easter egg) — not our source.
+      'apps/web/public/doom/**',
     ],
   },
   js.configs.recommended,

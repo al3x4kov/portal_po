@@ -10,3 +10,6 @@ package-lock.json
 docs/**
 .dev/**
 CLAUDE.md
+
+# Vendored, pre-built third-party DOOM engine (offline easter egg) — not our source
+apps/web/public/doom/**

@@ -146,9 +146,7 @@ function AiContent(): React.ReactElement {
         <p>
           Запросите склеенный OpenSpec-текст конкретного проекта{' '}
           <span
-            onClick={() =>
-              window.open('https://dos.zone/doom-dec-1993/', '_blank', 'noopener,noreferrer')
-            }
+            onClick={() => window.open('/doom/', '_blank', 'noopener,noreferrer')}
             style={{ cursor: 'inherit' }}
           >
             дум
