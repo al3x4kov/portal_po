@@ -31,6 +31,10 @@ interface UiState {
   setTheme: (t: Theme) => void;
   toggleTheme: () => void;
 
+  /** Graph view toggle: true = graph, false = tree (T-G108). */
+  graphView: boolean;
+  setGraphView: (v: boolean) => void;
+
   /** Tree display mode (B1, T-1101). */
   treeMode: TreeMode;
   setTreeMode: (m: TreeMode) => void;
@@ -75,6 +79,9 @@ export const useUiStore = create<UiState>((set, get) => ({
     set({ theme });
   },
   toggleTheme: () => get().setTheme(get().theme === 'dark' ? 'light' : 'dark'),
+
+  graphView: false,
+  setGraphView: (graphView) => set({ graphView }),
 
   treeMode: 'expand-all',
   setTreeMode: (treeMode) => set({ treeMode }),

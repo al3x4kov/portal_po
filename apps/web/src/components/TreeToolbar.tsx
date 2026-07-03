@@ -43,6 +43,7 @@ const IMPL_OPTIONS: {
 /**
  * Sticky toolbar driving the single visibility layer (A6#4): tree-mode toggle
  * (B1), name search (B3) and the multi-select criticality filter (B5).
+ * Also contains the view-mode switcher (Дерево | Граф) for T-G108.
  */
 export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElement {
   const treeMode = useUiStore((s) => s.treeMode);
@@ -53,6 +54,8 @@ export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElem
   const setCriticalityFilter = useUiStore((s) => s.setCriticalityFilter);
   const implApplied = useUiStore((s) => s.implementationFilter);
   const setImplementationFilter = useUiStore((s) => s.setImplementationFilter);
+  const graphView = useUiStore((s) => s.graphView);
+  const setGraphView = useUiStore((s) => s.setGraphView);
 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Set<Criticality>>(new Set(applied));
@@ -132,7 +135,73 @@ export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElem
       style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
       data-testid="tree-toolbar"
     >
-      {/* B1 · tree display mode */}
+      {/* T-G108 · view mode switcher: Дерево | Граф */}
+      <div
+        className="inline-flex rounded-sm border p-0.5"
+        role="group"
+        aria-label="Вид"
+        style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
+      >
+        <button
+          type="button"
+          className={segBtn(!graphView)}
+          style={
+            !graphView
+              ? { background: 'var(--color-surface)', color: 'var(--color-text)' }
+              : { color: 'var(--color-text-2)' }
+          }
+          aria-pressed={!graphView}
+          data-testid="toggle-tree"
+          onClick={() => setGraphView(false)}
+        >
+          <svg
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            className="inline-block"
+          >
+            <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+          </svg>
+          Дерево
+        </button>
+        <button
+          type="button"
+          className={segBtn(graphView)}
+          style={
+            graphView
+              ? { background: 'var(--color-surface)', color: 'var(--color-text)' }
+              : { color: 'var(--color-text-2)' }
+          }
+          aria-pressed={graphView}
+          data-testid="toggle-graph"
+          onClick={() => setGraphView(true)}
+        >
+          <svg
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+            className="inline-block"
+          >
+            <circle cx="5" cy="12" r="2" />
+            <circle cx="19" cy="5" r="2" />
+            <circle cx="19" cy="19" r="2" />
+            <line x1="7" y1="11" x2="17" y2="6" />
+            <line x1="7" y1="13" x2="17" y2="18" />
+          </svg>
+          Граф
+        </button>
+      </div>
+
+      {/* B1 · tree display mode — only shown in tree view */}
+      {!graphView ? (
       <div
         className="inline-flex rounded-sm border p-0.5"
         role="group"
@@ -168,6 +237,7 @@ export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElem
           Свернуть вложенные
         </button>
       </div>
+      ) : null}
 
       {/* B3 · name search */}
       <div className="relative w-full max-w-xs">

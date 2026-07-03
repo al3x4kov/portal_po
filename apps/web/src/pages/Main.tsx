@@ -17,6 +17,7 @@ import { LinkModal } from '../components/LinkModal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ExportModal } from '../components/ExportModal';
 import { ExportTasksModal } from '../components/ExportTasksModal';
+import { GraphView } from '../components/GraphView/GraphView';
 
 export function Main(): React.ReactElement {
   const { id = '' } = useParams<{ id: string }>();
@@ -26,6 +27,7 @@ export function Main(): React.ReactElement {
   const openModal = useUiStore((s) => s.openModal);
   const closeModal = useUiStore((s) => s.closeModal);
 
+  const graphView = useUiStore((s) => s.graphView);
   const treeMode = useUiStore((s) => s.treeMode);
   const search = useUiStore((s) => s.search);
   const expanded = useUiStore((s) => s.expanded);
@@ -146,7 +148,7 @@ export function Main(): React.ReactElement {
           <TreeToolbar shown={shown} total={total} />
         ) : null}
 
-        <main className="w-full flex-1 px-4 py-5">
+        <main className={`w-full flex-1${graphView ? ' flex flex-col overflow-hidden' : ' px-4 py-5'}`}>
           {!reqQuery.isLoading && !reqQuery.isError && broken.length > 0 ? (
             <section
               className="card mb-5 p-4"
@@ -281,6 +283,8 @@ export function Main(): React.ReactElement {
                 Сбросить фильтры
               </button>
             </section>
+          ) : graphView ? (
+            <GraphView projectId={id} />
           ) : (
             <>
               {searchActive ? (
