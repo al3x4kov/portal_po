@@ -13,16 +13,6 @@ import { useRequirements } from '../api/hooks';
 
 type Status = { kind: 'success'; text: string } | { kind: 'error'; text: string } | null;
 
-const CODE_EXAMPLE = `const { OpenAI } = require('openai');
-const client = new OpenAI({
-  apiKey: 'YOUR_API_KEY',
-  baseURL: '${AI_DEFAULT_BASE_URL}'
-});
-const r = await client.chat.completions.create({
-  model: 'GigaChat-2-Pro',
-  messages: [{ role: 'user', content: 'Привет!' }]
-});`;
-
 function GroupTitle({ children }: { children: React.ReactNode }): React.ReactElement {
   return (
     <p
@@ -404,20 +394,6 @@ export function AiPage(): React.ReactElement {
                   </span>
                 </li>
               </ol>
-              <details className="text-xs">
-                <summary
-                  className="cursor-pointer font-semibold"
-                  style={{ color: 'var(--color-text-2)' }}
-                >
-                  Пример кода (Node.js)
-                </summary>
-                <pre
-                  className="mt-2 overflow-x-auto rounded-lg p-3"
-                  style={{ background: 'var(--color-surface-2)', fontFamily: 'var(--font-mono)' }}
-                >
-                  {CODE_EXAMPLE}
-                </pre>
-              </details>
             </section>
           </div>
         </main>
