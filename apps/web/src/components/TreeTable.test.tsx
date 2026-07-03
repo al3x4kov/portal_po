@@ -113,7 +113,7 @@ describe('TreeTable (T-1102, FR-7)', () => {
     const headers = Array.from(table.querySelectorAll('thead th')).map((th) =>
       th.textContent?.trim(),
     );
-    expect(headers).toEqual(['Требование', 'Критичность', 'Реализация', 'Связи', 'Описание', '']);
+    expect(headers).toEqual(['Требование', 'Критичность', 'Реализация', 'Источник', 'Связи', 'Описание', '']);
   });
 
   it('renders relationship chips inside the "Связи" cell, not the name column', () => {

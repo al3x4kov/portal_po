@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { Requirement } from '@po/core';
 import { Modal } from './Modal';
+import { RequirementPickerModal } from './RequirementPickerModal';
 
 interface ExportTasksModalProps {
   projectId: string;
@@ -364,8 +365,11 @@ export function ExportTasksModal({
 
   if (showSelectModal && direction === 'tracker') {
     return (
-      <TrackerSelectModal
+      <RequirementPickerModal
+        title="Выбор ФТ/НФТ для TaskTracker"
         requirements={requirements}
+        modalTestid="tracker-select-modal"
+        confirmLabel="Предпросмотр"
         onClose={() => {
           setShowSelectModal(false);
           setDirection(null);
@@ -429,7 +433,7 @@ export function ExportTasksModal({
       footer={footer}
     >
       {step === 'choose' ? (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <p className="text-sm" style={{ color: 'var(--color-text-2)' }}>
             Выберите тип экспорта:
           </p>
@@ -509,102 +513,3 @@ export function ExportTasksModal({
   );
 }
 
-// ── Tracker selection sub-modal ──────────────────────────────────────────────
-interface TrackerSelectModalProps {
-  requirements: Requirement[];
-  onClose: () => void;
-  onConfirm: (selected: Set<string>) => void;
-}
-
-function TrackerSelectModal({
-  requirements,
-  onClose,
-  onConfirm,
-}: TrackerSelectModalProps): React.ReactElement {
-  const [selected, setSelected] = useState<Set<string>>(new Set(requirements.map((r) => r.slug)));
-
-  const allSelected = requirements.length > 0 && requirements.every((r) => selected.has(r.slug));
-
-  function toggleAll(): void {
-    if (allSelected) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(requirements.map((r) => r.slug)));
-    }
-  }
-
-  const footer = (
-    <>
-      <button type="button" className="btn btn-secondary" onClick={onClose}>
-        Отменить
-      </button>
-      <button
-        type="button"
-        className="btn btn-primary"
-        disabled={selected.size === 0}
-        data-testid="tracker-select-confirm"
-        onClick={() => onConfirm(selected)}
-      >
-        Предпросмотр ({selected.size})
-      </button>
-    </>
-  );
-
-  return (
-    <Modal
-      title="Выбор ФТ/НФТ для TaskTracker"
-      onClose={onClose}
-      widthClass="max-w-xl"
-      testid="tracker-select-modal"
-      footer={footer}
-    >
-      <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="text-xs underline"
-            style={{ color: 'var(--color-primary)' }}
-            onClick={toggleAll}
-            data-testid="tracker-toggle-all"
-          >
-            {allSelected ? 'Снять выделение' : 'Выбрать все'}
-          </button>
-          <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
-            {selected.size} из {requirements.length}
-          </span>
-        </div>
-        <div
-          className="max-h-72 space-y-1 overflow-y-auto rounded-lg border p-2"
-          style={{ borderColor: 'var(--color-border)' }}
-        >
-          {requirements.map((r) => (
-            <label
-              key={r.slug}
-              className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-1.5 hover:bg-[var(--color-surface-2)]"
-            >
-              <input
-                type="checkbox"
-                className="mt-0.5 flex-none"
-                checked={selected.has(r.slug)}
-                onChange={() => {
-                  setSelected((s) => {
-                    const next = new Set(s);
-                    if (next.has(r.slug)) next.delete(r.slug);
-                    else next.add(r.slug);
-                    return next;
-                  });
-                }}
-              />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{r.name}</p>
-                <p className="text-xs" style={{ color: 'var(--color-text-3)' }}>
-                  {r.type === 'FUNCTION' ? 'ФТ' : 'НФТ'} · {r.criticality}
-                </p>
-              </div>
-            </label>
-          ))}
-        </div>
-      </div>
-    </Modal>
-  );
-}

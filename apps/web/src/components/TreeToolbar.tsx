@@ -6,6 +6,8 @@ import { CRITICALITY_COLOR_VAR, CRITICALITY_LABEL } from '../lib/criticality';
 interface TreeToolbarProps {
   shown: number;
   total: number;
+  /** FR-19: unique source values present in the current project requirements. */
+  availableSources?: string[];
 }
 
 const CRIT_TESTID: Record<Criticality, string> = {
@@ -45,7 +47,7 @@ const IMPL_OPTIONS: {
  * (B1), name search (B3) and the multi-select criticality filter (B5).
  * Also contains the view-mode switcher (Дерево | Граф) for T-G108.
  */
-export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElement {
+export function TreeToolbar({ shown, total, availableSources = [] }: TreeToolbarProps): React.ReactElement {
   const treeMode = useUiStore((s) => s.treeMode);
   const setTreeMode = useUiStore((s) => s.setTreeMode);
   const search = useUiStore((s) => s.search);
@@ -54,6 +56,8 @@ export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElem
   const setCriticalityFilter = useUiStore((s) => s.setCriticalityFilter);
   const implApplied = useUiStore((s) => s.implementationFilter);
   const setImplementationFilter = useUiStore((s) => s.setImplementationFilter);
+  const srcApplied = useUiStore((s) => s.sourceFilter);
+  const setSourceFilter = useUiStore((s) => s.setSourceFilter);
   const graphView = useUiStore((s) => s.graphView);
   const setGraphView = useUiStore((s) => s.setGraphView);
 
@@ -65,6 +69,13 @@ export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElem
   const [implDraft, setImplDraft] = useState<Set<ImplStatus>>(new Set(implApplied));
   const implWrapRef = useRef<HTMLDivElement>(null);
 
+  const [srcOpen, setSrcOpen] = useState(false);
+  const [srcDraft, setSrcDraft] = useState<Set<string>>(new Set(srcApplied));
+  const srcWrapRef = useRef<HTMLDivElement>(null);
+
+  // Source dropdown options: '' = "Не задан" + sorted unique sources from project
+  const sourceOptions = ['', ...availableSources];
+
   // Sync the draft with the applied set whenever the dropdown opens.
   useEffect(() => {
     if (open) setDraft(new Set(applied));
@@ -73,6 +84,10 @@ export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElem
   useEffect(() => {
     if (implOpen) setImplDraft(new Set(implApplied));
   }, [implOpen, implApplied]);
+
+  useEffect(() => {
+    if (srcOpen) setSrcDraft(new Set(srcApplied));
+  }, [srcOpen, srcApplied]);
 
   // Close the dropdown on outside click / Escape.
   useEffect(() => {
@@ -108,6 +123,22 @@ export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElem
     };
   }, [implOpen]);
 
+  useEffect(() => {
+    if (!srcOpen) return;
+    const onDown = (e: MouseEvent): void => {
+      if (srcWrapRef.current && !srcWrapRef.current.contains(e.target as Node)) setSrcOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setSrcOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [srcOpen]);
+
   const toggleDraft = (crit: Criticality): void =>
     setDraft((prev) => {
       const next = new Set(prev);
@@ -121,6 +152,14 @@ export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElem
       const next = new Set(prev);
       if (next.has(status)) next.delete(status);
       else next.add(status);
+      return next;
+    });
+
+  const toggleSrcDraft = (src: string): void =>
+    setSrcDraft((prev) => {
+      const next = new Set(prev);
+      if (next.has(src)) next.delete(src);
+      else next.add(src);
       return next;
     });
 
@@ -434,6 +473,97 @@ export function TreeToolbar({ shown, total }: TreeToolbarProps): React.ReactElem
                 onClick={() => {
                   setImplementationFilter(implDraft);
                   setImplOpen(false);
+                }}
+              >
+                Применить
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* FR-19 · source multi-select */}
+      <div className="relative" ref={srcWrapRef}>
+        <button
+          type="button"
+          className="btn btn-secondary text-sm"
+          style={srcApplied.size > 0 ? { borderColor: 'var(--color-primary)' } : undefined}
+          aria-haspopup="true"
+          aria-expanded={srcOpen}
+          data-testid="source-filter"
+          onClick={() => setSrcOpen((v) => !v)}
+        >
+          Источник
+          {srcApplied.size > 0 ? (
+            <span
+              className="inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
+              style={{ background: 'var(--color-primary)' }}
+              data-testid="source-count"
+            >
+              {srcApplied.size}
+            </span>
+          ) : null}
+        </button>
+
+        {srcOpen ? (
+          <div
+            className="absolute left-0 z-20 mt-1.5 w-64 overflow-hidden rounded-lg border shadow-lg"
+            style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+            data-testid="source-dropdown"
+          >
+            <div
+              className="border-b px-3 py-2 text-xs"
+              style={{ color: 'var(--color-text-3)', borderColor: 'var(--color-border)' }}
+            >
+              Показывать по источнику
+            </div>
+            {sourceOptions.map((src) => {
+              const checked = srcDraft.has(src);
+              const label = src === '' ? 'Не задан' : src;
+              return (
+                <label
+                  key={src === '' ? '__empty__' : src}
+                  className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm"
+                  data-testid={`source-opt-${src === '' ? 'empty' : src}`}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={checked}
+                    onChange={() => toggleSrcDraft(src)}
+                  />
+                  <span className="text-sm">{label}</span>
+                </label>
+              );
+            })}
+            {sourceOptions.length === 0 ? (
+              <p className="px-3 py-3 text-sm" style={{ color: 'var(--color-text-3)' }}>
+                Нет источников
+              </p>
+            ) : null}
+            <div
+              className="flex items-center justify-between border-t px-3 py-2"
+              style={{ borderColor: 'var(--color-border)' }}
+            >
+              <button
+                type="button"
+                className="btn btn-ghost py-1 text-xs"
+                data-testid="source-reset"
+                onClick={() => {
+                  setSrcDraft(new Set());
+                  setSourceFilter([]);
+                  setSrcOpen(false);
+                }}
+              >
+                Сбросить
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary py-1 text-xs"
+                data-testid="source-apply"
+                onClick={() => {
+                  setSourceFilter(srcDraft);
+                  setSrcOpen(false);
                 }}
               >
                 Применить

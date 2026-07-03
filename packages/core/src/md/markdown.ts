@@ -1,4 +1,5 @@
 import type {
+  InfoItem,
   Link,
   LinkType,
   Requirement,
@@ -21,13 +22,15 @@ export interface ParseContext {
   type: RequirementType;
 }
 
-const META_KEYS = ['criticality', 'implemented', 'target', 'createdAt', 'updatedAt'] as const;
+const META_KEYS = ['criticality', 'implemented', 'target', 'createdAt', 'updatedAt', 'source'] as const;
 const HEADER_RE = /^###\s+Requirement:\s*(.+?)\s*$/;
 const META_RE = /^-\s+(\w+):\s*(.*)$/;
 const SCENARIO_RE = /^####\s+Scenario:\s*(.+?)\s*$/;
 const LINKS_RE = /^####\s+Links\s*$/;
+const INFO_RE = /^####\s+Info\s*$/;
 const STEP_RE = /^-\s+(GIVEN|WHEN|THEN|AND)\s+(.*)$/;
 const LINK_RE = /^-\s+(\w+):\s*(.+?)\s*$/;
+const INFO_ITEM_RE = /^-\s+(.+?):\s+(.*)$/;
 const TARGET_RE = /^Q([1-4])\s+(\d{4})$/;
 
 /**
@@ -46,6 +49,9 @@ export function serialize(req: Requirement): string {
   }
   lines.push(`- createdAt: ${req.createdAt}`);
   lines.push(`- updatedAt: ${req.updatedAt}`);
+  if (req.source !== undefined) {
+    lines.push(`- source: ${req.source}`);
+  }
 
   if (req.description !== undefined && req.description.length > 0) {
     lines.push('');
@@ -65,6 +71,14 @@ export function serialize(req: Requirement): string {
     lines.push('#### Links');
     for (const l of req.links) {
       lines.push(`- ${l.type}: ${l.targetSlug}`);
+    }
+  }
+
+  if (req.infoItems && req.infoItems.length > 0) {
+    lines.push('');
+    lines.push('#### Info');
+    for (const item of req.infoItems) {
+      lines.push(`- ${item.type}: ${item.value}`);
     }
   }
 
@@ -110,7 +124,8 @@ export function parse(md: string, ctx: ParseContext): Requirement {
   const descLines: string[] = [];
   const scenarios: Scenario[] = [];
   const links: Link[] = [];
-  let mode: 'desc' | 'scenario' | 'links' = 'desc';
+  const infoItems: InfoItem[] = [];
+  let mode: 'desc' | 'scenario' | 'links' | 'info' = 'desc';
   let current: Scenario | null = null;
 
   for (const line of lines.slice(i)) {
@@ -126,6 +141,11 @@ export function parse(md: string, ctx: ParseContext): Requirement {
       current = null;
       continue;
     }
+    if (INFO_RE.test(line)) {
+      mode = 'info';
+      current = null;
+      continue;
+    }
     if (mode === 'desc') {
       descLines.push(line);
       continue;
@@ -137,14 +157,21 @@ export function parse(md: string, ctx: ParseContext): Requirement {
       }
       continue;
     }
-    // mode === 'links'
-    const link = LINK_RE.exec(line);
-    if (link) {
-      const type = link[1]!;
-      if (!(LINK_TYPES as readonly string[]).includes(type)) {
-        throw new ParseError(`Unknown link type "${type}".`);
+    if (mode === 'links') {
+      const link = LINK_RE.exec(line);
+      if (link) {
+        const type = link[1]!;
+        if (!(LINK_TYPES as readonly string[]).includes(type)) {
+          throw new ParseError(`Unknown link type "${type}".`);
+        }
+        links.push({ type: type as LinkType, targetSlug: link[2]!.trim() });
       }
-      links.push({ type: type as LinkType, targetSlug: link[2]!.trim() });
+      continue;
+    }
+    // mode === 'info': tolerant — skip lines that don't match INFO_ITEM_RE
+    const infoItem = INFO_ITEM_RE.exec(line);
+    if (infoItem) {
+      infoItems.push({ type: infoItem[1]!.trim(), value: infoItem[2]!.trim() });
     }
   }
 
@@ -162,6 +189,10 @@ export function parse(md: string, ctx: ParseContext): Requirement {
   };
   if (description.length > 0) candidate.description = description;
   if (scenarios.length > 0) candidate.scenarios = scenarios;
+  if (meta.source !== undefined && meta.source.trim().length > 0) {
+    candidate.source = meta.source.trim();
+  }
+  if (infoItems.length > 0) candidate.infoItems = infoItems;
   if (meta.target !== undefined) {
     const t = TARGET_RE.exec(meta.target);
     if (!t) {

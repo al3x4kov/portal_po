@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { Requirement, RequirementType } from '@po/core';
+import { SOURCE_PRESETS, type Requirement, type RequirementType } from '@po/core';
 import { useProject, useRequirements, useCreateRequirement, useCreateLink, useDeleteRequirement } from '../api/hooks';
 import { ApiError, errorMessage } from '../api/client';
 import { useUiStore } from '../store/ui';
@@ -34,6 +34,7 @@ export function Main(): React.ReactElement {
   const toggleExpanded = useUiStore((s) => s.toggleExpanded);
   const criticalityFilter = useUiStore((s) => s.criticalityFilter);
   const implementationFilter = useUiStore((s) => s.implementationFilter);
+  const sourceFilter = useUiStore((s) => s.sourceFilter);
   const setSearch = useUiStore((s) => s.setSearch);
   const resetFilters = useUiStore((s) => s.resetFilters);
 
@@ -63,6 +64,15 @@ export function Main(): React.ReactElement {
     [requirements],
   );
 
+  // FR-19: unique source values from all requirements + presets, sorted.
+  const availableSources = useMemo(() => {
+    const srcSet = new Set<string>(SOURCE_PRESETS);
+    for (const r of requirements) {
+      if (r.source) srcSet.add(r.source);
+    }
+    return [...srcSet].sort();
+  }, [requirements]);
+
   const fnVis = useMemo(
     () =>
       computeVisibleRows({
@@ -72,8 +82,9 @@ export function Main(): React.ReactElement {
         expanded,
         criticalityFilter,
         implementationFilter,
+        sourceFilter,
       }),
-    [functional, search, collapsed, expanded, criticalityFilter, implementationFilter],
+    [functional, search, collapsed, expanded, criticalityFilter, implementationFilter, sourceFilter],
   );
   const nfrVis = useMemo(
     () =>
@@ -84,8 +95,9 @@ export function Main(): React.ReactElement {
         expanded,
         criticalityFilter,
         implementationFilter,
+        sourceFilter,
       }),
-    [nfr, search, collapsed, expanded, criticalityFilter, implementationFilter],
+    [nfr, search, collapsed, expanded, criticalityFilter, implementationFilter, sourceFilter],
   );
 
   const shown = fnVis.rows.length + nfrVis.rows.length;
@@ -93,8 +105,8 @@ export function Main(): React.ReactElement {
   const matchCount = fnVis.matchCount + nfrVis.matchCount;
   const searchActive = search.trim().length > 0;
   const searchEmpty = searchActive && matchCount === 0;
-  const filtersActive = criticalityFilter.size > 0 || implementationFilter.size > 0;
-  // UX-6: empty purely because of the criticality/implementation filters (no search).
+  const filtersActive = criticalityFilter.size > 0 || implementationFilter.size > 0 || sourceFilter.size > 0;
+  // UX-6: empty purely because of the criticality/implementation/source filters (no search).
   const filtersEmpty = !searchActive && filtersActive && shown === 0 && total > 0;
 
   const onEdit = (req: Requirement): void => {
@@ -111,20 +123,20 @@ export function Main(): React.ReactElement {
     openModal({ kind: 'delete', requirement: req });
   };
 
-  // T-510: inline add-child — creates a FUNCTION child and links it with CHILD_OF.
-  const handleInlineAddChild = async (parentSlug: string, name: string): Promise<void> => {
-    const newReq = await createReqMut.mutateAsync({
-      type: 'FUNCTION',
-      name,
-      criticality: 'MEDIUM',
-      implemented: true,
-    });
-    await createLinkMut.mutateAsync({
-      sourceSlug: newReq.slug,
-      type: 'CHILD_OF',
-      targetSlug: parentSlug,
+  // FR-21: open RequirementModal for a child requirement without preset criticality/implemented.
+  // The modal will create the requirement and wire the CHILD_OF link via linkFrom/linkType.
+  const handleAddChild = (req: Requirement): void => {
+    openModal({
+      kind: 'requirement',
+      reqType: 'FUNCTION',
+      linkFrom: req.slug,
+      linkType: 'CHILD_OF',
     });
   };
+
+  // Keep createReqMut and createLinkMut available (used elsewhere if needed).
+  void createReqMut;
+  void createLinkMut;
 
   return (
     <>
@@ -145,7 +157,7 @@ export function Main(): React.ReactElement {
         />
 
         {!reqQuery.isLoading && !reqQuery.isError ? (
-          <TreeToolbar shown={shown} total={total} />
+          <TreeToolbar shown={shown} total={total} availableSources={availableSources} />
         ) : null}
 
         <main className={`w-full flex-1${graphView ? ' flex flex-col overflow-hidden' : ' px-4 py-5'}`}>
@@ -331,7 +343,7 @@ export function Main(): React.ReactElement {
                 onEdit={onEdit}
                 onLink={onLink}
                 onAddNfr={onAddNfr}
-                onInlineAddChild={handleInlineAddChild}
+                onAddChild={handleAddChild}
                 onDelete={onDelete}
                 onDescExpand={setDescReq}
                 onExpandNode={toggleExpanded}
@@ -403,6 +415,7 @@ export function Main(): React.ReactElement {
             linkFrom={modal.linkFrom}
             linkType={modal.linkType}
             focusField={modal.focusField}
+            noDefaultCriticality={!modal.requirement && modal.linkType === 'CHILD_OF'}
             onAddLink={
               modal.requirement
                 ? (typeHint: RequirementType) => {

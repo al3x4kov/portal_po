@@ -46,6 +46,11 @@ export interface VisibilityInput {
    * `DONE` = implemented === true, `PLANNED` = implemented === false.
    */
   implementationFilter?: ReadonlySet<'DONE' | 'PLANNED'>;
+  /**
+   * Selected source values; empty set = no source filter (FR-19).
+   * Empty string '' matches requirements with no source set (source === undefined).
+   */
+  sourceFilter?: ReadonlySet<string>;
 }
 
 export interface VisibilityResult {
@@ -59,6 +64,7 @@ export interface VisibilityResult {
 }
 
 const EMPTY_IMPL: ReadonlySet<'DONE' | 'PLANNED'> = new Set();
+const EMPTY_SOURCE: ReadonlySet<string> = new Set();
 
 function countDescendants(node: TreeNode): number {
   let n = node.children.length;
@@ -81,18 +87,21 @@ function countNodes(forest: TreeNode[]): number {
 export function computeVisibleRows(input: VisibilityInput): VisibilityResult {
   const { forest, search, collapsed, expanded, criticalityFilter } = input;
   const implementationFilter = input.implementationFilter ?? EMPTY_IMPL;
+  const sourceFilter = input.sourceFilter ?? EMPTY_SOURCE;
   const query = search.trim().toLowerCase();
   const searchActive = query.length > 0;
   const critActive = criticalityFilter.size > 0;
   const implActive = implementationFilter.size > 0;
-  const filterActive = searchActive || critActive || implActive;
+  const srcActive = sourceFilter.size > 0;
+  const filterActive = searchActive || critActive || implActive || srcActive;
   const total = countNodes(forest);
 
   const matchesSelf = (req: Requirement): boolean => {
     const okSearch = !searchActive || req.name.toLowerCase().includes(query);
     const okCrit = !critActive || criticalityFilter.has(req.criticality);
     const okImpl = !implActive || implementationFilter.has(req.implemented ? 'DONE' : 'PLANNED');
-    return okSearch && okCrit && okImpl; // intersection (AND) of the active predicates
+    const okSource = !srcActive || sourceFilter.has(req.source ?? '');
+    return okSearch && okCrit && okImpl && okSource; // intersection (AND) of the active predicates
   };
 
   const rows: VisibleRow[] = [];

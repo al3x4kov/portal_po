@@ -74,6 +74,7 @@ describe('Main page (E11 integration)', () => {
       search: '',
       criticalityFilter: new Set(),
       implementationFilter: new Set(),
+      sourceFilter: new Set(),
       expanded: new Set(),
       modal: null,
     });

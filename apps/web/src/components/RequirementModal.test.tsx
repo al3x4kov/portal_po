@@ -242,6 +242,194 @@ describe('RequirementModal (T-1106, FR-6)', () => {
     expect(screen.queryByTestId('req-link-del-confirm')).not.toBeInTheDocument();
   });
 
+  // ── FR-21 · noDefaultCriticality (Добавить дочернее требование) ───────────────
+  describe('FR-21 · noDefaultCriticality=true (Save button behaviour)', () => {
+    /**
+     * Helper: render with noDefaultCriticality=true and name pre-filled so the
+     * "name is empty" guard is cleared, letting us isolate criticality/implemented.
+     */
+    async function renderChild(user: ReturnType<typeof userEvent.setup>) {
+      renderWithProviders(
+        <RequirementModal
+          projectId="p1"
+          reqType="FUNCTION"
+          noDefaultCriticality
+          onClose={vi.fn()}
+        />,
+      );
+      // Name must pass the uniqueness check before save can proceed.
+      await user.type(screen.getByTestId('req-name'), 'Дочернее требование');
+      await waitFor(() =>
+        expect(screen.getByTestId('req-name-status')).toHaveAttribute('data-state', 'ok'),
+      );
+    }
+
+    it('Save disabled when only name is filled (no criticality, no implemented)', async () => {
+      const user = userEvent.setup();
+      await renderChild(user);
+      expect(screen.getByTestId('req-submit')).toBeDisabled();
+    });
+
+    it('Save disabled when name + criticality filled but implemented not chosen', async () => {
+      const user = userEvent.setup();
+      await renderChild(user);
+      await user.click(screen.getByTestId('req-criticality-high'));
+      expect(screen.getByTestId('req-submit')).toBeDisabled();
+    });
+
+    it('Save disabled when name + implemented chosen but criticality not chosen', async () => {
+      const user = userEvent.setup();
+      await renderChild(user);
+      await user.click(screen.getByTestId('req-implemented-yes'));
+      expect(screen.getByTestId('req-submit')).toBeDisabled();
+    });
+
+    it('Save enabled only after name + criticality + implemented are all filled', async () => {
+      const user = userEvent.setup();
+      await renderChild(user);
+      await user.click(screen.getByTestId('req-criticality-high'));
+      await user.click(screen.getByTestId('req-implemented-yes'));
+      expect(screen.getByTestId('req-submit')).not.toBeDisabled();
+    });
+
+    it('calls create API when all required fields are filled (implemented=true)', async () => {
+      create.mockResolvedValueOnce({ slug: 'docherneye-trebovaniye' });
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <RequirementModal
+          projectId="p1"
+          reqType="FUNCTION"
+          noDefaultCriticality
+          onClose={onClose}
+        />,
+      );
+      await user.type(screen.getByTestId('req-name'), 'Дочернее требование');
+      await waitFor(() =>
+        expect(screen.getByTestId('req-name-status')).toHaveAttribute('data-state', 'ok'),
+      );
+      await user.click(screen.getByTestId('req-criticality-medium'));
+      await user.click(screen.getByTestId('req-implemented-yes'));
+      await user.click(screen.getByTestId('req-submit'));
+      await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+      expect(create.mock.calls[0][1]).toMatchObject({
+        criticality: 'MEDIUM',
+        implemented: true,
+      });
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+    });
+
+    it('calls create API when implemented=false and quarter/year are filled', async () => {
+      create.mockResolvedValueOnce({ slug: 'docherneye-trebovaniye' });
+      const onClose = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <RequirementModal
+          projectId="p1"
+          reqType="FUNCTION"
+          noDefaultCriticality
+          onClose={onClose}
+        />,
+      );
+      await user.type(screen.getByTestId('req-name'), 'Дочернее требование');
+      await waitFor(() =>
+        expect(screen.getByTestId('req-name-status')).toHaveAttribute('data-state', 'ok'),
+      );
+      await user.click(screen.getByTestId('req-criticality-high'));
+      await user.click(screen.getByTestId('req-implemented-no'));
+      // Quarter/year panel must appear after clicking "Не реализовано"
+      expect(screen.getByTestId('req-target')).toBeInTheDocument();
+      // req-quarter is a <select>; req-year is a number input
+      await user.selectOptions(screen.getByTestId('req-quarter'), 'Q2');
+      await user.clear(screen.getByTestId('req-year'));
+      await user.type(screen.getByTestId('req-year'), '2027');
+      await user.click(screen.getByTestId('req-submit'));
+      await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+      expect(create.mock.calls[0][1]).toMatchObject({
+        criticality: 'HIGH',
+        implemented: false,
+        targetQuarter: 'Q2',
+        targetYear: 2027,
+      });
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
+    });
+
+    it('"Не реализовано" button NOT highlighted when implemented is undefined', async () => {
+      const user = userEvent.setup();
+      await renderChild(user);
+      expect(screen.getByTestId('req-implemented-no')).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('"Реализовано" button NOT highlighted when implemented is undefined', async () => {
+      const user = userEvent.setup();
+      await renderChild(user);
+      // aria-pressed should be falsy — either "false" or absent (not "true")
+      const btn = screen.getByTestId('req-implemented-yes');
+      expect(btn.getAttribute('aria-pressed')).not.toBe('true');
+    });
+
+    it('quarter/year panel NOT shown when implemented is undefined', async () => {
+      const user = userEvent.setup();
+      await renderChild(user);
+      expect(screen.queryByTestId('req-target')).not.toBeInTheDocument();
+    });
+
+    it('quarter/year panel appears after clicking "Не реализовано"', async () => {
+      const user = userEvent.setup();
+      await renderChild(user);
+      await user.click(screen.getByTestId('req-implemented-no'));
+      expect(screen.getByTestId('req-target')).toBeInTheDocument();
+    });
+
+    it('quarter/year panel disappears when switching from "Не реализовано" to "Реализовано"', async () => {
+      const user = userEvent.setup();
+      await renderChild(user);
+      await user.click(screen.getByTestId('req-implemented-no'));
+      expect(screen.getByTestId('req-target')).toBeInTheDocument();
+      await user.click(screen.getByTestId('req-implemented-yes'));
+      expect(screen.queryByTestId('req-target')).not.toBeInTheDocument();
+    });
+
+    it('"Статус реализации" label shows required asterisk', async () => {
+      const user = userEvent.setup();
+      await renderChild(user);
+      // The label text contains an asterisk marker
+      const label = screen.getByText(/Статус реализации/);
+      expect(label.textContent).toContain('*');
+    });
+  });
+
+  // ── FR-21 · noDefaultCriticality=false (нормальный режим создания) ───────────
+  describe('FR-21 · noDefaultCriticality=false (normal create — defaults still work)', () => {
+    it('Save button enabled with criticality=MEDIUM (default) and implemented=true', async () => {
+      create.mockResolvedValueOnce({ slug: 'x' });
+      const user = userEvent.setup();
+      renderWithProviders(
+        <RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />,
+      );
+      // Default: implemented=false → quarter/year panel visible
+      expect(screen.getByTestId('req-target')).toBeInTheDocument();
+      // Submit button is NOT disabled by submitDisabled (criticality=MEDIUM, implemented=false≠null)
+      // but Zod will fail on submit if quarter/year empty — that's form-level, not button-level.
+      // Switch to "Реализовано" to remove the quarter/year requirement.
+      await user.type(screen.getByTestId('req-name'), 'Обычное требование');
+      await waitFor(() =>
+        expect(screen.getByTestId('req-name-status')).toHaveAttribute('data-state', 'ok'),
+      );
+      await user.click(screen.getByTestId('req-implemented-yes'));
+      expect(screen.queryByTestId('req-target')).not.toBeInTheDocument();
+      expect(screen.getByTestId('req-submit')).not.toBeDisabled();
+    });
+
+    it('quarter/year panel visible by default (implemented=false) in normal mode', () => {
+      renderWithProviders(
+        <RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />,
+      );
+      expect(screen.getByTestId('req-target')).toBeInTheDocument();
+      expect(screen.getByTestId('req-implemented-no')).toHaveAttribute('aria-pressed', 'true');
+    });
+  });
+
   // ── T4 · create NFR from a functional requirement (preset BLOCKED_BY) ─────────
   it('T4: shows the preset-link hint and creates the NFR then the link', async () => {
     create.mockResolvedValueOnce({ slug: 'sootvetstvie-pci-dss' });

@@ -28,6 +28,15 @@ node apps/server/dist/main.js
 Откройте <http://127.0.0.1:3000> — сервер раздаёт SPA на `/` и API на `/api`.
 Проекты сохраняются в `./Projects/` (создаётся автоматически).
 
+### Одна команда (на новой машине)
+
+```bash
+git clone <repo> project_po && cd project_po && bash start.sh
+```
+
+Скрипт `start.sh` последовательно выполняет `npm install` → `npm run build` → `node apps/server/dist/main.js`.
+Поддерживает переменные окружения: `PORT`, `HOST`, `PROJECTS_ROOT`, `LOG_LEVEL` (см. таблицу ниже).
+
 ### Переменные окружения (сервер)
 
 | Переменная      | По умолчанию      | Назначение                                 |

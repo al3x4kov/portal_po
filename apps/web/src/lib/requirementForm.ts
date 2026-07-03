@@ -6,6 +6,7 @@ import { checkTargetRule, requirementSchema } from '@po/core';
  * 1..200, description <=5000, year 2020..2100, enums) plus the conditional
  * rule from core's validateRequirement: when implemented === false, both
  * targetQuarter and targetYear are required (FR-6).
+ * Also includes source (FR-19) and infoItems (FR-20).
  */
 export const requirementFormSchema = requirementSchema
   .pick({
@@ -16,6 +17,8 @@ export const requirementFormSchema = requirementSchema
     implemented: true,
     targetQuarter: true,
     targetYear: true,
+    source: true,
+    infoItems: true,
   })
   .superRefine((val, ctx) => {
     // Reuse the shared implemented ⟺ target predicate from core (BE-2).

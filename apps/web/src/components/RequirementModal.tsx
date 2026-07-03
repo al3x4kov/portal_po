@@ -3,7 +3,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   CRITICALITIES,
+  SOURCE_PRESETS,
   TARGET_QUARTERS,
+  type InfoItem,
   type Link,
   type LinkType,
   type Requirement,
@@ -40,6 +42,11 @@ interface RequirementModalProps {
   onClose: () => void;
   /** T-515: auto-focus a specific field when the modal opens. */
   focusField?: 'description';
+  /**
+   * FR-21: when true, criticality and implemented are not pre-filled with defaults
+   * so the user must explicitly choose them (used when creating a child requirement).
+   */
+  noDefaultCriticality?: boolean;
 }
 
 const FORM_ID = 'requirement-form';
@@ -66,10 +73,19 @@ export function RequirementModal({
   onAddLink,
   onClose,
   focusField,
+  noDefaultCriticality = false,
 }: RequirementModalProps): React.ReactElement {
   const isEdit = Boolean(requirement);
   const [apiError, setApiError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<'cancel' | 'save' | null>(null);
+
+  // FR-20: infoItems managed as local state (not part of RHF, appended to payload)
+  const [infoItems, setInfoItems] = useState<InfoItem[]>(requirement?.infoItems ?? []);
+  const [showInfoForm, setShowInfoForm] = useState(false);
+  const [infoType, setInfoType] = useState('');
+  const [infoValue, setInfoValue] = useState('');
+  // inline delete confirmation index (-1 = none)
+  const [infoDeleteIdx, setInfoDeleteIdx] = useState(-1);
 
   const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -110,11 +126,12 @@ export function RequirementModal({
     defaultValues: {
       type: requirement?.type ?? reqType,
       name: requirement?.name ?? '',
-      criticality: requirement?.criticality ?? 'MEDIUM',
+      criticality: requirement?.criticality ?? (noDefaultCriticality ? undefined : 'MEDIUM'),
       description: requirement?.description ?? '',
-      implemented: requirement?.implemented ?? false,
+      implemented: requirement?.implemented ?? (noDefaultCriticality ? undefined : false),
       targetQuarter: requirement?.targetQuarter,
       targetYear: requirement?.targetYear,
+      source: requirement?.source ?? '',
     },
   });
 
@@ -135,7 +152,12 @@ export function RequirementModal({
   const { nameTaken, nameOk } = useNameCheck(projectId, reqType, name ?? '', requirement?.slug);
 
   const busy = createMut.isPending || updateMut.isPending;
-  const submitDisabled = busy || nameTaken || (name ?? '').trim().length === 0;
+  const submitDisabled =
+    busy ||
+    nameTaken ||
+    (name ?? '').trim().length === 0 ||
+    !criticality ||
+    implemented == null;
 
   const buildPayload = (values: RequirementFormValues) => ({
     name: values.name.trim(),
@@ -145,6 +167,8 @@ export function RequirementModal({
     implemented: values.implemented,
     targetQuarter: values.implemented ? undefined : values.targetQuarter,
     targetYear: values.implemented ? undefined : values.targetYear,
+    source: values.source && values.source.trim().length > 0 ? values.source.trim() : undefined,
+    infoItems: infoItems.length > 0 ? infoItems : undefined,
   });
 
   const doSave = async (values: RequirementFormValues): Promise<void> => {
@@ -345,11 +369,42 @@ export function RequirementModal({
               );
             })}
           </div>
+          {errors.criticality ? (
+            <p
+              className="mt-1.5 text-xs"
+              style={{ color: 'var(--color-danger)' }}
+              data-testid="req-criticality-error"
+            >
+              Выберите уровень критичности
+            </p>
+          ) : null}
+        </div>
+
+        {/* Block 2b · source (FR-19) */}
+        <div>
+          <label className="label" htmlFor="req-source">
+            Источник требования
+          </label>
+          <input
+            id="req-source"
+            className="input"
+            list="source-presets"
+            placeholder="Не задан"
+            data-testid="req-source"
+            {...register('source', { setValueAs: (v: string) => v })}
+          />
+          <datalist id="source-presets">
+            {SOURCE_PRESETS.map((p) => (
+              <option key={p} value={p} />
+            ))}
+          </datalist>
         </div>
 
         {/* Block 3 · implementation status + conditional target */}
         <div>
-          <span className="label">Статус реализации</span>
+          <span className="label">
+            Статус реализации <span style={{ color: 'var(--color-danger)' }}>*</span>
+          </span>
           <div className="grid grid-cols-2 gap-2" data-testid="req-implemented">
             <button
               type="button"
@@ -375,7 +430,7 @@ export function RequirementModal({
               type="button"
               className="flex items-center justify-center gap-2 rounded-sm border px-3 py-2.5 text-sm font-semibold"
               style={
-                !implemented
+                implemented === false
                   ? {
                       borderColor: 'var(--color-primary)',
                       background: 'var(--color-primary-soft)',
@@ -383,7 +438,7 @@ export function RequirementModal({
                     }
                   : { borderColor: 'var(--color-border)' }
               }
-              aria-pressed={!implemented}
+              aria-pressed={implemented === false}
               data-testid="req-implemented-no"
               onClick={() =>
                 setValue('implemented', false, { shouldDirty: true, shouldValidate: true })
@@ -393,7 +448,17 @@ export function RequirementModal({
             </button>
           </div>
 
-          {!implemented ? (
+          {errors.implemented ? (
+            <p
+              className="mt-1.5 text-xs"
+              style={{ color: 'var(--color-danger)' }}
+              data-testid="req-implemented-error"
+            >
+              Выберите статус реализации
+            </p>
+          ) : null}
+
+          {implemented === false ? (
             <div
               className="mt-3 grid gap-4 rounded-lg p-4 sm:grid-cols-2"
               style={{ background: 'var(--color-surface-2)' }}
@@ -494,6 +559,143 @@ export function RequirementModal({
           <p className="mt-1 text-xs" style={{ color: 'var(--color-text-3)' }}>
             Поддерживается Markdown.
           </p>
+        </div>
+
+        {/* Block 4b · infoItems (FR-20) */}
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="label m-0">Справочная информация</span>
+            <button
+              type="button"
+              className="btn btn-ghost px-2 py-0.5 text-xs"
+              data-testid="info-add-btn"
+              onClick={() => {
+                setShowInfoForm(true);
+                setInfoType('');
+                setInfoValue('');
+              }}
+            >
+              + Добавить
+            </button>
+          </div>
+
+          {/* Saved info items */}
+          {infoItems.length > 0 ? (
+            <ul className="mb-2 space-y-1">
+              {infoItems.map((item, i) => (
+                <li
+                  key={i}
+                  className="flex items-center justify-between rounded-lg px-3 py-2 text-sm"
+                  style={{ background: 'var(--color-surface-2)' }}
+                >
+                  <span>
+                    <span className="font-semibold">{item.type}</span>
+                    <span style={{ color: 'var(--color-text-3)' }}>: </span>
+                    {item.value}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    {infoDeleteIdx === i ? (
+                      <>
+                        <span className="text-xs" style={{ color: 'var(--color-danger)' }}>
+                          Удалить?
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-ghost px-1.5 py-0.5 text-xs"
+                          style={{ color: 'var(--color-danger)' }}
+                          data-testid={`info-delete-confirm-${i}`}
+                          onClick={() => {
+                            setInfoItems((prev) => prev.filter((_, idx) => idx !== i));
+                            setInfoDeleteIdx(-1);
+                          }}
+                        >
+                          Да
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost px-1.5 py-0.5 text-xs"
+                          data-testid={`info-delete-cancel-${i}`}
+                          onClick={() => setInfoDeleteIdx(-1)}
+                        >
+                          Нет
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-ghost px-1.5 py-0.5 text-xs"
+                        style={{ color: 'var(--color-text-3)' }}
+                        data-testid={`info-delete-${i}`}
+                        onClick={() => setInfoDeleteIdx(i)}
+                        aria-label={`Удалить запись ${item.type}`}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {/* Inline add form */}
+          {showInfoForm ? (
+            <div
+              className="flex items-center gap-2 rounded-lg p-3"
+              style={{ background: 'var(--color-surface-2)' }}
+            >
+              <input
+                type="text"
+                className="input flex-1"
+                placeholder="тип"
+                maxLength={50}
+                value={infoType}
+                onChange={(e) => setInfoType(e.target.value)}
+                data-testid="info-type-input"
+                aria-label="Тип справочной информации"
+              />
+              <input
+                type="text"
+                className="input flex-1"
+                placeholder="значение"
+                maxLength={100}
+                value={infoValue}
+                onChange={(e) => setInfoValue(e.target.value)}
+                data-testid="info-value-input"
+                aria-label="Значение справочной информации"
+              />
+              <button
+                type="button"
+                className="btn btn-primary px-2 py-1.5 text-xs"
+                data-testid="info-apply-btn"
+                disabled={!infoType.trim() || !infoValue.trim()}
+                onClick={() => {
+                  if (!infoType.trim() || !infoValue.trim()) return;
+                  setInfoItems((prev) => [
+                    ...prev,
+                    { type: infoType.trim(), value: infoValue.trim() },
+                  ]);
+                  setInfoType('');
+                  setInfoValue('');
+                  setShowInfoForm(false);
+                }}
+              >
+                ✓
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost px-2 py-1.5 text-xs"
+                data-testid="info-cancel-btn"
+                onClick={() => {
+                  setShowInfoForm(false);
+                  setInfoType('');
+                  setInfoValue('');
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {/* Block 5 · links (T2/T3/T-517) — edit mode only; a new requirement has no links yet.

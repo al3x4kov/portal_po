@@ -5,6 +5,7 @@ import {
   toSlug,
   validateRequirement,
   type Criticality,
+  type InfoItem,
   type Requirement,
   type RequirementType,
   type TargetQuarter,
@@ -28,6 +29,8 @@ export interface RequirementInput {
   implemented: boolean;
   targetQuarter?: TargetQuarter;
   targetYear?: number;
+  source?: string;
+  infoItems?: InfoItem[];
 }
 
 /** Editable fields on update; `type` is immutable and therefore omitted. */
@@ -110,6 +113,8 @@ export class RequirementService {
             implemented: input.implemented,
             targetQuarter: input.targetQuarter,
             targetYear: input.targetYear,
+            source: input.source,
+            infoItems: input.infoItems,
             links: [],
             createdAt: ts,
             updatedAt: ts,
@@ -142,6 +147,8 @@ export class RequirementService {
           implemented: input.implemented,
           targetQuarter: input.targetQuarter,
           targetYear: input.targetYear,
+          source: input.source,
+          infoItems: input.infoItems,
           links: existing.links,
           createdAt: existing.createdAt,
           updatedAt: this.now(),

@@ -1,0 +1,1512 @@
+<!-- Макет итерации 6: Источник требования, колонка Источник, фильтр Источник,
+     секция Справочная информация, фильтры ExportTasksModal.
+     Автономный файл: все стили встроены, внешних зависимостей нет. -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Итерация 6 — Источник, Справочная информация, ExportTasksModal</title>
+<style>
+/* ── CSS Reset ─────────────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{line-height:1.5}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+a{color:inherit;text-decoration:none}
+ul,ol{list-style:none}
+img,svg{display:block}
+
+/* ── Дизайн-токены (перенесены из tokens.css) ──────────────────────────── */
+:root {
+  --color-primary:        #4f46e5;
+  --color-primary-hover:  #4338ca;
+  --color-primary-soft:   #eef2ff;
+  --color-accent:         #0ea5e9;
+
+  --color-bg:        #f8fafc;
+  --color-surface:   #ffffff;
+  --color-surface-2: #f1f5f9;
+  --color-border:    #e2e8f0;
+  --color-text:      #0f172a;
+  --color-text-2:    #475569;
+  --color-text-3:    #5b6675;
+
+  --color-success:    #16a34a;
+  --color-success-bg: #dcfce7;
+  --color-success-fg: #166534;
+  --color-warning:    #d97706;
+  --color-warning-bg: #fef3c7;
+  --color-warning-fg: #92400e;
+  --color-danger:     #dc2626;
+  --color-danger-bg:  #fee2e2;
+  --color-danger-fg:  #b91c1c;
+  --color-info:       #0284c7;
+  --color-info-bg:    #e0f2fe;
+  --color-info-fg:    #075985;
+
+  --crit-low:      #16a34a;
+  --crit-medium:   #d97706;
+  --crit-high:     #ea580c;
+  --crit-critical: #dc2626;
+  --crit-blocker:  #a21caf;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --radius-sm: 6px;
+  --radius:    10px;
+  --radius-lg: 16px;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,.06);
+  --shadow:    0 4px 12px rgba(15,23,42,.08);
+  --shadow-lg: 0 12px 32px rgba(15,23,42,.16);
+}
+
+/* ── Базовые утилиты ────────────────────────────────────────────────────── */
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+/* Кнопки */
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  border-radius: var(--radius-sm);
+  font-weight: 600; padding: 9px 16px; font-size: 14px;
+  cursor: pointer; border: 1px solid transparent;
+  transition: background .15s, border-color .15s, color .15s;
+  white-space: nowrap;
+}
+.btn-primary  { background: var(--color-primary);  color: #fff; }
+.btn-primary:hover { background: var(--color-primary-hover); }
+.btn-secondary { background: var(--color-surface); color: var(--color-text); border-color: var(--color-border); }
+.btn-secondary:hover { background: var(--color-surface-2); }
+.btn-ghost { background: transparent; color: var(--color-text-2); }
+.btn-ghost:hover { background: var(--color-surface-2); }
+.btn-danger { background: var(--color-danger); color: #fff; }
+.btn-danger:hover { filter: brightness(.93); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-sm { padding: 5px 10px; font-size: 13px; }
+.btn-xs { padding: 3px 8px; font-size: 12px; }
+.btn-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  border-radius: var(--radius-sm);
+  background: transparent; color: var(--color-text-2);
+  border: 1px solid transparent;
+  transition: background .15s, color .15s;
+}
+.btn-icon:hover { background: var(--color-surface-2); color: var(--color-text); }
+.btn-icon-danger:hover { background: var(--color-danger-bg); color: var(--color-danger-fg); }
+
+/* Поля */
+.input {
+  width: 100%; background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px; font-size: 14px; color: var(--color-text);
+}
+.input:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px; border-color: var(--color-primary);
+}
+.input::placeholder { color: var(--color-text-3); }
+.input-sm { padding: 6px 10px; font-size: 13px; }
+
+/* Лейблы */
+.label {
+  display: block; font-size: 13px; font-weight: 600;
+  margin-bottom: 6px; color: var(--color-text-2);
+}
+
+/* Бейджи */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 600;
+}
+
+/* Карточки */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.surface { background: var(--color-surface); border: 1px solid var(--color-border); }
+
+/* Утилиты цвета текста */
+.t2 { color: var(--color-text-2); }
+.t3 { color: var(--color-text-3); }
+.mono { font-family: var(--font-mono); }
+
+/* ── Компоненты таблицы (TreeTable) ─────────────────────────────────────── */
+.crit { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.dot  { width: 8px; height: 8px; border-radius: 999px; display: inline-block; flex: none; }
+.chev { width: 15px; height: 15px; flex: none; color: var(--color-text-3); }
+
+table.tw { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 14px; }
+.tw thead th {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .04em; font-weight: 600;
+  color: var(--color-text-3); text-align: left;
+  padding: 10px 16px; border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+.tw td { padding: 9px 16px; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
+.tw tbody tr:last-child td { border-bottom: 0; }
+.tw tbody tr:hover { background: var(--color-surface-2); }
+
+/* ── Dropdown (мультиселект) ─────────────────────────────────────────────── */
+.dd {
+  position: absolute; top: calc(100% + 6px); left: 0;
+  min-width: 240px; z-index: 30;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.dd-opt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 14px; cursor: pointer; font-size: 14px;
+  transition: background .1s;
+}
+.dd-opt:hover { background: var(--color-surface-2); }
+.dd-head {
+  padding: 8px 14px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--color-text-3);
+  border-bottom: 1px solid var(--color-border);
+}
+.dd-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Чекбокс */
+.cbx {
+  width: 18px; height: 18px; border-radius: 5px;
+  border: 1.5px solid var(--color-border);
+  display: grid; place-items: center; flex: none;
+  background: var(--color-surface);
+}
+.cbx-on { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+
+/* Бейдж-счётчик фильтра */
+.filter-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-primary); color: #fff;
+  font-size: 11px; font-weight: 700;
+}
+
+/* ── Источник-тег ──────────────────────────────────────────────────────── */
+.source-tag {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 600;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  border: 1px solid rgba(79,70,229,.2);
+}
+.source-tag-custom {
+  background: var(--color-surface-2);
+  color: var(--color-text-2);
+  border: 1px solid var(--color-border);
+}
+.source-none { color: var(--color-text-3); font-size: 13px; }
+
+/* ── Секция макета ─────────────────────────────────────────────────────── */
+.section-header {
+  font-size: 13px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--color-text-3);
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--color-border);
+}
+
+/* ── Форма-инлайн пара ──────────────────────────────────────────────────── */
+.ref-pair {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px 3px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  font-size: 13px;
+  color: var(--color-text);
+}
+.ref-pair-key { font-weight: 600; color: var(--color-text-2); }
+.ref-pair-val { color: var(--color-text); }
+
+/* ── Чипы квартал ───────────────────────────────────────────────────────── */
+.quarter-chip {
+  display: inline-flex; align-items: center;
+  padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-2);
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.quarter-chip.active {
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* ── Разделитель состояний ──────────────────────────────────────────────── */
+.state-label {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--color-text-3);
+  background: var(--color-bg);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--color-border);
+  width: fit-content;
+  margin-bottom: 12px;
+}
+
+/* ── Inline-confirm ─────────────────────────────────────────────────────── */
+.inline-confirm {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px 3px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-bg);
+  border: 1px solid rgba(220,38,38,.25);
+  font-size: 13px;
+  color: var(--color-danger-fg);
+}
+
+/* ── Страница раскладка ────────────────────────────────────────────────── */
+.page { max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px; }
+.section { margin-bottom: 64px; }
+.states-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.state-block { flex: 1; min-width: 220px; }
+
+/* Модалка (обёртка без оверлея) */
+.modal-frame {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  max-width: 580px;
+}
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+.modal-body { padding: 20px; }
+.modal-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Блок формы в модалке */
+.form-section-title {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--color-text-3);
+  margin-bottom: 12px; margin-top: 4px;
+  display: flex; align-items: center; gap: 8px;
+}
+.form-section-title::after {
+  content: ''; flex: 1; height: 1px; background: var(--color-border);
+}
+
+/* Combobox-обёртка */
+.combobox-wrap { position: relative; }
+.combobox-wrap datalist { display: none; }
+
+/* Тулбар */
+.toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+/* ExportTasks filter zone */
+.filter-zone {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.filter-zone-title {
+  font-size: 12px; font-weight: 700; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--color-text-3);
+  margin-bottom: 12px;
+}
+.filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.filter-row:last-child { margin-bottom: 0; }
+.filter-row-label {
+  font-size: 12px; font-weight: 600; color: var(--color-text-3);
+  width: 90px; flex: none;
+}
+
+/* Segmented control (view switcher) */
+.seg { display: inline-flex; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 2px; }
+.seg-btn { padding: 5px 12px; font-size: 13px; font-weight: 600; border-radius: 5px; color: var(--color-text-2); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.seg-on { background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-sm); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       НАВИГАЦИЯ / СОДЕРЖАНИЕ
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <header style="margin-bottom:40px">
+    <h1 style="font-size:22px;font-weight:700;margin-bottom:6px">Итерация 6 — Макеты новых компонентов</h1>
+    <p class="t2" style="font-size:13px;margin-bottom:16px">Автономный эталонный файл. Все состояния показаны статично рядом.</p>
+    <nav style="display:flex;flex-wrap:wrap;gap:8px">
+      <a href="#s1" class="badge" style="background:var(--color-primary-soft);color:var(--color-primary)">§1 Источник в форме</a>
+      <a href="#s2" class="badge" style="background:var(--color-primary-soft);color:var(--color-primary)">§2 Колонка Источник</a>
+      <a href="#s3" class="badge" style="background:var(--color-primary-soft);color:var(--color-primary)">§3 Фильтр Источник</a>
+      <a href="#s4" class="badge" style="background:var(--color-primary-soft);color:var(--color-primary)">§4 Справочная информация</a>
+      <a href="#s5" class="badge" style="background:var(--color-primary-soft);color:var(--color-primary)">§5 ExportTasksModal фильтры</a>
+    </nav>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       §1 · ПОЛЕ «ИСТОЧНИК ТРЕБОВАНИЯ» В RequirementModal
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <section class="section" id="s1">
+    <h2 class="section-header">§1 · Поле «Источник требования» — в форме RequirementModal</h2>
+    <p class="t2" style="font-size:13px;margin-bottom:24px">
+      Combobox (input + datalist) — позволяет выбрать пресет или ввести произвольное значение.
+      Располагается в блоке основных атрибутов, в одной строке с «Критичность» (на маленьких экранах — отдельная строка).
+      Пресеты: «АС21», «ПАО». Показаны три состояния.
+    </p>
+
+    <div class="states-row" style="gap:32px;align-items:flex-start">
+
+      <!-- Состояние 1: Пустое (default) -->
+      <div class="state-block" style="max-width:580px">
+        <div class="state-label">Состояние 1 · Пустое (по умолчанию)</div>
+        <div class="modal-frame">
+          <div class="modal-head">
+            <h2 style="font-size:16px;font-weight:700">Редактировать требование</h2>
+            <button class="btn btn-ghost btn-sm" style="font-size:18px;line-height:1;padding:4px 8px">✕</button>
+          </div>
+          <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:18px">
+
+            <!-- Название -->
+            <div>
+              <label class="label" for="name-s1a">
+                Название <span style="color:var(--color-danger)">*</span>
+              </label>
+              <input class="input" id="name-s1a" value="Оплата картой" data-testid="req-name-input">
+              <p style="font-size:12px;margin-top:5px;display:flex;align-items:center;gap:5px;color:var(--color-success)">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                Имя уникально
+              </p>
+            </div>
+
+            <!-- Строка: Критичность + Источник -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div>
+                <label class="label" for="crit-s1a">Критичность <span style="color:var(--color-danger)">*</span></label>
+                <select class="input" id="crit-s1a" data-testid="req-criticality-select">
+                  <option>Low</option><option>Medium</option>
+                  <option selected>High</option><option>Critical</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="source-s1a">Источник требования</label>
+                <div class="combobox-wrap">
+                  <input
+                    class="input"
+                    id="source-s1a"
+                    list="source-list-s1a"
+                    placeholder="Не задан"
+                    value=""
+                    autocomplete="off"
+                    data-testid="req-source-input"
+                  >
+                  <datalist id="source-list-s1a">
+                    <option value="АС21">
+                    <option value="ПАО">
+                  </datalist>
+                </div>
+                <p style="font-size:11px;color:var(--color-text-3);margin-top:4px">
+                  Выберите пресет или введите своё значение
+                </p>
+              </div>
+            </div>
+
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn-secondary btn-sm">Отменить</button>
+            <button class="btn btn-primary btn-sm">Применить</button>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--color-text-3);margin-top:8px">
+          data-testid="req-source-input" · value="" · placeholder="Не задан"
+        </p>
+      </div>
+
+      <!-- Состояние 2: Выбран пресет «АС21» -->
+      <div class="state-block" style="max-width:580px">
+        <div class="state-label">Состояние 2 · Выбран пресет «АС21»</div>
+        <div class="modal-frame">
+          <div class="modal-head">
+            <h2 style="font-size:16px;font-weight:700">Редактировать требование</h2>
+            <button class="btn btn-ghost btn-sm" style="font-size:18px;line-height:1;padding:4px 8px">✕</button>
+          </div>
+          <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:18px">
+            <div>
+              <label class="label" for="name-s1b">
+                Название <span style="color:var(--color-danger)">*</span>
+              </label>
+              <input class="input" id="name-s1b" value="Оплата картой" data-testid="req-name-input">
+              <p style="font-size:12px;margin-top:5px;display:flex;align-items:center;gap:5px;color:var(--color-success)">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                Имя уникально
+              </p>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div>
+                <label class="label" for="crit-s1b">Критичность <span style="color:var(--color-danger)">*</span></label>
+                <select class="input" id="crit-s1b">
+                  <option>Low</option><option>Medium</option>
+                  <option selected>High</option><option>Critical</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="source-s1b">Источник требования</label>
+                <div class="combobox-wrap">
+                  <input
+                    class="input"
+                    id="source-s1b"
+                    list="source-list-s1b"
+                    value="АС21"
+                    autocomplete="off"
+                    data-testid="req-source-input"
+                    style="border-color:var(--color-primary);outline:none"
+                  >
+                  <datalist id="source-list-s1b">
+                    <option value="АС21">
+                    <option value="ПАО">
+                  </datalist>
+                </div>
+                <!-- Индикатор: пресет распознан -->
+                <p style="font-size:11px;margin-top:4px;display:flex;align-items:center;gap:4px;color:var(--color-primary)">
+                  <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                  Пресет распознан
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn-secondary btn-sm">Отменить</button>
+            <button class="btn btn-primary btn-sm">Применить</button>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--color-text-3);margin-top:8px">
+          data-testid="req-source-input" · value="АС21" · border-color=primary
+        </p>
+      </div>
+
+      <!-- Состояние 3: Кастомное значение «МойИсточник» -->
+      <div class="state-block" style="max-width:580px">
+        <div class="state-label">Состояние 3 · Кастомное «МойИсточник»</div>
+        <div class="modal-frame">
+          <div class="modal-head">
+            <h2 style="font-size:16px;font-weight:700">Редактировать требование</h2>
+            <button class="btn btn-ghost btn-sm" style="font-size:18px;line-height:1;padding:4px 8px">✕</button>
+          </div>
+          <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:18px">
+            <div>
+              <label class="label" for="name-s1c">
+                Название <span style="color:var(--color-danger)">*</span>
+              </label>
+              <input class="input" id="name-s1c" value="Оплата картой" data-testid="req-name-input">
+              <p style="font-size:12px;margin-top:5px;display:flex;align-items:center;gap:5px;color:var(--color-success)">
+                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                Имя уникально
+              </p>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div>
+                <label class="label" for="crit-s1c">Критичность <span style="color:var(--color-danger)">*</span></label>
+                <select class="input" id="crit-s1c">
+                  <option>Low</option><option>Medium</option>
+                  <option selected>High</option><option>Critical</option>
+                </select>
+              </div>
+              <div>
+                <label class="label" for="source-s1c">Источник требования</label>
+                <div class="combobox-wrap">
+                  <input
+                    class="input"
+                    id="source-s1c"
+                    list="source-list-s1c"
+                    value="МойИсточник"
+                    autocomplete="off"
+                    data-testid="req-source-input"
+                  >
+                  <datalist id="source-list-s1c">
+                    <option value="АС21">
+                    <option value="ПАО">
+                  </datalist>
+                </div>
+                <!-- Индикатор: произвольное значение -->
+                <p style="font-size:11px;margin-top:4px;display:flex;align-items:center;gap:4px;color:var(--color-text-3)">
+                  <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4m0 4h.01"/></svg>
+                  Произвольное значение
+                </p>
+              </div>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn-secondary btn-sm">Отменить</button>
+            <button class="btn btn-primary btn-sm">Применить</button>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--color-text-3);margin-top:8px">
+          data-testid="req-source-input" · value="МойИсточник" · нет outline — просто текст
+        </p>
+      </div>
+
+    </div><!-- /states-row -->
+
+    <!-- UX-аннотация -->
+    <div style="margin-top:24px;padding:14px 16px;background:var(--color-info-bg);border-radius:var(--radius);border:1px solid rgba(2,132,199,.2);font-size:13px;color:var(--color-info-fg)">
+      <b>UX-детали:</b> Поле — нативный &lt;input list="…"&gt; (combobox). Datalist содержит пресеты; пользователь может ввести любое значение. Пустое поле = «Не задан» (null в модели). При совпадении с пресетом — показать тихую индикацию «Пресет распознан» (цвет primary). Произвольное значение не подсвечивается ошибкой. Поле необязательное — нет звёздочки.
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       §2 · КОЛОНКА «ИСТОЧНИК» В TreeTable
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <section class="section" id="s2">
+    <h2 class="section-header">§2 · Колонка «Источник» в TreeTable (только режим Дерево)</h2>
+    <p class="t2" style="font-size:13px;margin-bottom:20px">
+      Колонка вставляется между «Критичность» и «Связи». Ширина ~130px. В режиме Граф колонка скрыта.
+      Три варианта отображения: «—» (не задан), пресет «АС21», кастомное «МойИсточник».
+    </p>
+
+    <div class="card" style="overflow:hidden;margin-bottom:24px">
+      <!-- Шапка таблицы с индикатором режима -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--color-surface-2);border-bottom:1px solid var(--color-border)">
+        <span style="font-size:13px;font-weight:600">Функциональные требования</span>
+        <div class="seg">
+          <span class="seg-btn seg-on">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 6h16M4 10h10M4 14h7"/></svg>
+            Дерево
+          </span>
+          <span class="seg-btn">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="m7 11 10-4m-10 6 10 4"/></svg>
+            Граф
+          </span>
+        </div>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table class="tw" data-testid="tree-table">
+          <thead>
+            <tr>
+              <th style="width:38%">Требование</th>
+              <th style="width:120px">Критичность</th>
+              <!-- НОВАЯ КОЛОНКА -->
+              <th style="width:130px" data-testid="col-source">Источник</th>
+              <th style="width:140px">Реализация</th>
+              <th>Связи</th>
+              <th style="width:120px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- L0: Платежи — не задан -->
+            <tr data-testid="tree-row">
+              <td>
+                <span style="display:flex;align-items:center;gap:8px;font-weight:600">
+                  <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+                  Платежи
+                </span>
+              </td>
+              <td><span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span></td>
+              <!-- Источник не задан -->
+              <td data-testid="source-cell">
+                <span class="source-none">—</span>
+              </td>
+              <td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success-fg)">Реализовано</span></td>
+              <td class="t3" style="font-size:12px">—</td>
+              <td style="text-align:right">
+                <div style="display:inline-flex;gap:4px;opacity:0">
+                  <button class="btn btn-ghost btn-xs">Связать</button>
+                  <button class="btn btn-ghost btn-xs" style="color:var(--color-danger)">Удалить</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- L1: Оплата картой — пресет АС21 -->
+            <tr data-testid="tree-row">
+              <td>
+                <span style="display:flex;align-items:center;gap:8px;padding-left:24px">
+                  <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+                  Оплата картой
+                </span>
+              </td>
+              <td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+              <!-- Источник: пресет -->
+              <td data-testid="source-cell">
+                <span class="source-tag" data-testid="source-preset-badge">АС21</span>
+              </td>
+              <td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success-fg)">Реализовано</span></td>
+              <td class="t3" style="font-size:12px">—</td>
+              <td style="text-align:right">
+                <div style="display:inline-flex;gap:4px">
+                  <button class="btn btn-ghost btn-xs">Связать</button>
+                  <button class="btn btn-ghost btn-xs" style="color:var(--color-danger)">Удалить</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- L2: Сохранение карты — пресет АС21 -->
+            <tr data-testid="tree-row">
+              <td>
+                <span style="display:flex;align-items:center;gap:8px;padding-left:52px">
+                  <span class="dot" style="background:var(--color-text-3)"></span>
+                  Сохранение карты (токенизация)
+                </span>
+              </td>
+              <td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+              <td data-testid="source-cell">
+                <span class="source-tag" data-testid="source-preset-badge">АС21</span>
+              </td>
+              <td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning-fg)">Q3 2026</span></td>
+              <td class="t3" style="font-size:12px">—</td>
+              <td style="text-align:right">
+                <div style="display:inline-flex;gap:4px;opacity:0">
+                  <button class="btn btn-ghost btn-xs">Связать</button>
+                  <button class="btn btn-ghost btn-xs" style="color:var(--color-danger)">Удалить</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- L1: Возвраты — кастом МойИсточник -->
+            <tr data-testid="tree-row">
+              <td>
+                <span style="display:flex;align-items:center;gap:8px;padding-left:24px">
+                  <span class="dot" style="background:var(--color-text-3)"></span>
+                  Возвраты (refund)
+                </span>
+              </td>
+              <td><span class="crit"><span class="dot" style="background:var(--crit-medium)"></span>Medium</span></td>
+              <!-- Источник: кастомный -->
+              <td data-testid="source-cell">
+                <span class="source-tag source-tag-custom" data-testid="source-custom-badge">МойИсточник</span>
+              </td>
+              <td><span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning-fg)">Q4 2026</span></td>
+              <td class="t3" style="font-size:12px">—</td>
+              <td style="text-align:right">
+                <div style="display:inline-flex;gap:4px;opacity:0">
+                  <button class="btn btn-ghost btn-xs">Связать</button>
+                  <button class="btn btn-ghost btn-xs" style="color:var(--color-danger)">Удалить</button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- L0: Выплаты — не задан -->
+            <tr data-testid="tree-row">
+              <td>
+                <span style="display:flex;align-items:center;gap:8px;font-weight:600">
+                  <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+                  Выплаты (payouts)
+                </span>
+              </td>
+              <td><span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span></td>
+              <td data-testid="source-cell">
+                <span class="source-none">—</span>
+              </td>
+              <td><span class="badge" style="background:var(--color-success-bg);color:var(--color-success-fg)">Реализовано</span></td>
+              <td class="t3" style="font-size:12px">1 связь</td>
+              <td style="text-align:right">
+                <div style="display:inline-flex;gap:4px;opacity:0">
+                  <button class="btn btn-ghost btn-xs">Связать</button>
+                  <button class="btn btn-ghost btn-xs" style="color:var(--color-danger)">Удалить</button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Легенда -->
+    <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-size:13px">
+      <span style="font-weight:600;color:var(--color-text-2)">Варианты отображения:</span>
+      <span style="display:flex;align-items:center;gap:6px">
+        <span class="source-none">—</span>
+        <span class="t3">= не задан (null)</span>
+      </span>
+      <span style="display:flex;align-items:center;gap:6px">
+        <span class="source-tag">АС21</span>
+        <span class="t3">= пресет (primary-soft фон)</span>
+      </span>
+      <span style="display:flex;align-items:center;gap:6px">
+        <span class="source-tag source-tag-custom">МойИсточник</span>
+        <span class="t3">= кастомное (surface-2 фон)</span>
+      </span>
+    </div>
+
+    <div style="margin-top:16px;padding:14px 16px;background:var(--color-info-bg);border-radius:var(--radius);border:1px solid rgba(2,132,199,.2);font-size:13px;color:var(--color-info-fg)">
+      <b>Поведение:</b> Колонка «Источник» (width=130px) показывается только когда активен режим <b>Дерево</b>. В режиме <b>Граф</b> — скрыта (display:none). Пресетные значения (совпадающие с предустановленным списком) рендерятся тегом с indigo-фоном; произвольные — серым тегом. null/пустая строка → тире «—».
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       §3 · ФИЛЬТР «ИСТОЧНИК» В TreeToolbar
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <section class="section" id="s3">
+    <h2 class="section-header">§3 · Фильтр «Источник» — в TreeToolbar</h2>
+    <p class="t2" style="font-size:13px;margin-bottom:20px">
+      Кнопка «Источник» встаёт рядом с «Критичность» и «Реализация» — аналогичный стиль btn-secondary.
+      Дропдаун: мультиселект с чекбоксами, в том числе «Не задан».
+      Показаны два состояния тулбара: без активных фильтров и с активным фильтром (бейдж «1»).
+    </p>
+
+    <!-- Тулбар: без активного фильтра Источник -->
+    <div style="margin-bottom:24px">
+      <div class="state-label">Тулбар — фильтр Источник не активен</div>
+      <div class="toolbar" data-testid="tree-toolbar">
+        <!-- Сегментированный переключатель вида -->
+        <div class="seg" role="group">
+          <button class="seg-btn seg-on">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 6h16M4 10h10M4 14h7"/></svg>
+            Дерево
+          </button>
+          <button class="seg-btn">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="m7 11 10-4m-10 6 10 4"/></svg>
+            Граф
+          </button>
+        </div>
+
+        <!-- Поиск -->
+        <div style="position:relative;max-width:240px;width:100%">
+          <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--color-text-3)" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input class="input" style="padding-left:32px;height:36px;font-size:13px" placeholder="Поиск по названию…" data-testid="search-input">
+        </div>
+
+        <!-- Критичность -->
+        <button class="btn btn-secondary btn-sm" data-testid="criticality-filter">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M7 12h10M11 18h2"/></svg>
+          Критичность
+        </button>
+
+        <!-- Реализация -->
+        <button class="btn btn-secondary btn-sm" data-testid="impl-filter">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          Реализация
+        </button>
+
+        <!-- НОВАЯ КНОПКА: Источник -->
+        <button class="btn btn-secondary btn-sm" data-testid="source-filter">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"/></svg>
+          Источник
+        </button>
+
+        <div style="flex:1"></div>
+        <span style="font-size:12px;color:var(--color-text-3)">Показано 11 из 11</span>
+      </div>
+    </div>
+
+    <!-- Тулбар: фильтр Источник активен (бейдж 1) + открытый дропдаун -->
+    <div style="margin-bottom:24px">
+      <div class="state-label">Тулбар — фильтр активен + открытый дропдаун</div>
+      <div class="toolbar" style="position:relative" data-testid="tree-toolbar">
+        <div class="seg" role="group">
+          <button class="seg-btn seg-on">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 6h16M4 10h10M4 14h7"/></svg>
+            Дерево
+          </button>
+          <button class="seg-btn">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="m7 11 10-4m-10 6 10 4"/></svg>
+            Граф
+          </button>
+        </div>
+
+        <div style="position:relative;max-width:240px;width:100%">
+          <svg style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--color-text-3)" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input class="input" style="padding-left:32px;height:36px;font-size:13px" placeholder="Поиск по названию…" data-testid="search-input">
+        </div>
+
+        <button class="btn btn-secondary btn-sm" data-testid="criticality-filter">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M7 12h10M11 18h2"/></svg>
+          Критичность
+        </button>
+
+        <button class="btn btn-secondary btn-sm" data-testid="impl-filter">
+          <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          Реализация
+        </button>
+
+        <!-- Кнопка Источник — АКТИВНЫЙ фильтр -->
+        <div style="position:relative">
+          <button
+            class="btn btn-secondary btn-sm"
+            style="border-color:var(--color-primary);color:var(--color-primary)"
+            data-testid="source-filter"
+          >
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"/></svg>
+            Источник
+            <span class="filter-badge">1</span>
+            <svg class="chev" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+
+          <!-- ОТКРЫТЫЙ ДРОПДАУН -->
+          <div class="dd" data-testid="source-dropdown" style="min-width:220px">
+            <div class="dd-head">Источник требования</div>
+
+            <!-- Не задан — не выбран -->
+            <label class="dd-opt" data-testid="source-opt-none">
+              <span class="cbx"></span>
+              <span style="font-size:13px;color:var(--color-text-3)">Не задан</span>
+            </label>
+
+            <!-- АС21 — выбран -->
+            <label class="dd-opt" data-testid="source-opt-as21">
+              <span class="cbx cbx-on">
+                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+              </span>
+              <span style="display:flex;align-items:center;gap:6px;font-size:13px">
+                <span class="source-tag" style="font-size:11px;padding:1px 6px">АС21</span>
+                <span class="t3" style="font-size:11px">пресет</span>
+              </span>
+            </label>
+
+            <!-- ПАО — не выбран -->
+            <label class="dd-opt" data-testid="source-opt-pao">
+              <span class="cbx"></span>
+              <span style="display:flex;align-items:center;gap:6px;font-size:13px">
+                <span class="source-tag" style="font-size:11px;padding:1px 6px">ПАО</span>
+                <span class="t3" style="font-size:11px">пресет</span>
+              </span>
+            </label>
+
+            <!-- МойИсточник — не выбран (кастомный) -->
+            <label class="dd-opt" data-testid="source-opt-custom-moiistochnik">
+              <span class="cbx"></span>
+              <span style="display:flex;align-items:center;gap:6px;font-size:13px">
+                <span class="source-tag source-tag-custom" style="font-size:11px;padding:1px 6px">МойИсточник</span>
+                <span class="t3" style="font-size:11px">кастом</span>
+              </span>
+            </label>
+
+            <div class="dd-foot">
+              <button class="btn btn-ghost btn-xs" data-testid="source-filter-reset">Сбросить</button>
+              <button class="btn btn-primary btn-xs" data-testid="source-filter-apply">Применить</button>
+            </div>
+          </div>
+        </div><!-- /relative -->
+
+        <div style="flex:1"></div>
+        <span style="font-size:12px;color:var(--color-text-3)">Показано 3 из 11 · по источнику</span>
+      </div>
+    </div>
+
+    <div style="padding:14px 16px;background:var(--color-info-bg);border-radius:var(--radius);border:1px solid rgba(2,132,199,.2);font-size:13px;color:var(--color-info-fg)">
+      <b>Поведение:</b> Кнопка активна (border primary, text primary, бейдж-счётчик) когда хотя бы один вариант выбран. В дропдауне кастомные значения собираются из реально встречающихся в дереве (динамический список). Пресеты идут первыми в алфавитном порядке, кастомные — ниже с пометкой «кастом». data-testid для каждого значения: <code>source-opt-{slug}</code>.
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       §4 · СЕКЦИЯ «СПРАВОЧНАЯ ИНФОРМАЦИЯ» В RequirementModal
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <section class="section" id="s4">
+    <h2 class="section-header">§4 · Секция «Справочная информация» — в RequirementModal</h2>
+    <p class="t2" style="font-size:13px;margin-bottom:20px">
+      Секция с заголовком + кнопка «+» для добавления пары ключ-значение.
+      Показаны четыре состояния: пустое, добавление пары (inline-форма), список сохранённых пар, состояние удаления с подтверждением.
+    </p>
+
+    <div class="states-row" style="gap:32px;align-items:flex-start">
+
+      <!-- Состояние 1: Пустая секция -->
+      <div class="state-block" style="max-width:540px">
+        <div class="state-label">Состояние 1 · Пустая секция</div>
+        <div class="modal-frame">
+          <div class="modal-head">
+            <h2 style="font-size:16px;font-weight:700">Редактировать требование</h2>
+            <button class="btn btn-ghost btn-sm" style="font-size:18px;line-height:1;padding:4px 8px">✕</button>
+          </div>
+          <div class="modal-body" style="padding:20px">
+
+            <!-- … прочие поля формы (свёрнуты) … -->
+            <div style="padding:12px;background:var(--color-surface-2);border-radius:var(--radius-sm);margin-bottom:16px;font-size:12px;color:var(--color-text-3);text-align:center">
+              … поля Название, Критичность, Источник, Описание …
+            </div>
+
+            <!-- СЕКЦИЯ: Справочная информация -->
+            <div data-testid="ref-info-section">
+              <div class="form-section-title">
+                Справочная информация
+              </div>
+
+              <!-- Пустое состояние -->
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--color-surface-2);border-radius:var(--radius-sm);border:1px dashed var(--color-border)">
+                <span style="font-size:13px;color:var(--color-text-3)">Пар не добавлено</span>
+                <button
+                  class="btn btn-ghost btn-sm"
+                  style="color:var(--color-primary);font-weight:700;font-size:16px;padding:2px 8px;line-height:1"
+                  data-testid="ref-info-add-btn"
+                  title="Добавить пару"
+                >+</button>
+              </div>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn-secondary btn-sm">Отменить</button>
+            <button class="btn btn-primary btn-sm">Применить</button>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--color-text-3);margin-top:8px">data-testid="ref-info-section", "ref-info-add-btn"</p>
+      </div>
+
+      <!-- Состояние 2: Inline-форма добавления -->
+      <div class="state-block" style="max-width:540px">
+        <div class="state-label">Состояние 2 · Inline-форма добавления пары</div>
+        <div class="modal-frame">
+          <div class="modal-head">
+            <h2 style="font-size:16px;font-weight:700">Редактировать требование</h2>
+            <button class="btn btn-ghost btn-sm" style="font-size:18px;line-height:1;padding:4px 8px">✕</button>
+          </div>
+          <div class="modal-body" style="padding:20px">
+            <div style="padding:12px;background:var(--color-surface-2);border-radius:var(--radius-sm);margin-bottom:16px;font-size:12px;color:var(--color-text-3);text-align:center">
+              … поля Название, Критичность, Источник, Описание …
+            </div>
+
+            <div data-testid="ref-info-section">
+              <div class="form-section-title">Справочная информация</div>
+
+              <!-- Уже сохранённые пары -->
+              <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">
+                <span class="ref-pair" data-testid="ref-info-pair">
+                  <span class="ref-pair-key">Регламент</span>
+                  <span style="color:var(--color-text-3);margin:0 2px">:</span>
+                  <span class="ref-pair-val">ГОСТ 34</span>
+                  <button
+                    class="btn-icon btn-icon-danger"
+                    style="width:20px;height:20px;margin-left:2px;font-size:13px"
+                    data-testid="ref-info-pair-delete"
+                    title="Удалить"
+                  >✕</button>
+                </span>
+              </div>
+
+              <!-- Inline-форма (открыта) -->
+              <div
+                data-testid="ref-info-inline-form"
+                style="display:flex;align-items:flex-start;gap:6px;padding:10px;background:var(--color-surface-2);border-radius:var(--radius-sm);border:1px solid var(--color-border)"
+              >
+                <div style="flex:1;min-width:0">
+                  <label class="label" style="font-size:11px;margin-bottom:4px" for="ref-type-s4b">Тип <span style="color:var(--color-text-3);font-weight:400">(макс. 50)</span></label>
+                  <input
+                    class="input input-sm"
+                    id="ref-type-s4b"
+                    placeholder="Заказчик"
+                    maxlength="50"
+                    data-testid="ref-info-type-input"
+                    style="border-color:var(--color-primary)"
+                    value="Заказчик"
+                    autofocus
+                  >
+                </div>
+                <div style="flex:2;min-width:0">
+                  <label class="label" style="font-size:11px;margin-bottom:4px" for="ref-val-s4b">Значение <span style="color:var(--color-text-3);font-weight:400">(макс. 100)</span></label>
+                  <input
+                    class="input input-sm"
+                    id="ref-val-s4b"
+                    placeholder='ПАО "Газпром"'
+                    maxlength="100"
+                    data-testid="ref-info-value-input"
+                    value='ПАО "Газпром"'
+                  >
+                </div>
+                <!-- Иконка: применить -->
+                <div style="display:flex;flex-direction:column;gap:4px;padding-top:22px">
+                  <button
+                    class="btn-icon"
+                    style="background:var(--color-success-bg);color:var(--color-success-fg);border:1px solid rgba(22,163,74,.2);width:30px;height:30px"
+                    data-testid="ref-info-confirm-btn"
+                    title="Применить"
+                  >
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>
+                  </button>
+                  <!-- Иконка: отмена -->
+                  <button
+                    class="btn-icon btn-icon-danger"
+                    style="width:30px;height:30px;border:1px solid transparent"
+                    data-testid="ref-info-cancel-btn"
+                    title="Отменить"
+                  >
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Кнопка + (свёрнута, пока форма открыта) -->
+              <button
+                class="btn btn-ghost btn-xs"
+                style="margin-top:8px;color:var(--color-text-3);opacity:.4;cursor:not-allowed"
+                disabled
+                title="Закройте текущую форму перед добавлением"
+              >+ Добавить ещё</button>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn-secondary btn-sm">Отменить</button>
+            <button class="btn btn-primary btn-sm">Применить</button>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--color-text-3);margin-top:8px">
+          data-testid="ref-info-inline-form", "ref-info-type-input", "ref-info-value-input", "ref-info-confirm-btn", "ref-info-cancel-btn"
+        </p>
+      </div>
+
+      <!-- Состояние 3: Сохранённые пары -->
+      <div class="state-block" style="max-width:540px">
+        <div class="state-label">Состояние 3 · Список сохранённых пар</div>
+        <div class="modal-frame">
+          <div class="modal-head">
+            <h2 style="font-size:16px;font-weight:700">Редактировать требование</h2>
+            <button class="btn btn-ghost btn-sm" style="font-size:18px;line-height:1;padding:4px 8px">✕</button>
+          </div>
+          <div class="modal-body" style="padding:20px">
+            <div style="padding:12px;background:var(--color-surface-2);border-radius:var(--radius-sm);margin-bottom:16px;font-size:12px;color:var(--color-text-3);text-align:center">
+              … поля Название, Критичность, Источник, Описание …
+            </div>
+
+            <div data-testid="ref-info-section">
+              <div class="form-section-title">Справочная информация</div>
+
+              <!-- Список пар -->
+              <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+
+                <!-- Пара 1 -->
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <span class="ref-pair" data-testid="ref-info-pair">
+                    <span class="ref-pair-key">Регламент</span>
+                    <span style="color:var(--color-text-3);margin:0 3px">:</span>
+                    <span class="ref-pair-val">ГОСТ 34</span>
+                  </span>
+                  <button
+                    class="btn-icon btn-icon-danger"
+                    style="width:24px;height:24px;font-size:12px"
+                    data-testid="ref-info-pair-delete"
+                    title="Удалить пару"
+                  >
+                    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+
+                <!-- Пара 2 -->
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <span class="ref-pair" data-testid="ref-info-pair">
+                    <span class="ref-pair-key">Заказчик</span>
+                    <span style="color:var(--color-text-3);margin:0 3px">:</span>
+                    <span class="ref-pair-val">ПАО "Газпром"</span>
+                  </span>
+                  <button
+                    class="btn-icon btn-icon-danger"
+                    style="width:24px;height:24px;font-size:12px"
+                    data-testid="ref-info-pair-delete"
+                    title="Удалить пару"
+                  >
+                    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+
+              </div>
+
+              <!-- Кнопка добавить ещё -->
+              <button
+                class="btn btn-ghost btn-xs"
+                style="color:var(--color-primary)"
+                data-testid="ref-info-add-btn"
+              >+ Добавить пару</button>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn-secondary btn-sm">Отменить</button>
+            <button class="btn btn-primary btn-sm">Применить</button>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--color-text-3);margin-top:8px">
+          data-testid="ref-info-pair" (×n), "ref-info-pair-delete", "ref-info-add-btn"
+        </p>
+      </div>
+
+      <!-- Состояние 4: Inline-подтверждение удаления -->
+      <div class="state-block" style="max-width:540px">
+        <div class="state-label">Состояние 4 · Inline-подтверждение удаления пары</div>
+        <div class="modal-frame">
+          <div class="modal-head">
+            <h2 style="font-size:16px;font-weight:700">Редактировать требование</h2>
+            <button class="btn btn-ghost btn-sm" style="font-size:18px;line-height:1;padding:4px 8px">✕</button>
+          </div>
+          <div class="modal-body" style="padding:20px">
+            <div style="padding:12px;background:var(--color-surface-2);border-radius:var(--radius-sm);margin-bottom:16px;font-size:12px;color:var(--color-text-3);text-align:center">
+              … поля Название, Критичность, Источник, Описание …
+            </div>
+
+            <div data-testid="ref-info-section">
+              <div class="form-section-title">Справочная информация</div>
+
+              <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px">
+
+                <!-- Пара 1: обычная -->
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <span class="ref-pair">
+                    <span class="ref-pair-key">Регламент</span>
+                    <span style="color:var(--color-text-3);margin:0 3px">:</span>
+                    <span class="ref-pair-val">ГОСТ 34</span>
+                  </span>
+                  <button
+                    class="btn-icon btn-icon-danger"
+                    style="width:24px;height:24px;font-size:12px"
+                    data-testid="ref-info-pair-delete"
+                  >
+                    <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+
+                <!-- Пара 2: состояние удаления — inline-confirm -->
+                <div
+                  data-testid="ref-info-pair-confirm"
+                  style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--color-danger-bg);border:1px solid rgba(220,38,38,.2);border-radius:var(--radius-sm)"
+                >
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:13px;color:var(--color-danger-fg)">
+                      Удалить <b>Заказчик: ПАО "Газпром"</b>?
+                    </span>
+                  </div>
+                  <div style="display:flex;gap:6px;flex:none">
+                    <button
+                      class="btn btn-danger btn-xs"
+                      data-testid="ref-info-pair-confirm-yes"
+                    >Да</button>
+                    <button
+                      class="btn btn-secondary btn-xs"
+                      data-testid="ref-info-pair-confirm-no"
+                    >Нет</button>
+                  </div>
+                </div>
+
+              </div>
+
+              <button
+                class="btn btn-ghost btn-xs"
+                style="color:var(--color-primary)"
+                data-testid="ref-info-add-btn"
+              >+ Добавить пару</button>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn-secondary btn-sm">Отменить</button>
+            <button class="btn btn-primary btn-sm" disabled>Применить</button>
+          </div>
+        </div>
+        <p style="font-size:11px;color:var(--color-text-3);margin-top:8px">
+          data-testid="ref-info-pair-confirm", "ref-info-pair-confirm-yes", "ref-info-pair-confirm-no"
+        </p>
+      </div>
+
+    </div><!-- /states-row -->
+
+    <div style="margin-top:24px;padding:14px 16px;background:var(--color-info-bg);border-radius:var(--radius);border:1px solid rgba(2,132,199,.2);font-size:13px;color:var(--color-info-fg)">
+      <b>UX-детали:</b> Поле «Тип» — maxlength=50, поле «Значение» — maxlength=100. При нажатии ✓ (ref-info-confirm-btn) — пара добавляется в список, форма скрывается. При нажатии ✕ в форме — форма скрывается без сохранения. При нажатии ✕ рядом с парой — строка переходит в inline-confirm (пара подсвечивается красным, кнопки «Да»/«Нет»). Кнопка «Применить» модалки заблокирована в состоянии ожидания подтверждения.
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       §5 · ФИЛЬТРЫ В ExportTasksModal
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <section class="section" id="s5">
+    <h2 class="section-header">§5 · Зона фильтров в ExportTasksModal</h2>
+    <p class="t2" style="font-size:13px;margin-bottom:20px">
+      Компактная зона фильтрации перед шагом выбора/экспорта требований.
+      Фильтрует: критичность (мультиселект-кнопки), реализация (мультиселект-кнопки), квартал/год (чипы).
+      Показаны два состояния: без фильтров и с активными фильтрами.
+    </p>
+
+    <div class="states-row" style="gap:32px;align-items:flex-start">
+
+      <!-- Состояние A: Без фильтров (все сброшены) -->
+      <div class="state-block" style="max-width:580px">
+        <div class="state-label">Состояние A · Без активных фильтров</div>
+        <div class="modal-frame" style="max-width:580px">
+          <div class="modal-head">
+            <div>
+              <h2 style="font-size:16px;font-weight:700">Экспорт задач</h2>
+              <p style="font-size:12px;color:var(--color-text-3);margin-top:2px">Шаг 2: выберите требования для экспорта</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" style="font-size:18px;line-height:1;padding:4px 8px">✕</button>
+          </div>
+          <div class="modal-body">
+
+            <!-- ЗОНА ФИЛЬТРОВ -->
+            <div class="filter-zone" data-testid="export-tasks-filter-zone" style="margin-bottom:16px">
+              <div class="filter-zone-title">Фильтровать требования</div>
+
+              <!-- Строка: Критичность -->
+              <div class="filter-row">
+                <span class="filter-row-label">Критичность</span>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-crit-low">
+                    <span class="dot" style="background:var(--crit-low)"></span>Low
+                  </button>
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-crit-medium">
+                    <span class="dot" style="background:var(--crit-medium)"></span>Medium
+                  </button>
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-crit-high">
+                    <span class="dot" style="background:var(--crit-high)"></span>High
+                  </button>
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-crit-critical">
+                    <span class="dot" style="background:var(--crit-critical)"></span>Critical
+                  </button>
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-crit-blocker">
+                    <span class="dot" style="background:var(--crit-blocker)"></span>Blocker
+                  </button>
+                </div>
+              </div>
+
+              <!-- Строка: Реализация -->
+              <div class="filter-row">
+                <span class="filter-row-label">Реализация</span>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-impl-done">
+                    Реализовано
+                  </button>
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-impl-planned">
+                    Не реализовано
+                  </button>
+                </div>
+              </div>
+
+              <!-- Строка: Квартал -->
+              <div class="filter-row">
+                <span class="filter-row-label">Квартал</span>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  <span class="quarter-chip" data-testid="export-quarter-q1-2026">Q1 2026</span>
+                  <span class="quarter-chip" data-testid="export-quarter-q2-2026">Q2 2026</span>
+                  <span class="quarter-chip" data-testid="export-quarter-q3-2026">Q3 2026</span>
+                  <span class="quarter-chip" data-testid="export-quarter-q4-2026">Q4 2026</span>
+                  <span class="quarter-chip" data-testid="export-quarter-q1-2027">Q1 2027</span>
+                </div>
+              </div>
+
+              <!-- Кнопки управления фильтрами -->
+              <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--color-border)">
+                <button class="btn btn-ghost btn-xs" disabled style="opacity:.4;cursor:not-allowed" data-testid="export-filter-reset">Сбросить фильтры</button>
+                <span style="font-size:12px;color:var(--color-text-3);align-self:center">11 из 11 требований</span>
+              </div>
+            </div>
+
+            <!-- Превью списка (сокращено) -->
+            <div style="max-height:160px;overflow:hidden;position:relative">
+              <div style="padding:8px 12px;font-size:13px;color:var(--color-text-2);font-style:italic;text-align:center;background:var(--color-surface-2);border-radius:var(--radius-sm)">
+                Список требований для выбора (11 шт.) — скроллируется
+              </div>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn-secondary btn-sm">Назад</button>
+            <button class="btn btn-primary btn-sm" data-testid="export-tasks-proceed">Далее →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Состояние B: С активными фильтрами -->
+      <div class="state-block" style="max-width:580px">
+        <div class="state-label">Состояние B · Активные фильтры: High + Critical, Q3 2026</div>
+        <div class="modal-frame" style="max-width:580px">
+          <div class="modal-head">
+            <div>
+              <h2 style="font-size:16px;font-weight:700">Экспорт задач</h2>
+              <p style="font-size:12px;color:var(--color-text-3);margin-top:2px">Шаг 2: выберите требования для экспорта</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" style="font-size:18px;line-height:1;padding:4px 8px">✕</button>
+          </div>
+          <div class="modal-body">
+
+            <div class="filter-zone" data-testid="export-tasks-filter-zone" style="margin-bottom:16px">
+              <div class="filter-zone-title">Фильтровать требования</div>
+
+              <!-- Строка: Критичность — High и Critical активны -->
+              <div class="filter-row">
+                <span class="filter-row-label">Критичность</span>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-crit-low">
+                    <span class="dot" style="background:var(--crit-low)"></span>Low
+                  </button>
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-crit-medium">
+                    <span class="dot" style="background:var(--crit-medium)"></span>Medium
+                  </button>
+                  <!-- АКТИВНЫЙ: High -->
+                  <button
+                    class="btn btn-xs"
+                    style="border-radius:999px;font-weight:600;background:var(--color-primary-soft);color:var(--color-primary);border:1.5px solid var(--color-primary)"
+                    data-testid="export-crit-high"
+                  >
+                    <span class="dot" style="background:var(--crit-high)"></span>High
+                  </button>
+                  <!-- АКТИВНЫЙ: Critical -->
+                  <button
+                    class="btn btn-xs"
+                    style="border-radius:999px;font-weight:600;background:var(--color-primary-soft);color:var(--color-primary);border:1.5px solid var(--color-primary)"
+                    data-testid="export-crit-critical"
+                  >
+                    <span class="dot" style="background:var(--crit-critical)"></span>Critical
+                  </button>
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-crit-blocker">
+                    <span class="dot" style="background:var(--crit-blocker)"></span>Blocker
+                  </button>
+                </div>
+              </div>
+
+              <!-- Строка: Реализация — всё сброшено -->
+              <div class="filter-row">
+                <span class="filter-row-label">Реализация</span>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-impl-done">
+                    Реализовано
+                  </button>
+                  <button class="btn btn-secondary btn-xs" style="border-radius:999px;font-weight:600" data-testid="export-impl-planned">
+                    Не реализовано
+                  </button>
+                </div>
+              </div>
+
+              <!-- Строка: Квартал — Q3 2026 активен -->
+              <div class="filter-row">
+                <span class="filter-row-label">Квартал</span>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  <span class="quarter-chip" data-testid="export-quarter-q1-2026">Q1 2026</span>
+                  <span class="quarter-chip" data-testid="export-quarter-q2-2026">Q2 2026</span>
+                  <!-- АКТИВНЫЙ: Q3 2026 -->
+                  <span class="quarter-chip active" data-testid="export-quarter-q3-2026">Q3 2026</span>
+                  <span class="quarter-chip" data-testid="export-quarter-q4-2026">Q4 2026</span>
+                  <span class="quarter-chip" data-testid="export-quarter-q1-2027">Q1 2027</span>
+                </div>
+              </div>
+
+              <!-- Кнопки управления — сброс активен -->
+              <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--color-border)">
+                <button class="btn btn-ghost btn-xs" style="color:var(--color-danger)" data-testid="export-filter-reset">
+                  Сбросить фильтры
+                </button>
+                <span style="font-size:12px;color:var(--color-text-3);align-self:center">
+                  4 из 11 требований
+                </span>
+              </div>
+            </div>
+
+            <!-- Превью отфильтрованных -->
+            <div style="background:var(--color-surface-2);border-radius:var(--radius-sm);padding:10px 14px;font-size:13px">
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <input type="checkbox" checked style="accent-color:var(--color-primary)">
+                  <span style="font-weight:600">Платежи</span>
+                  <span class="crit"><span class="dot" style="background:var(--crit-critical)"></span>Critical</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;padding-left:16px">
+                  <input type="checkbox" checked style="accent-color:var(--color-primary)">
+                  <span>Оплата картой</span>
+                  <span class="crit"><span class="dot" style="background:var(--crit-high)"></span>High</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;padding-left:32px">
+                  <input type="checkbox" checked style="accent-color:var(--color-primary)">
+                  <span>Сохранение карты (токенизация)</span>
+                  <span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning-fg);font-size:11px;padding:1px 7px">Q3 2026</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;padding-left:32px">
+                  <input type="checkbox" checked style="accent-color:var(--color-primary)">
+                  <span>3-D Secure 2.0</span>
+                  <span class="badge" style="background:var(--color-warning-bg);color:var(--color-warning-fg);font-size:11px;padding:1px 7px">Q3 2026</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-foot">
+            <button class="btn btn-secondary btn-sm">Назад</button>
+            <button class="btn btn-primary btn-sm" data-testid="export-tasks-proceed">Далее → (4)</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /states-row -->
+
+    <div style="margin-top:24px;padding:14px 16px;background:var(--color-info-bg);border-radius:var(--radius);border:1px solid rgba(2,132,199,.2);font-size:13px;color:var(--color-info-fg)">
+      <b>UX-детали:</b> Все фильтры работают совместно (AND-логика между строками, OR внутри строки). Квартальные чипы динамически формируются из реально встречающихся Q+Year в проекте. Активный элемент: indigo-soft фон, primary border. Кнопка «Сбросить фильтры» активна только при наличии хотя бы одного активного фильтра. Счётчик «N из M требований» обновляется реактивно.
+    </div>
+  </section>
+
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       СВОДНАЯ ТАБЛИЦА data-testid
+  ══════════════════════════════════════════════════════════════════════════ -->
+  <section style="margin-bottom:40px">
+    <h2 class="section-header">Сводная таблица data-testid</h2>
+    <div style="overflow-x:auto">
+      <table style="width:100%;font-size:13px;border-collapse:collapse">
+        <thead>
+          <tr style="background:var(--color-surface-2)">
+            <th style="text-align:left;padding:8px 12px;border:1px solid var(--color-border);font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-text-3)">data-testid</th>
+            <th style="text-align:left;padding:8px 12px;border:1px solid var(--color-border);font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-text-3)">Элемент</th>
+            <th style="text-align:left;padding:8px 12px;border:1px solid var(--color-border);font-size:11px;font-weight:700;text-transform:uppercase;color:var(--color-text-3)">Секция</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">req-source-input</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Поле «Источник» в RequirementModal</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§1</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">col-source</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Заголовок колонки «Источник» в TreeTable</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§2</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">source-cell</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Ячейка источника в строке таблицы</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§2</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">source-preset-badge</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Тег-пресет источника (indigo)</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§2</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">source-custom-badge</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Тег-кастом источника (серый)</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§2</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">source-filter</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка фильтра «Источник» в тулбаре</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§3</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">source-dropdown</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Дропдаун фильтра Источник</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§3</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">source-opt-none</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Опция «Не задан» в дропдауне</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§3</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">source-opt-{slug}</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Опция по значению (slug = as21, pao, …)</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§3</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">source-filter-reset</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка «Сбросить» в дропдауне</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§3</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">source-filter-apply</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка «Применить» в дропдауне</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§3</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-section</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Контейнер секции «Справочная информация»</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-add-btn</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка «+ Добавить пару»</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-inline-form</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Inline-форма добавления пары</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-type-input</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Поле «Тип» в inline-форме</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-value-input</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Поле «Значение» в inline-форме</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-confirm-btn</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка ✓ (применить пару)</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-cancel-btn</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка ✕ (отмена добавления)</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-pair</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Тег сохранённой пары (повторяется)</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-pair-delete</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка удаления пары (×)</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-pair-confirm</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Inline-confirm строка (состояние удаления)</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-pair-confirm-yes</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка «Да» подтверждения удаления</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">ref-info-pair-confirm-no</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка «Нет» подтверждения удаления</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§4</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">export-tasks-filter-zone</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Зона фильтров в ExportTasksModal</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§5</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">export-crit-{level}</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка фильтра критичности (low/medium/high/critical/blocker)</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§5</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">export-impl-done</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка фильтра «Реализовано»</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§5</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">export-impl-planned</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка фильтра «Не реализовано»</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§5</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">export-quarter-{q}-{year}</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Квартальный чип (q1-2026, q3-2026, …)</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§5</td></tr>
+          <tr><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">export-filter-reset</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка «Сбросить фильтры»</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§5</td></tr>
+          <tr style="background:var(--color-surface-2)"><td style="padding:6px 12px;border:1px solid var(--color-border);font-family:var(--font-mono);font-size:12px">export-tasks-proceed</td><td style="padding:6px 12px;border:1px solid var(--color-border)">Кнопка «Далее» в ExportTasksModal</td><td style="padding:6px 12px;border:1px solid var(--color-border)">§5</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div><!-- /page -->
+</body>
+</html>

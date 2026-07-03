@@ -164,6 +164,95 @@ describe('T-802 ParseError handling (S2–S6)', () => {
   });
 });
 
+describe('T-802 source and infoItems fields', () => {
+  it('round-trips req with source and infoItems without loss', () => {
+    const req = makeReq({
+      source: 'АС21',
+      infoItems: [
+        { type: 'Регламент', value: 'ГОСТ 34' },
+        { type: 'Приказ', value: '№123' },
+      ],
+    });
+    expect(roundTrip(req)).toEqual(req);
+  });
+
+  it('backward compat: file without source or #### Info parses without error', () => {
+    const req = makeReq();
+    const parsed = roundTrip(req);
+    expect(parsed.source).toBeUndefined();
+    expect(parsed.infoItems).toBeUndefined();
+  });
+
+  it('tolerant parsing: line in #### Info without colon is skipped, no ParseError', () => {
+    const md = [
+      '### Requirement: R',
+      '- criticality: MEDIUM',
+      '- implemented: true',
+      '- createdAt: 2026-01-01T00:00:00Z',
+      '- updatedAt: 2026-01-01T00:00:00Z',
+      '',
+      '#### Info',
+      'this line has no colon',
+      '- Регламент: ГОСТ 34',
+    ].join('\n');
+    const ctx: ParseContext = { slug: 'r', type: 'FUNCTION' };
+    expect(() => parse(md, ctx)).not.toThrow();
+    const parsed = parse(md, ctx);
+    expect(parsed.infoItems).toEqual([{ type: 'Регламент', value: 'ГОСТ 34' }]);
+  });
+
+  it('source in meta: parse correctly reads - source: АС21', () => {
+    const md = [
+      '### Requirement: R',
+      '- criticality: MEDIUM',
+      '- implemented: true',
+      '- createdAt: 2026-01-01T00:00:00Z',
+      '- updatedAt: 2026-01-01T00:00:00Z',
+      '- source: АС21',
+    ].join('\n');
+    const ctx: ParseContext = { slug: 'r', type: 'FUNCTION' };
+    const parsed = parse(md, ctx);
+    expect(parsed.source).toBe('АС21');
+  });
+
+  it('infoItems round-trip: [{type:"Регламент", value:"ГОСТ 34"}] survives serialize→parse', () => {
+    const req = makeReq({ infoItems: [{ type: 'Регламент', value: 'ГОСТ 34' }] });
+    const parsed = roundTrip(req);
+    expect(parsed.infoItems).toEqual([{ type: 'Регламент', value: 'ГОСТ 34' }]);
+  });
+
+  it('source with empty string is treated as undefined (not stored)', () => {
+    const md = [
+      '### Requirement: R',
+      '- criticality: MEDIUM',
+      '- implemented: true',
+      '- createdAt: 2026-01-01T00:00:00Z',
+      '- updatedAt: 2026-01-01T00:00:00Z',
+      '- source:  ',
+    ].join('\n');
+    const ctx: ParseContext = { slug: 'r', type: 'FUNCTION' };
+    const parsed = parse(md, ctx);
+    expect(parsed.source).toBeUndefined();
+  });
+
+  it('serialize emits - source: when source is set', () => {
+    const req = makeReq({ source: 'ПАО' });
+    expect(serialize(req)).toContain('- source: ПАО');
+  });
+
+  it('serialize emits #### Info section when infoItems present', () => {
+    const req = makeReq({ infoItems: [{ type: 'Тип', value: 'Знач' }] });
+    const md = serialize(req);
+    expect(md).toContain('#### Info');
+    expect(md).toContain('- Тип: Знач');
+  });
+
+  it('serialize does NOT emit #### Info when infoItems is undefined or empty', () => {
+    expect(serialize(makeReq())).not.toContain('#### Info');
+    expect(serialize(makeReq({ infoItems: [] }))).not.toContain('#### Info');
+  });
+});
+
 describe('T-802 scenarios are optional and completeness is flagged (S6)', () => {
   it('parses a requirement with no scenarios (scenarios undefined)', () => {
     const parsed = roundTrip(makeReq({ description: 'x' }));

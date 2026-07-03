@@ -6,3 +6,8 @@ playwright-report/
 test-results/
 .DS_Store
 Projects/
+
+# Генерируемые артефакты скилов/графа знаний (регенерируются, в архив/коммит не идут)
+graphify-out/
+architect-out/
+design-out/

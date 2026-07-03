@@ -57,6 +57,10 @@ interface UiState {
   implementationFilter: Set<ImplStatus>;
   setImplementationFilter: (statuses: Iterable<ImplStatus>) => void;
 
+  /** Applied source filter; empty = show all (FR-19). */
+  sourceFilter: Set<string>;
+  setSourceFilter: (sources: Iterable<string>) => void;
+
   /** Clear every applied filter at once (UX-6 "Сбросить фильтры"). */
   resetFilters: () => void;
 
@@ -106,10 +110,14 @@ export const useUiStore = create<UiState>((set, get) => ({
   implementationFilter: new Set<ImplStatus>(),
   setImplementationFilter: (statuses) => set({ implementationFilter: new Set(statuses) }),
 
+  sourceFilter: new Set<string>(),
+  setSourceFilter: (sources) => set({ sourceFilter: new Set(sources) }),
+
   resetFilters: () =>
     set({
       criticalityFilter: new Set<Criticality>(),
       implementationFilter: new Set<ImplStatus>(),
+      sourceFilter: new Set<string>(),
     }),
 
   modal: null,

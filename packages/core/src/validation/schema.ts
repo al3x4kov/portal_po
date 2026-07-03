@@ -6,6 +6,11 @@ import {
   SCENARIO_KEYWORDS,
   TARGET_QUARTERS,
 } from '../domain/types.js';
+
+export const infoItemSchema = z.object({
+  type: z.string().min(1).max(50),
+  value: z.string().min(1).max(100),
+});
 import { SLUG_RE } from '../domain/slug.js';
 
 export const linkSchema = z.object({
@@ -40,6 +45,8 @@ export const requirementSchema = z.object({
   links: z.array(linkSchema).default([]),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
+  source: z.string().max(100).optional(),
+  infoItems: z.array(infoItemSchema).optional(),
 });
 
 export type RequirementInput = z.input<typeof requirementSchema>;

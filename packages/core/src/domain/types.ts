@@ -17,6 +17,17 @@ export const TARGET_QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'] as const;
 export type TargetQuarter = (typeof TARGET_QUARTERS)[number];
 
 export const SCENARIO_KEYWORDS = ['GIVEN', 'WHEN', 'THEN', 'AND'] as const;
+
+/** One element of supplementary reference information attached to a requirement. */
+export interface InfoItem {
+  /** Type/key label, up to 50 characters. */
+  type: string;
+  /** Value, up to 100 characters. */
+  value: string;
+}
+
+/** Preset values for the requirement source field. */
+export const SOURCE_PRESETS = ['АС21', 'ПАО'] as const;
 export type ScenarioKeyword = (typeof SCENARIO_KEYWORDS)[number];
 
 /** A typed, directed edge to another requirement (stored on both endpoints). */
@@ -62,4 +73,8 @@ export interface Requirement {
   links: Link[];
   createdAt: string;
   updatedAt: string;
+  /** Requirement source (free string; presets: SOURCE_PRESETS). Undefined = "not set". */
+  source?: string;
+  /** Supplementary reference information as key-value pairs. */
+  infoItems?: InfoItem[];
 }

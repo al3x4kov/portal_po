@@ -263,6 +263,13 @@ function Row({
       <td className="w-[140px] py-2.5 pr-3 align-middle" data-testid="req-implemented-cell">
         <ImplementationBadge req={req} />
       </td>
+      <td className="w-[130px] py-2.5 pr-3 align-middle" data-testid="req-source-cell">
+        {req.source ? (
+          <span className="text-sm">{req.source}</span>
+        ) : (
+          <span style={{ color: 'var(--color-text-3)' }}>—</span>
+        )}
+      </td>
       <td className="py-2.5 pr-3 align-top" data-testid="req-links-cell">
         {relLinks.length > 0 ? (
           <div className="flex flex-wrap gap-1">
@@ -443,6 +450,7 @@ export function TreeTable({
                 <th className="w-[26%] px-4 py-2 font-semibold">Требование</th>
                 <th className="w-[130px] px-4 py-2 font-semibold">Критичность</th>
                 <th className="w-[140px] px-4 py-2 font-semibold">Реализация</th>
+                <th className="w-[130px] px-4 py-2 font-semibold">Источник</th>
                 <th className="w-[20%] px-4 py-2 font-semibold">Связи</th>
                 <th className="px-4 py-2 font-semibold">Описание</th>
                 <th className="w-[140px] px-4 py-2" />
