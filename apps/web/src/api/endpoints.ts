@@ -44,11 +44,15 @@ export const projectsApi = {
    *  T-203: carries the optional-fields selection in the body. */
   exportSelected: async (
     id: string,
-    format: ArchiveFormat,
+    format: 'xlsx' | ArchiveFormat,
     slugs: string[],
     fields?: ExportOptionalField[],
   ): Promise<{ blob: Blob; filename: string }> => {
-    const body: { format: ArchiveFormat; slugs: string[]; fields?: ExportOptionalField[] } = {
+    const body: {
+      format: 'xlsx' | ArchiveFormat;
+      slugs: string[];
+      fields?: ExportOptionalField[];
+    } = {
       format,
       slugs,
     };
@@ -65,7 +69,7 @@ export const projectsApi = {
     const blob = await res.blob();
     const disposition = res.headers.get('content-disposition') ?? '';
     const match = /filename="?([^"]+)"?/.exec(disposition);
-    const ext = format === 'zip' ? 'zip' : 'tar.gz';
+    const ext = format === 'xlsx' ? 'xlsx' : format === 'zip' ? 'zip' : 'tar.gz';
     const filename = match ? match[1] : `${id}-partial.${ext}`;
     return { blob, filename };
   },

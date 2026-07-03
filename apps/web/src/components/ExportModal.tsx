@@ -115,20 +115,28 @@ export function ExportModal({
       let blob: Blob;
       let filename: string;
 
+      if (selected.size === 0) return;
+
       if (format === 'xlsx') {
-        ({ blob, filename } = await projectsApi.exportXlsx(projectId, selectedFields));
-      } else {
-        if (selected.size === 0) return;
         if (selected.size >= requirements.length) {
-          ({ blob, filename } = await projectsApi.export(projectId, format, selectedFields));
+          ({ blob, filename } = await projectsApi.exportXlsx(projectId, selectedFields));
         } else {
           ({ blob, filename } = await projectsApi.exportSelected(
             projectId,
-            format,
+            'xlsx',
             [...selected],
             selectedFields,
           ));
         }
+      } else if (selected.size >= requirements.length) {
+        ({ blob, filename } = await projectsApi.export(projectId, format, selectedFields));
+      } else {
+        ({ blob, filename } = await projectsApi.exportSelected(
+          projectId,
+          format,
+          [...selected],
+          selectedFields,
+        ));
       }
 
       const url = URL.createObjectURL(blob);

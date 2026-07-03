@@ -9,6 +9,13 @@ import {
   type RequirementType,
 } from '@po/core';
 
+/**
+ * MIME type for an OOXML (.xlsx) workbook. Shared by the archive routes and the
+ * project service so the Excel content-type is defined in exactly one place.
+ */
+export const XLSX_CONTENT_TYPE =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
 /** Sheet name — mirrors the portal's requirements table. */
 const SHEET_NAME = 'Требования';
 

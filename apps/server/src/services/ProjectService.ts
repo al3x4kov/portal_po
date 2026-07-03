@@ -2,6 +2,7 @@ import { REQUIREMENT_FOLDER, serialize, type ExportOptionalField } from '@po/cor
 import { withProjectLock } from '../lib/projectLock.js';
 import { sanitizeProjectName } from '../lib/projectName.js';
 import { withOpLog, type OpLogger } from '../lib/logger.js';
+import { ExcelExportService, XLSX_CONTENT_TYPE } from './ExcelExportService.js';
 import type { ArchiveRepo } from '../repositories/ArchiveRepo.js';
 import type {
   ArchiveFormat,
@@ -96,15 +97,29 @@ export class ProjectService {
    * `fields` is given, the selected requirements are reserialized with that mask
    * (Task 2) and links pointing at excluded slugs are dropped so the archive
    * stays internally consistent and re-imports cleanly.
+   *
+   * With `format: 'xlsx'` a human-readable workbook is produced instead of an
+   * archive: it contains ONLY the selected slugs (unlike GET /export.xlsx, which
+   * exports every requirement) with the `fields` column selection applied.
    */
   async exportSelected(
     id: string,
     slugs: string[],
-    format: ArchiveFormat,
+    format: 'xlsx' | ArchiveFormat,
     fields?: ExportOptionalField[],
   ): Promise<ExportResult> {
     return withOpLog(this.log, { op: 'exportSelected', projectId: id }, async () => {
       const project = await this.repo.get(id); // 404 when missing
+      if (format === 'xlsx') {
+        if (!this.makeRequirementRepo) {
+          throw new Error('makeRequirementRepo is required to export xlsx.');
+        }
+        const { requirements } = await this.makeRequirementRepo(project.id).loadAll();
+        const selected = new Set(slugs);
+        const included = requirements.filter((r) => selected.has(r.slug));
+        const body = await ExcelExportService.buildWorkbook(included, fields);
+        return { body, filename: `${project.id}.xlsx`, contentType: XLSX_CONTENT_TYPE };
+      }
       // ArchivePort doesn't declare exportSelected — call through the concrete type.
       const archiveRepo = this.archive as ArchiveRepo;
       if (fields === undefined) {

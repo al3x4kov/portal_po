@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { ExcelExportService } from '../services/ExcelExportService.js';
+import { ExcelExportService, XLSX_CONTENT_TYPE } from '../services/ExcelExportService.js';
 import { FsRequirementRepo } from '../repositories/FsRequirementRepo.js';
 import { createProjectRepo, createProjectService, type ServiceContext } from '../factory.js';
 import { parseInput } from '../lib/parseInput.js';
@@ -14,8 +14,6 @@ import { DomainError, exportFieldsSchema, parseExportFields } from '@po/core';
 import { ArchiveError, BadRequestError, NotFoundError } from '../lib/errors.js';
 import type { ArchiveFormat } from '../repositories/types.js';
 import type { AppDeps } from './deps.js';
-
-const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 /** Query for archive export; also documented in OpenAPI (E14). */
 export const exportQuery = z.object({
@@ -37,7 +35,7 @@ const SLUG_RE = /^[a-z0-9-]+$/;
 
 /** Body schema for POST /api/projects/:id/export/selected (T-523). */
 export const exportSelectedBody = z.object({
-  format: z.enum(['zip', 'targz']),
+  format: z.enum(['xlsx', 'zip', 'targz']),
   slugs: z
     .array(
       z
@@ -118,7 +116,7 @@ export async function archiveRoutes(app: FastifyInstance, deps: AppDeps): Promis
       throw new BadRequestError(bodyResult.error.issues.map((i) => i.message).join('; '));
     }
     const { format, slugs, fields } = bodyResult.data;
-    const result = await service.exportSelected(id, slugs, format as ArchiveFormat, fields);
+    const result = await service.exportSelected(id, slugs, format, fields);
 
     reply.header('content-type', result.contentType);
     reply.header('content-disposition', contentDisposition(result.filename));

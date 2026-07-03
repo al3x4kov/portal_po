@@ -87,6 +87,27 @@ describe('ExportModal', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('exports xlsx via exportSelected when a subset is chosen (not exportXlsx)', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    exportSelected.mockResolvedValue({ blob: new Blob(['x']), filename: 'p1.xlsx' });
+    renderWithProviders(
+      <ExportModal projectId="p1" requirements={requirements} onClose={onClose} />,
+    );
+    await gotoFormatStep(user, ['r2']); // deselect one → subset
+    await user.click(screen.getByTestId('export-fmt-xlsx'));
+    await waitFor(() =>
+      expect(exportSelected).toHaveBeenCalledWith(
+        'p1',
+        'xlsx',
+        expect.arrayContaining(['r1', 'n1']),
+        ['source', 'description', 'info', 'links'],
+      ),
+    );
+    expect(exportXlsx).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('exports the whole project archive when every requirement is selected', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
