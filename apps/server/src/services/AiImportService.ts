@@ -356,14 +356,21 @@ export class AiImportService {
       const { requirements: existing } = await requirementService.list();
 
       const byKey = new Map<string, AiExtractedRequirement>();
-      let duplicates = 0;
+      const duplicateNames: string[] = [];
       for (const record of extracted) {
         const key = nameKey(record.type, record.name);
-        if (byKey.has(key)) duplicates += 1;
+        if (byKey.has(key)) duplicateNames.push(record.name.trim());
         else byKey.set(key, record);
       }
-      if (duplicates > 0) {
-        this.logLine(job, 'info', `Схлопнуто дубликатов по (тип, имя): ${duplicates}.`);
+      if (duplicateNames.length > 0) {
+        // Surface silently dropped in-run duplicates (they are NOT counted in
+        // skippedExisting — the aiImportResultSchema contract is stable).
+        this.logLine(
+          job,
+          'warn',
+          `Дубликатов в извлечении пропущено: ${duplicateNames.length} ` +
+            `(повторы по (тип, имя): ${duplicateNames.map((n) => `«${n}»`).join(', ')}).`,
+        );
       }
 
       const existingKeys = new Map<string, Requirement>();

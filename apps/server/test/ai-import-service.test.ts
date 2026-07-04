@@ -191,6 +191,33 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     expect(requirements).toHaveLength(1);
   });
 
+  it('two files with identical extractions → dropped duplicates surface as a warn with the count', async () => {
+    // MockServer e2e regression: 2 docs yield the same 2 records each → 2 created,
+    // 2 dropped by (type, name) dedupe — previously invisible in the job log.
+    const records = [
+      record(),
+      record({ type: 'NFR', name: 'Время отклика', source: 'perf.md § SLA' }),
+    ];
+    const client = scriptedClient([JSON.stringify(records), JSON.stringify(records)]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Документ 1.', 'b.md': 'Документ 2.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result).toEqual({
+      createdFunctions: 1,
+      createdNfrs: 1,
+      skippedExisting: 0,
+      links: 0,
+    });
+    expect(
+      view.log.some(
+        (l) => l.level === 'warn' && l.message.includes('Дубликатов в извлечении пропущено: 2'),
+      ),
+    ).toBe(true);
+  });
+
   it('skips an existing requirement (same type+name) WITHOUT touching its file', async () => {
     const reqService = createRequirementService(ctx, PROJECT);
     const existing = await reqService.create({

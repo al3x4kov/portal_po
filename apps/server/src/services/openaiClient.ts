@@ -40,6 +40,25 @@ export function buildAiDispatcher(env: NodeJS.ProcessEnv = process.env): Dispatc
 }
 
 /**
+ * Per-attempt timeout for one AI Hub HTTP request, in milliseconds.
+ *
+ * The `openai` SDK default is 600 000 ms (10 minutes), so a hung AI Hub used to
+ * stall chat / description generation / AI import for minutes. 40 s comfortably
+ * covers a slow chat completion (the heaviest call we make, ≤ AI_*_MAX_TOKENS)
+ * while keeping the worst case bounded: with {@link AI_HUB_MAX_RETRIES} = 1 the
+ * total wait for one call is ≤ ~80 s (2 attempts × 40 s + sub-second backoff),
+ * within the ≤ 90 s budget.
+ */
+export const AI_HUB_TIMEOUT_MS = 40_000;
+
+/**
+ * Retry budget for one AI Hub call (SDK default is 2). One retry keeps the
+ * resilience to transient 5xx/connection errors but halves the worst-case wait
+ * versus the default: total ≤ (1 + 1) × {@link AI_HUB_TIMEOUT_MS} ≈ 80 s.
+ */
+export const AI_HUB_MAX_RETRIES = 1;
+
+/**
  * Production {@link AiClientFactory}: wraps the real `openai` SDK. The AI Hub is
  * OpenAI-compatible, so `models.list()` and `chat.completions.create()` map
  * directly. The `baseURL` is supplied by the caller (from the stored config),
@@ -61,6 +80,8 @@ export function createOpenAiClientFactory(env: NodeJS.ProcessEnv = process.env):
     const client = new OpenAI({
       apiKey,
       baseURL,
+      timeout: AI_HUB_TIMEOUT_MS,
+      maxRetries: AI_HUB_MAX_RETRIES,
       ...(fetchImpl ? { fetch: fetchImpl } : {}),
     });
     // The SDK's shape is a structural superset of our minimal AiClient port.

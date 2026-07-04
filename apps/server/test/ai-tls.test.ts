@@ -6,9 +6,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Agent, ProxyAgent } from 'undici';
+import { APIConnectionTimeoutError } from 'openai';
 import { buildAiDispatcher, createOpenAiClientFactory } from '../src/services/openaiClient.js';
 import { AiHubService } from '../src/services/AiHubService.js';
 import { AiConfigRepo } from '../src/repositories/AiConfigRepo.js';
+import { AiUpstreamError, httpStatusForCode } from '../src/lib/errors.js';
 import { makeTmpRoot, cleanup } from './helpers.js';
 
 /** An error carrying a nested `cause` chain, like `openai` wraps a TLS failure. */
@@ -110,6 +112,34 @@ describe('AiHubService surfaces the real cause and redacts the key (both operati
     }
     expect(message).toContain('UNABLE_TO_VERIFY_LEAF_SIGNATURE');
     expect(message).not.toContain('SUPER-SECRET-KEY');
+  });
+
+  it('SDK timeout (APIConnectionTimeoutError) → AiUpstreamError (502) with a readable, key-free message', async () => {
+    const svc = new AiHubService({
+      repo,
+      makeClient: () => ({
+        models: { list: () => Promise.resolve({ data: [] }) },
+        chat: {
+          completions: {
+            create: () => Promise.reject(new APIConnectionTimeoutError()),
+          },
+        },
+      }),
+    });
+    let err: unknown;
+    try {
+      await svc.generateDescription({
+        projectId: 'proj',
+        requirement: { name: 'Авторизация', type: 'FUNCTION', criticality: 'HIGH' },
+      });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(AiUpstreamError);
+    const upstream = err as AiUpstreamError;
+    expect(httpStatusForCode(upstream.code)).toBe(502);
+    expect(upstream.message).toContain('Request timed out');
+    expect(upstream.message).not.toContain('SUPER-SECRET-KEY');
   });
 });
 
