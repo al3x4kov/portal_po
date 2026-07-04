@@ -13,3 +13,13 @@ CLAUDE.md
 
 # Vendored, pre-built third-party DOOM engine (offline easter egg) — not our source
 apps/web/public/doom/**
+
+# Generated/session artifacts (untracked outputs of demos, skills and MCP browser)
+.playwright-mcp/**
+.claude/**
+demo-out/**
+extract-out/**
+architect-out/**
+design-out/**
+graphify-out/**
+e2e/demo/**
