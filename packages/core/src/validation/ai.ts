@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CRITICALITIES, REQUIREMENT_TYPES, TARGET_QUARTERS } from '../domain/types.js';
+import { requirementCreateShape } from './contracts.js';
 
 /**
  * Shared AI Hub contract (Task 8). These Zod schemas + types are the single
@@ -177,6 +178,9 @@ export type AiImportStartResponse = z.infer<typeof aiImportStartResponseSchema>;
  * One requirement extracted by the model from a documentation chunk. `source`
  * (file + section provenance) is MANDATORY — a record without it is dropped
  * (golden rule of the extraction skill: no provenance → no requirement).
+ * `targetYear` reuses the EXACT validator of the creation contract
+ * ({@link requirementCreateShape}), so a record the contract would reject
+ * (e.g. year 2019) is dropped at parsing time and never reaches populate.
  */
 export const aiExtractedRequirementSchema = z.object({
   type: z.enum(REQUIREMENT_TYPES),
@@ -186,7 +190,7 @@ export const aiExtractedRequirementSchema = z.object({
   criticality: z.enum(CRITICALITIES).optional(),
   implemented: z.boolean().optional(),
   targetQuarter: z.enum(TARGET_QUARTERS).optional(),
-  targetYear: z.number().int().optional(),
+  targetYear: requirementCreateShape.targetYear,
   parentName: z.string().optional(),
 });
 export type AiExtractedRequirement = z.infer<typeof aiExtractedRequirementSchema>;

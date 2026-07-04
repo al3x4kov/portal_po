@@ -100,6 +100,17 @@ describe('T11 parseExtractionResponse', () => {
     expect(parsed?.items).toHaveLength(1);
     expect(parsed?.droppedInvalid).toBe(2);
   });
+
+  it('drops a record whose targetYear violates the creation contract (never reaches populate)', () => {
+    // The core create contract requires 2020 ≤ targetYear ≤ 2100; a record with
+    // 2019 must be dropped here (droppedInvalid → warn), not fail on create.
+    const tooOld = { ...record, targetYear: 2019 };
+    const tooFar = { ...record, name: 'Другое имя', targetYear: 2101 };
+    const parsed = parseExtractionResponse(JSON.stringify([record, tooOld, tooFar]));
+    expect(parsed?.items).toHaveLength(1);
+    expect(parsed?.droppedInvalid).toBe(2);
+    expect(parsed?.droppedNoSource).toBe(0);
+  });
 });
 
 describe('T11 chunkText', () => {

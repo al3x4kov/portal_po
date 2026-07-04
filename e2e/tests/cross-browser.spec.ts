@@ -47,3 +47,38 @@ test('@smoke start screen renders its three primary actions', async ({ page }) =
   await expect(page.getByTestId('start-import')).toBeVisible();
   await expect(page.getByTestId('start-open')).toBeVisible();
 });
+
+/* Task 12 Q-3 (PO-T6): AI surfaces must not silently break outside Chromium —
+ * the chat FAB drives pointer-event drag/click logic and the AI screen is the
+ * key-config entry point. Thin checks only; the deep flows stay Chromium. */
+
+test('@smoke AI chat FAB is visible and a click opens the widget', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('start-page')).toBeVisible();
+
+  // The widget is mounted globally, so the FAB is already on the start screen.
+  const fab = page.getByTestId('chat-fab');
+  await expect(fab).toBeVisible();
+
+  // A plain click (pointer travel < 5px) expands the widget and hides the FAB.
+  await fab.click();
+  await expect(page.getByTestId('chat-widget')).toBeVisible();
+  await expect(page.getByTestId('chat-input')).toBeVisible();
+  await expect(fab).toHaveCount(0);
+
+  // ✕ collapses back to the FAB (conversation kept in the store).
+  await page.getByTestId('chat-close').click();
+  await expect(page.getByTestId('chat-widget')).toHaveCount(0);
+  await expect(fab).toBeVisible();
+});
+
+test('@smoke AI screen renders: heading and API-key field', async ({ page }) => {
+  await createProject(page, uniqueName('smoke-ai'));
+
+  await page.getByTestId('sidebar-nav-ai').click();
+  await expect(page.getByTestId('ai-page')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Экран «AI»' })).toBeVisible();
+  await expect(page.getByTestId('ai-key-input')).toBeVisible();
+  await expect(page.getByTestId('ai-key-input')).toHaveAttribute('type', 'password');
+  await expect(page.getByTestId('ai-baseurl-input')).toBeVisible();
+});

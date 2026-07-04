@@ -106,6 +106,220 @@ describe('RequirementPickerModal', () => {
     expect(screen.queryByTestId('export-item-f3')).not.toBeInTheDocument();
   });
 
+  // ── Task 12 · F-2.2: filter/selection branches ─────────────────────────────
+  describe('implementation & quarter filters', () => {
+    const plannedQ1 = makeReq({
+      slug: 'f1',
+      name: 'Оплата',
+      type: 'FUNCTION',
+      implemented: false,
+      targetQuarter: 'Q1',
+      targetYear: 2027,
+    });
+    const plannedQ2 = makeReq({
+      slug: 'f2',
+      name: 'Возвраты',
+      type: 'FUNCTION',
+      implemented: false,
+      targetQuarter: 'Q2',
+      targetYear: 2027,
+    });
+    const done = makeReq({ slug: 'f3', name: 'Отчёты', type: 'FUNCTION', implemented: true });
+    const plannedNoQuarter = makeReq({
+      slug: 'f4',
+      name: 'Аудит',
+      type: 'FUNCTION',
+      implemented: false,
+    });
+
+    function renderPicker(onConfirm = vi.fn()) {
+      renderWithProviders(
+        <RequirementPickerModal
+          title="Выбор требований"
+          requirements={[plannedQ1, plannedQ2, done, plannedNoQuarter]}
+          onClose={vi.fn()}
+          onConfirm={onConfirm}
+        />,
+      );
+      return onConfirm;
+    }
+
+    it('«Реализовано» keeps only implemented requirements', async () => {
+      const user = userEvent.setup();
+      renderPicker();
+      await user.click(screen.getByTestId('export-filter-impl-done'));
+      expect(screen.getByTestId('export-item-f3')).toBeInTheDocument();
+      expect(screen.queryByTestId('export-item-f1')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('export-item-f2')).not.toBeInTheDocument();
+    });
+
+    it('«Запланировано» shows quarter chips; a chip narrows to its quarter and drops rows without a quarter', async () => {
+      const user = userEvent.setup();
+      renderPicker();
+
+      // Chips are hidden while the filter is 'all'.
+      expect(screen.queryByTestId('export-filter-q-Q1-2027')).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId('export-filter-impl-planned'));
+      expect(screen.getByTestId('export-filter-q-Q1-2027')).toBeInTheDocument();
+      expect(screen.getByTestId('export-filter-q-Q2-2027')).toBeInTheDocument();
+      // planned filter alone: implemented row gone, all planned rows present.
+      expect(screen.queryByTestId('export-item-f3')).not.toBeInTheDocument();
+      expect(screen.getByTestId('export-item-f4')).toBeInTheDocument();
+
+      await user.click(screen.getByTestId('export-filter-q-Q1-2027'));
+      expect(screen.getByTestId('export-item-f1')).toBeInTheDocument();
+      expect(screen.queryByTestId('export-item-f2')).not.toBeInTheDocument();
+      // f4 has no targetQuarter/Year → excluded once a quarter is chosen.
+      expect(screen.queryByTestId('export-item-f4')).not.toBeInTheDocument();
+
+      // Toggling the chip off restores the other planned rows.
+      await user.click(screen.getByTestId('export-filter-q-Q1-2027'));
+      expect(screen.getByTestId('export-item-f2')).toBeInTheDocument();
+      expect(screen.getByTestId('export-item-f4')).toBeInTheDocument();
+    });
+
+    it('switching the implementation filter resets the chosen quarters', async () => {
+      const user = userEvent.setup();
+      renderPicker();
+      await user.click(screen.getByTestId('export-filter-impl-planned'));
+      await user.click(screen.getByTestId('export-filter-q-Q1-2027'));
+      expect(screen.queryByTestId('export-item-f2')).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId('export-filter-impl-all'));
+      // Everything is visible again — the quarter filter did not survive.
+      expect(screen.getByTestId('export-item-f1')).toBeInTheDocument();
+      expect(screen.getByTestId('export-item-f2')).toBeInTheDocument();
+      expect(screen.getByTestId('export-item-f3')).toBeInTheDocument();
+    });
+
+    it('shows an explicit empty state when filters match nothing', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <RequirementPickerModal
+          title="Выбор требований"
+          requirements={[done]}
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+      await user.click(screen.getByTestId('export-filter-impl-planned'));
+      expect(screen.getByText('Нет требований, подходящих под фильтры.')).toBeInTheDocument();
+    });
+
+    it('planned rows show their quarter next to the criticality', () => {
+      renderPicker();
+      expect(screen.getByTestId('export-item-f1')).toHaveTextContent('Q1 2027');
+    });
+  });
+
+  describe('selection behaviour', () => {
+    it('selects everything by default (no initialSelected) and confirms with the full set', async () => {
+      const onConfirm = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <RequirementPickerModal
+          title="Выбор требований"
+          requirements={requirements}
+          onClose={vi.fn()}
+          onConfirm={onConfirm}
+        />,
+      );
+      const confirm = screen.getByTestId('export-next');
+      expect(confirm).toBeEnabled();
+      expect(confirm).toHaveTextContent('(2)');
+
+      await user.click(confirm);
+      expect(onConfirm).toHaveBeenCalledWith(new Set(['f1', 'f2']));
+    });
+
+    it('unchecking a row removes it from the confirmed set; re-checking restores it', async () => {
+      const onConfirm = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <RequirementPickerModal
+          title="Выбор требований"
+          requirements={requirements}
+          onClose={vi.fn()}
+          onConfirm={onConfirm}
+        />,
+      );
+
+      const rowCheckbox = screen.getByTestId('export-item-f2').querySelector('input')!;
+      await user.click(rowCheckbox);
+      expect(screen.getByTestId('export-next')).toHaveTextContent('(1)');
+      await user.click(rowCheckbox);
+      expect(screen.getByTestId('export-next')).toHaveTextContent('(2)');
+
+      await user.click(screen.getByTestId('export-next'));
+      expect(onConfirm).toHaveBeenCalledWith(new Set(['f1', 'f2']));
+    });
+
+    it('toggle-all flips between «Выбрать все» and «Снять выделение»', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <RequirementPickerModal
+          title="Выбор требований"
+          requirements={requirements}
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+      const toggle = screen.getByTestId('export-toggle-all');
+      // All selected by default → the button offers to deselect.
+      expect(toggle).toHaveTextContent('Снять выделение');
+      await user.click(toggle);
+      expect(toggle).toHaveTextContent('Выбрать все');
+      expect(screen.getByTestId('export-next')).toBeDisabled();
+      await user.click(toggle);
+      expect(screen.getByTestId('export-next')).toBeEnabled();
+    });
+
+    it('renders the ФТ hierarchy with tree markers («▾» for parents, «•» for leaves)', () => {
+      const parent = makeReq({
+        slug: 'p1',
+        name: 'Платежи',
+        links: [{ type: 'PARENT_OF', targetSlug: 'c1' }],
+      });
+      const child = makeReq({
+        slug: 'c1',
+        name: 'Оплата картой',
+        links: [{ type: 'CHILD_OF', targetSlug: 'p1' }],
+      });
+      renderWithProviders(
+        <RequirementPickerModal
+          title="Выбор требований"
+          requirements={[parent, child]}
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId('export-item-p1')).toHaveTextContent('▾');
+      expect(screen.getByTestId('export-item-c1')).toHaveTextContent('•');
+    });
+
+    it('lists NFRs in their own flat section with a planned quarter suffix', () => {
+      const nfr = makeReq({
+        slug: 'n1',
+        name: 'Надёжность',
+        type: 'NFR',
+        implemented: false,
+        targetQuarter: 'Q3',
+        targetYear: 2026,
+      });
+      renderWithProviders(
+        <RequirementPickerModal
+          title="Выбор требований"
+          requirements={[...requirements, nfr]}
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+      expect(screen.getByText(/Нефункциональные требования \(1\)/)).toBeInTheDocument();
+      expect(screen.getByTestId('export-item-n1')).toHaveTextContent('Q3 2026');
+    });
+  });
+
   it('keeps existing criticality and select-all behaviour working', async () => {
     const user = userEvent.setup();
     renderWithProviders(

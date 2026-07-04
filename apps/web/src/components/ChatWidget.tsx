@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { matchPath, useLocation } from 'react-router-dom';
 import { AI_CHAT_HISTORY_LIMIT, type AiChatMessage, type AiChatRequest } from '@po/core';
 import { useAiChat, useAiConfig, useAiModels } from '../api/hooks';
@@ -324,6 +324,9 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
   const setError = useChatStore((s) => s.setError);
   const newChat = useChatStore((s) => s.newChat);
   const close = useChatStore((s) => s.close);
+  // Draft lives in the store so ✕/Escape collapse never loses typed text.
+  const draft = useChatStore((s) => s.draft);
+  const setDraft = useChatStore((s) => s.setDraft);
 
   const configQuery = useAiConfig(projectId);
   const config = configQuery.data;
@@ -334,7 +337,6 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
   const chatMut = useAiChat();
   const pending = chatMut.isPending;
 
-  const [draft, setDraft] = useState('');
   const cardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -365,6 +367,11 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 80)}px`;
   };
+
+  // A draft restored from the store (after ✕/Escape) may span several lines.
+  useEffect(() => {
+    resizeInput();
+  }, []);
 
   const send = (): void => {
     const content = draft.trim();
@@ -404,6 +411,17 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
       role="dialog"
       aria-label="AI-чат"
       data-testid="chat-widget"
+      onKeyDown={(e) => {
+        // PO-T3: Escape pressed anywhere INSIDE the panel collapses the widget
+        // (conversation and draft are kept in the store, same as ✕). Handled on
+        // the panel itself — not on document — so Escape outside the chat keeps
+        // reaching modals/pages, and stopPropagation shields their handlers
+        // when the chat consumes the key.
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          close();
+        }
+      }}
     >
       {/* Header: drag handle + model select + new chat + close */}
       <div

@@ -218,8 +218,12 @@ export function useAiImportJob(
     queryKey: queryKeys.aiImportJob(jobId ?? ''),
     queryFn: () => aiImportApi.getJob(jobId as string),
     enabled: Boolean(jobId),
+    // PO-T2: stop polling once the request errors (e.g. 404 after a server
+    // restart lost the in-memory job) — otherwise the modal would poll forever.
     refetchInterval: (q) =>
-      q.state.data === undefined || q.state.data.status === 'running' ? AI_IMPORT_POLL_MS : false,
+      q.state.error == null && (q.state.data === undefined || q.state.data.status === 'running')
+        ? AI_IMPORT_POLL_MS
+        : false,
   });
   const status = query.data?.status;
   useEffect(() => {

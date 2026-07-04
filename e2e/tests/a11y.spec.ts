@@ -1,5 +1,5 @@
-import { AxeBuilder } from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { expectNoSeriousA11y, focusInside } from './helpers/a11y.js';
 import { addRequirement, createProject, rowByName, uniqueName } from './helpers/app.js';
 
 /**
@@ -9,45 +9,10 @@ import { addRequirement, createProject, rowByName, uniqueName } from './helpers/
  *  (b) keyboard focus management (UX-5, WCAG 2.4.3 / 2.1.2): focus enters the
  *      dialog, Tab is trapped inside, Esc closes and returns focus to the
  *      trigger; the destructive delete dialog defaults focus to the safe button.
+ *
+ * The axe policy (WCAG 2.1 AA tags, zero serious/critical, empty baseline)
+ * lives in helpers/a11y.ts and is shared with a11y-ai.spec.ts (Task 12 Q-1).
  */
-
-const IMPACTS = ['serious', 'critical'] as const;
-
-/**
- * No baselined a11y defects: UX-9 fixed the amber "warning" badge contrast by
- * introducing a dedicated `--color-warning-fg` token (amber-800 light /
- * amber-400 dark, both ≥4.5:1 on the amber background), so `color-contrast` is
- * no longer excluded. Any serious/critical rule — contrast included — now fails
- * the suite. Keep this set empty; add a rule only with a tracked defect ticket.
- */
-const KNOWN_DEFECT_RULES = new Set<string>();
-
-/** Run axe on the current page and fail on any (non-baselined) serious/critical violation. */
-async function expectNoSeriousA11y(page: Page, context: string): Promise<void> {
-  const results = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-    .analyze();
-  const blocking = results.violations.filter(
-    (v) =>
-      v.impact != null &&
-      (IMPACTS as readonly string[]).includes(v.impact) &&
-      !KNOWN_DEFECT_RULES.has(v.id),
-  );
-  const summary = blocking
-    .map((v) => `${v.id} (${v.impact}) × ${v.nodes.length}: ${v.help}`)
-    .join('\n');
-  expect(blocking, `serious/critical a11y violations on ${context}:\n${summary}`).toEqual([]);
-}
-
-/** Whether the currently-focused element lives inside the given modal. */
-async function focusInside(page: Page, testid: string): Promise<boolean> {
-  return page.evaluate((id) => {
-    const modal = document.querySelector(`[data-testid="${id}"]`);
-    return (
-      modal != null && document.activeElement != null && modal.contains(document.activeElement)
-    );
-  }, testid);
-}
 
 test.describe('QA-1 · a11y axe scans (0 serious/critical)', () => {
   test('Start screen has no serious/critical violations', async ({ page }) => {

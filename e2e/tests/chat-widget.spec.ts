@@ -219,7 +219,56 @@ test.describe('Task 9 · плавающий AI-чат', () => {
     await expect(page.getByTestId('chat-empty')).toBeVisible();
   });
 
-  /* ── 5. Override модели доходит до апстрима ───────────────────────────── */
+  /* ── 5. Esc внутри панели сворачивает; переписка И черновик выживают ──── */
+
+  test('Esc при фокусе внутри виджета сворачивает его; переписка и черновик сохраняются; Esc вне чата не сворачивает', async ({
+    page,
+  }, testInfo) => {
+    await createProject(page, uniqueName('Chat-Esc'));
+    const id = projectIdFromUrl(page);
+    await configureAi(page, id, 'GigaChat-2-Pro');
+    await openWidget(page);
+
+    // One full exchange so there is a conversation to preserve.
+    await sendMessage(page, 'Вопрос до сворачивания по Esc.');
+    await expect(page.getByTestId('chat-msg-assistant')).toContainText(STUB_REPLY);
+
+    // Unsent draft typed into chat-input; typing leaves focus in the textarea.
+    const draft = 'Незаконченный черновик про NFR…';
+    const input = page.getByTestId('chat-input');
+    await input.click();
+    await input.fill(draft);
+    await expect(input).toBeFocused();
+
+    // Esc with focus INSIDE the panel (task-12 fix: onKeyDown on chat-widget,
+    // not a document-level listener) collapses the widget back to the FAB.
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('chat-widget')).toHaveCount(0);
+    await expect(page.getByTestId('chat-fab')).toBeVisible();
+
+    // Reopen: SAME conversation AND the SAME unsent draft (both store-backed).
+    await openWidget(page);
+    await expect(page.getByTestId('chat-msg-user')).toHaveCount(1);
+    await expect(
+      page.getByTestId('chat-msg-user').filter({ hasText: 'Вопрос до сворачивания по Esc.' }),
+    ).toBeVisible();
+    await expect(page.getByTestId('chat-msg-assistant')).toHaveCount(1);
+    await expect(input).toHaveValue(draft);
+    await attachShot(page, testInfo, 'widget-esc-conversation-and-draft-restored');
+
+    // Esc with focus OUTSIDE the chat (blurred to <body>) must NOT collapse:
+    // the handler lives on the panel, so the key never reaches it.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('chat-widget')).toBeVisible();
+    await expect(input).toHaveValue(draft); // draft untouched by the no-op Esc
+
+    // Leave the page clean for neighbouring tests.
+    await page.getByTestId('chat-close').click();
+    await expect(page.getByTestId('chat-fab')).toBeVisible();
+  });
+
+  /* ── 6. Override модели доходит до апстрима ───────────────────────────── */
 
   test('выбор модели в виджете переопределяет модель проекта в запросе к апстриму', async ({
     page,
@@ -242,7 +291,7 @@ test.describe('Task 9 · плавающий AI-чат', () => {
     expect(stub.lastChatRequest()?.model).toBe('GigaChat-2');
   });
 
-  /* ── 6. Ошибка апстрима: chat-error, история не стирается ─────────────── */
+  /* ── 7. Ошибка апстрима: chat-error, история не стирается ─────────────── */
 
   test('ошибка апстрима: читабельное сообщение в ленте, история сохраняется', async ({
     page,

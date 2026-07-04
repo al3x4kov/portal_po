@@ -250,6 +250,207 @@ describe('T-532 — ExportTasksModal unimpl-question step', () => {
   });
 });
 
+// ─── Task 12 · F-2.2: tracker flow, navigation, download, generator branches ──
+
+describe('Task 12 — tracker flow via RequirementPickerModal', () => {
+  it('«Задачи в TaskTracker» opens the picker; confirming builds the tracker preview', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ExportTasksModal projectId="proj-1" requirements={[ftA, ftB]} onClose={vi.fn()} />,
+    );
+
+    await user.click(screen.getByTestId('export-tasks-dir-tracker'));
+    expect(await screen.findByTestId('tracker-select-modal')).toBeInTheDocument();
+
+    // All requirements are pre-selected → confirm right away («Предпросмотр»).
+    await user.click(screen.getByTestId('export-next'));
+    const preview = await screen.findByTestId('export-tasks-preview');
+    expect(preview).toHaveTextContent('# Задачи для TaskTracker');
+    expect(preview).toHaveTextContent('ФТ А');
+    expect(preview).toHaveTextContent('ФТ Б');
+  });
+
+  it('deselected requirements are excluded from the tracker preview together with links to them', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ExportTasksModal projectId="proj-1" requirements={[ftA, ftB]} onClose={vi.fn()} />,
+    );
+
+    await user.click(screen.getByTestId('export-tasks-dir-tracker'));
+    await screen.findByTestId('tracker-select-modal');
+    // Uncheck ftB.
+    await user.click(screen.getByTestId('export-item-ft-b').querySelector('input')!);
+    await user.click(screen.getByTestId('export-next'));
+
+    const preview = await screen.findByTestId('export-tasks-preview');
+    expect(preview).toHaveTextContent('ФТ А');
+    expect(preview).not.toHaveTextContent('ФТ Б');
+    expect(preview).not.toHaveTextContent('PARENT_OF: ft-b');
+  });
+
+  it('cancelling the picker returns to the direction choice', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ExportTasksModal projectId="proj-1" requirements={[ftA, ftB]} onClose={vi.fn()} />,
+    );
+
+    await user.click(screen.getByTestId('export-tasks-dir-tracker'));
+    await screen.findByTestId('tracker-select-modal');
+    await user.click(screen.getByRole('button', { name: 'Отменить' }));
+
+    expect(await screen.findByTestId('export-tasks-dir-tracker')).toBeInTheDocument();
+    expect(screen.queryByTestId('tracker-select-modal')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('export-tasks-preview')).not.toBeInTheDocument();
+  });
+});
+
+describe('Task 12 — step navigation and MD download', () => {
+  it('«← Назад» from the preview returns to the direction choice and clears the preview', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ExportTasksModal projectId="proj-1" requirements={[ftA, ftB]} onClose={vi.fn()} />,
+    );
+
+    await user.click(screen.getByTestId('export-tasks-dir-smoke'));
+    await screen.findByTestId('export-tasks-preview');
+    await user.click(screen.getByRole('button', { name: '← Назад' }));
+
+    expect(screen.getByTestId('export-tasks-dir-smoke')).toBeInTheDocument();
+    expect(screen.queryByTestId('export-tasks-preview')).not.toBeInTheDocument();
+  });
+
+  it('«← Назад» from the unimpl-question returns to the direction choice', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ExportTasksModal projectId="proj-1" requirements={[ftA, ftC]} onClose={vi.fn()} />,
+    );
+
+    await user.click(screen.getByTestId('export-tasks-dir-crit-regression'));
+    await screen.findByTestId('unimpl-question');
+    await user.click(screen.getByRole('button', { name: '← Назад' }));
+
+    expect(screen.getByTestId('export-tasks-dir-crit-regression')).toBeInTheDocument();
+    expect(screen.queryByTestId('unimpl-question')).not.toBeInTheDocument();
+  });
+
+  it('«Скачать MD» builds a blob, clicks a temp anchor and revokes the URL', async () => {
+    const user = userEvent.setup();
+    const createObjectURL = vi.fn().mockReturnValue('blob:mock-url');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', Object.assign(Object.create(URL), { createObjectURL, revokeObjectURL }));
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+
+    try {
+      renderWithProviders(
+        <ExportTasksModal projectId="proj-1" requirements={[ftA, ftB]} onClose={vi.fn()} />,
+      );
+      await user.click(screen.getByTestId('export-tasks-dir-smoke'));
+      await screen.findByTestId('export-tasks-preview');
+
+      await user.click(screen.getByTestId('export-tasks-download'));
+      expect(createObjectURL).toHaveBeenCalledTimes(1);
+      expect(anchorClick).toHaveBeenCalledTimes(1);
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    } finally {
+      anchorClick.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('Task 12 — generator ordering branches', () => {
+  it('generateSmoke orders equal criticality: roots before children, unimplemented before implemented', () => {
+    const rootDone = makeReq({ slug: 'root-done', name: 'Корень готов', criticality: 'HIGH' });
+    const rootPlanned = makeReq({
+      slug: 'root-planned',
+      name: 'Корень в плане',
+      criticality: 'HIGH',
+      implemented: false,
+    });
+    const childHigh = makeReq({
+      slug: 'child-high',
+      name: 'Дочка',
+      criticality: 'HIGH',
+      links: [{ type: 'CHILD_OF', targetSlug: 'root-done' }],
+    });
+    const md = generateSmoke([childHigh, rootDone, rootPlanned], new Map());
+
+    const posPlanned = md.indexOf('req-slug: root-planned');
+    const posDone = md.indexOf('req-slug: root-done');
+    const posChild = md.indexOf('req-slug: child-high');
+    // Same criticality: roots first; among roots — unimplemented first.
+    expect(posPlanned).toBeLessThan(posDone);
+    expect(posDone).toBeLessThan(posChild);
+  });
+
+  it('generateCritRegression orders equal criticality by child count, then unimplemented first', () => {
+    const wide = makeReq({
+      slug: 'wide',
+      name: 'Широкий узел',
+      criticality: 'CRITICAL',
+      links: [
+        { type: 'PARENT_OF', targetSlug: 'a' },
+        { type: 'PARENT_OF', targetSlug: 'b' },
+        { type: 'PARENT_OF', targetSlug: 'c' },
+      ],
+    });
+    const narrowPlanned = makeReq({
+      slug: 'narrow-planned',
+      name: 'Узкий в плане',
+      criticality: 'CRITICAL',
+      implemented: false,
+    });
+    const narrowDone = makeReq({
+      slug: 'narrow-done',
+      name: 'Узкий готов',
+      criticality: 'CRITICAL',
+    });
+    const md = generateCritRegression([narrowDone, narrowPlanned, wide], new Map());
+
+    const posWide = md.indexOf('req-slug: wide');
+    const posPlanned = md.indexOf('req-slug: narrow-planned');
+    const posDone = md.indexOf('req-slug: narrow-done');
+    expect(posWide).toBeLessThan(posPlanned);
+    expect(posPlanned).toBeLessThan(posDone);
+    // Wide node lists its children in covers-children.
+    expect(md).toContain('covers-children:');
+  });
+
+  it('generateTracker emits targetQuarter/targetYear for planned requirements', () => {
+    const planned = makeReq({
+      slug: 'planned-q',
+      name: 'Плановое',
+      implemented: false,
+      targetQuarter: 'Q4',
+      targetYear: 2026,
+    });
+    const md = generateTracker([planned]);
+    expect(md).toContain('targetQuarter: Q4');
+    expect(md).toContain('targetYear: 2026');
+  });
+
+  it('generateFull links a child test case to its parent via parent-tc and lists RELATES_TO slugs', () => {
+    const parent = makeReq({
+      slug: 'p1',
+      name: 'Платежи',
+      links: [{ type: 'PARENT_OF', targetSlug: 'c1' }],
+    });
+    const child = makeReq({
+      slug: 'c1',
+      name: 'Оплата картой',
+      links: [
+        { type: 'CHILD_OF', targetSlug: 'p1' },
+        { type: 'RELATES_TO', targetSlug: 'p1' },
+      ],
+    });
+    const md = generateFull([parent, child], new Map());
+    expect(md).toContain('parent-tc: FUL-001');
+    expect(md).toContain('**Связанные требования:** p1');
+  });
+});
+
 // ─── Smoke test: component renders without errors ─────────────────────────────
 
 describe('ExportTasksModal — smoke', () => {

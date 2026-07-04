@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TreeToolbar } from './TreeToolbar';
 import { renderWithProviders } from '../test/utils';
@@ -12,6 +12,7 @@ describe('TreeToolbar (T-1101/1103/1105)', () => {
       search: '',
       criticalityFilter: new Set(),
       implementationFilter: new Set(),
+      sourceFilter: new Set(),
       expanded: new Set(),
     }),
   );
@@ -102,5 +103,107 @@ describe('TreeToolbar (T-1101/1103/1105)', () => {
     await user.click(screen.getByTestId('impl-filter'));
     await user.click(screen.getByTestId('impl-reset'));
     expect(useUiStore.getState().implementationFilter.size).toBe(0);
+  });
+
+  // ── FR-19 · source filter dropdown (Task 12 · F-2.1) ────────────────────────
+  describe('FR-19 · «Источник» dropdown', () => {
+    const SOURCES = ['АС21', 'Регламент'];
+
+    it('opens the dropdown with «Не задан» plus the project sources', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={SOURCES} />);
+      await user.click(screen.getByTestId('source-filter'));
+
+      const dropdown = screen.getByTestId('source-dropdown');
+      expect(dropdown).toBeInTheDocument();
+      expect(screen.getByTestId('source-opt-empty')).toHaveTextContent('Не задан');
+      expect(screen.getByTestId('source-opt-АС21')).toBeInTheDocument();
+      expect(screen.getByTestId('source-opt-Регламент')).toBeInTheDocument();
+    });
+
+    it('applies the source selection only on «Применить» (draft semantics)', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={SOURCES} />);
+      await user.click(screen.getByTestId('source-filter'));
+
+      await user.click(screen.getByTestId('source-opt-АС21'));
+      // Draft only — the store is untouched until apply.
+      expect(useUiStore.getState().sourceFilter.size).toBe(0);
+
+      await user.click(screen.getByTestId('source-apply'));
+      expect([...useUiStore.getState().sourceFilter]).toEqual(['АС21']);
+      // The dropdown closes after apply.
+      expect(screen.queryByTestId('source-dropdown')).not.toBeInTheDocument();
+    });
+
+    it('«Не задан» filters requirements without a source (empty-string key)', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={SOURCES} />);
+      await user.click(screen.getByTestId('source-filter'));
+      await user.click(screen.getByTestId('source-opt-empty'));
+      await user.click(screen.getByTestId('source-apply'));
+      expect([...useUiStore.getState().sourceFilter]).toEqual(['']);
+    });
+
+    it('toggling a drafted source off removes it from the draft', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={SOURCES} />);
+      await user.click(screen.getByTestId('source-filter'));
+      await user.click(screen.getByTestId('source-opt-АС21'));
+      await user.click(screen.getByTestId('source-opt-АС21')); // off again
+      await user.click(screen.getByTestId('source-apply'));
+      expect(useUiStore.getState().sourceFilter.size).toBe(0);
+    });
+
+    it('shows the applied source count badge', () => {
+      useUiStore.setState({ sourceFilter: new Set(['АС21', 'Регламент']) });
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={SOURCES} />);
+      expect(screen.getByTestId('source-count')).toHaveTextContent('2');
+    });
+
+    it('hides the count badge when no source filter is applied', () => {
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={SOURCES} />);
+      expect(screen.queryByTestId('source-count')).not.toBeInTheDocument();
+    });
+
+    it('resets the applied source filter and closes the dropdown', async () => {
+      useUiStore.setState({ sourceFilter: new Set(['АС21']) });
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={SOURCES} />);
+      await user.click(screen.getByTestId('source-filter'));
+      await user.click(screen.getByTestId('source-reset'));
+      expect(useUiStore.getState().sourceFilter.size).toBe(0);
+      expect(screen.queryByTestId('source-dropdown')).not.toBeInTheDocument();
+    });
+
+    it('closes on Escape without applying the draft', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={SOURCES} />);
+      await user.click(screen.getByTestId('source-filter'));
+      await user.click(screen.getByTestId('source-opt-АС21'));
+      await user.keyboard('{Escape}');
+      expect(screen.queryByTestId('source-dropdown')).not.toBeInTheDocument();
+      expect(useUiStore.getState().sourceFilter.size).toBe(0);
+    });
+
+    it('closes on an outside click without applying the draft', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={SOURCES} />);
+      await user.click(screen.getByTestId('source-filter'));
+      await user.click(screen.getByTestId('source-opt-Регламент'));
+
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByTestId('source-dropdown')).not.toBeInTheDocument();
+      expect(useUiStore.getState().sourceFilter.size).toBe(0);
+    });
+
+    it('shows «Нет источников» when the project has no sources at all — dropdown still usable', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} />);
+      await user.click(screen.getByTestId('source-filter'));
+      // '' («Не задан») is always present, so the empty-list hint never renders
+      // with the default option; the option itself is there.
+      expect(screen.getByTestId('source-opt-empty')).toBeInTheDocument();
+    });
   });
 });

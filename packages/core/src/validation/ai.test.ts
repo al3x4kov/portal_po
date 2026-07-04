@@ -281,6 +281,7 @@ import {
   aiImportResultSchema,
   aiImportStartResponseSchema,
 } from './ai.js';
+import { requirementCreateShape } from './contracts.js';
 
 describe('T11 AI import contract constants', () => {
   it('exposes the PO-decided extraction parameters', () => {
@@ -449,5 +450,24 @@ describe('T11 aiExtractedRequirementSchema', () => {
     expect(aiExtractedRequirementSchema.safeParse({ ...minimal, targetYear: 2026.5 }).success).toBe(
       false,
     );
+  });
+
+  it('bounds targetYear exactly like the requirement creation contract (2020–2100)', () => {
+    // An extracted record with a year the create contract rejects must be
+    // dropped at the parsing stage, not fail later inside populate.
+    expect(aiExtractedRequirementSchema.safeParse({ ...minimal, targetYear: 2019 }).success).toBe(
+      false,
+    );
+    expect(aiExtractedRequirementSchema.safeParse({ ...minimal, targetYear: 2101 }).success).toBe(
+      false,
+    );
+    expect(aiExtractedRequirementSchema.safeParse({ ...minimal, targetYear: 2020 }).success).toBe(
+      true,
+    );
+    expect(aiExtractedRequirementSchema.safeParse({ ...minimal, targetYear: 2100 }).success).toBe(
+      true,
+    );
+    // Single source of truth: same field validator as requirementCreateShape.
+    expect(aiExtractedRequirementSchema.shape.targetYear).toBe(requirementCreateShape.targetYear);
   });
 });

@@ -26,6 +26,11 @@ interface ChatState {
   messages: AiChatMessage[];
   /** Human-readable send error shown in the feed; history is kept. */
   error: string | null;
+  /**
+   * Unsent composer text. Lives in the store (not component state) so that
+   * collapsing the widget — via ✕ or Escape (PO-T3) — never loses the draft.
+   */
+  draft: string;
 
   open: () => void;
   close: () => void;
@@ -35,6 +40,7 @@ interface ChatState {
   setFabPos: (pos: ChatPosition) => void;
   setWidgetPos: (pos: ChatPosition) => void;
   setError: (error: string | null) => void;
+  setDraft: (draft: string) => void;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -44,6 +50,7 @@ export const useChatStore = create<ChatState>((set) => ({
   modelOverride: null,
   messages: [],
   error: null,
+  draft: '',
 
   open: () => set({ isOpen: true }),
   close: () => set({ isOpen: false }),
@@ -53,4 +60,5 @@ export const useChatStore = create<ChatState>((set) => ({
   setFabPos: (fabPos) => set({ fabPos }),
   setWidgetPos: (widgetPos) => set({ widgetPos }),
   setError: (error) => set({ error }),
+  setDraft: (draft) => set({ draft }),
 }));

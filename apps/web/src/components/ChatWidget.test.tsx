@@ -50,6 +50,7 @@ describe('ChatWidget (Task 9)', () => {
       modelOverride: null,
       messages: [],
       error: null,
+      draft: '',
     });
   });
 
@@ -215,5 +216,58 @@ describe('ChatWidget (Task 9)', () => {
       expect(screen.getByTestId('chat-model-select')).toHaveValue('GigaChat-2-Pro'),
     );
     expect(screen.getByTestId('chat-send')).toBeDisabled();
+  });
+
+  // PO-T3: Escape collapses the expanded widget, exactly like ✕ — the
+  // conversation AND the unsent draft survive (draft lives in the store).
+  describe('Escape (PO-T3)', () => {
+    it('Escape with focus inside the panel collapses the widget (FAB is back)', async () => {
+      const user = userEvent.setup();
+      renderWidget();
+      await openWidget(user);
+
+      await user.click(screen.getByTestId('chat-input'));
+      await user.keyboard('{Escape}');
+
+      expect(screen.queryByTestId('chat-widget')).not.toBeInTheDocument();
+      expect(screen.getByTestId('chat-fab')).toBeInTheDocument();
+    });
+
+    it('Escape keeps the conversation and the typed draft on reopen', async () => {
+      chat.mockResolvedValue({ message: { role: 'assistant', content: 'Ответ бота' } });
+      const user = userEvent.setup();
+      renderWidget();
+      await openWidget(user);
+
+      await user.type(screen.getByTestId('chat-input'), 'Первый вопрос');
+      await user.click(screen.getByTestId('chat-send'));
+      await screen.findByTestId('chat-msg-assistant');
+
+      // Draft typed but NOT sent — Escape in the textarea must not lose it.
+      await user.type(screen.getByTestId('chat-input'), 'недописанный черновик');
+      await user.keyboard('{Escape}');
+      expect(screen.queryByTestId('chat-widget')).not.toBeInTheDocument();
+
+      await openWidget(user);
+      expect(screen.getByTestId('chat-msg-user')).toHaveTextContent('Первый вопрос');
+      expect(screen.getByTestId('chat-msg-assistant')).toHaveTextContent('Ответ бота');
+      expect(screen.getByTestId('chat-input')).toHaveValue('недописанный черновик');
+    });
+
+    it('Escape with focus outside the widget does not close it', async () => {
+      const user = userEvent.setup();
+      renderWidget();
+      await openWidget(user);
+
+      // After the FAB unmounts focus falls back to <body>, i.e. OUTSIDE the
+      // panel — Escape there must be ignored (no global document listener).
+      expect(screen.getByTestId('chat-widget')).not.toContainElement(
+        document.activeElement as HTMLElement,
+      );
+      await user.keyboard('{Escape}');
+
+      expect(screen.getByTestId('chat-widget')).toBeInTheDocument();
+      expect(screen.queryByTestId('chat-fab')).not.toBeInTheDocument();
+    });
   });
 });

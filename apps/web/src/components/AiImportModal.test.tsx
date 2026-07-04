@@ -5,6 +5,7 @@ import type { AiImportJobView } from '@po/core';
 import { AiImportModal } from './AiImportModal';
 import { renderWithProviders } from '../test/utils';
 import { queryKeys } from '../api/hooks';
+import { ApiError } from '../api/client';
 
 const getConfig = vi.fn();
 const listModels = vi.fn();
@@ -328,5 +329,64 @@ describe('AiImportModal (Task 11)', () => {
     expect(await screen.findByTestId('ai-import-file-name')).toHaveTextContent('docs-portal.zip');
     expect(screen.getByTestId('ai-import-start')).not.toBeDisabled();
     expect(screen.queryByTestId('ai-import-error')).not.toBeInTheDocument();
+  });
+
+  // ── Task 12 · F-2.4 (PO-T2): job lost after a server restart ───────────────
+  describe('PO-T2: lost job (GET /api/ai-import/:jobId → 404)', () => {
+    const notFound = () => new ApiError(404, { code: 'NOT_FOUND', message: 'Задание не найдено' });
+
+    it('shows the lost-job error with «Повторить анализ» instead of an eternal progress', async () => {
+      getJob.mockRejectedValue(notFound());
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      const error = await screen.findByTestId('ai-import-error');
+      expect(error).toHaveTextContent('Задание потеряно');
+      expect(error).toHaveTextContent(
+        'Задание потеряно (сервер был перезапущен). Запустите анализ заново.',
+      );
+      // Failed footer: retry is offered, the running-only stop button is gone.
+      expect(screen.getByTestId('ai-import-retry')).toBeInTheDocument();
+      expect(screen.queryByTestId('ai-import-stop')).not.toBeInTheDocument();
+
+      // «Повторить анализ» returns to setup with the archive kept.
+      await user.click(screen.getByTestId('ai-import-retry'));
+      expect(await screen.findByTestId('ai-import-file-name')).toHaveTextContent('docs-portal.zip');
+      expect(screen.getByTestId('ai-import-start')).not.toBeDisabled();
+    });
+
+    it('stops polling once the job request fails (no endless refetch loop)', async () => {
+      getJob.mockRejectedValue(notFound());
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+      await screen.findByTestId('ai-import-error');
+
+      const callsAtError = getJob.mock.calls.length;
+      // Poll cadence is ~800 ms; wait well past it and make sure no new call fired.
+      await new Promise((r) => setTimeout(r, 1200));
+      expect(getJob.mock.calls.length).toBe(callsAtError);
+    });
+
+    it('a job that was visibly running and then vanished flips to the lost-job error', async () => {
+      getJob.mockResolvedValueOnce(RUNNING_JOB).mockRejectedValue(notFound());
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      // First poll: normal running view.
+      expect(screen.getByTestId('ai-import-progress-pct')).toHaveTextContent('42%');
+      // Next poll (~800 ms) hits the 404 → error state, not a frozen progress.
+      const error = await screen.findByTestId('ai-import-error', {}, { timeout: 3000 });
+      expect(error).toHaveTextContent('Задание потеряно');
+      expect(screen.getByTestId('ai-import-retry')).toBeInTheDocument();
+      // Closing no longer demands the «Прекратить автоматизацию?» confirmation.
+      await user.click(screen.getByTestId('ai-import-error-close'));
+      expect(screen.queryByTestId('ai-import-confirm')).not.toBeInTheDocument();
+    });
   });
 });

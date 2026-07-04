@@ -11,6 +11,7 @@ import {
   type AiImportJobView,
   type AiImportResult,
   type AiImportStartResponse,
+  type Link,
   type Requirement,
   type TargetQuarter,
 } from '@po/core';
@@ -84,6 +85,18 @@ export interface AiImportServiceDeps {
 interface AggregatedRecord {
   record: AiExtractedRequirement;
   parentKey?: string;
+}
+
+/**
+ * A record whose extracted CHILD_OF should be ensured after populate: either a
+ * freshly created requirement, or a skipped EXISTING one (re-run after a crash
+ * between requirement and link creation — PO decision: the missing link is
+ * still created, existing links are never touched or duplicated).
+ */
+interface LinkCandidate {
+  item: AggregatedRecord;
+  /** Snapshot links of an already-existing source; used to skip present links. */
+  existingLinks?: Link[];
 }
 
 /**
@@ -384,19 +397,23 @@ export class AiImportService {
       const slugByKey = new Map<string, string>();
       for (const req of existing) slugByKey.set(nameKey(req.type, req.name), req.slug);
 
-      const createdRecords: AggregatedRecord[] = [];
+      const linkCandidates: LinkCandidate[] = [];
       let processed = 0;
       for (const item of aggregated) {
         const { record } = item;
         const key = nameKey(record.type, record.name);
         processed += 1;
-        if (existingKeys.has(key)) {
+        const existingReq = existingKeys.get(key);
+        if (existingReq) {
           counters.skippedExisting += 1;
           this.logLine(
             job,
             'warn',
             `«${record.name}» (${record.type}) уже существует в проекте — пропущено, файл не изменён.`,
           );
+          // Re-run survivability: the requirement is not rewritten, but its
+          // extracted CHILD_OF is still ensured below when it is missing.
+          if (item.parentKey) linkCandidates.push({ item, existingLinks: existingReq.links });
           continue;
         }
 
@@ -436,7 +453,7 @@ export class AiImportService {
             source: record.source.slice(0, REQUIREMENT_SOURCE_MAX),
           });
           slugByKey.set(key, created.slug);
-          createdRecords.push(item);
+          if (item.parentKey) linkCandidates.push({ item });
           if (record.type === 'FUNCTION') counters.createdFunctions += 1;
           else counters.createdNfrs += 1;
           this.logLine(job, 'info', `Создано: «${record.name}» (${record.type}).`);
@@ -454,15 +471,27 @@ export class AiImportService {
         job.progress = Math.min(99, 85 + Math.round((14 * processed) / aggregated.length));
       }
 
-      // CHILD_OF links for the created records whose parent resolved.
-      for (const item of createdRecords) {
+      // CHILD_OF links whose parent resolved: for created records AND for
+      // skipped existing ones missing their extracted link (so a re-run after
+      // a crash between requirements and links completes the hierarchy).
+      for (const { item, existingLinks } of linkCandidates) {
         if (!item.parentKey) continue;
         const sourceSlug = slugByKey.get(nameKey(item.record.type, item.record.name));
         const targetSlug = slugByKey.get(item.parentKey);
         if (!sourceSlug || !targetSlug) continue;
+        if (existingLinks?.some((l) => l.type === 'CHILD_OF' && l.targetSlug === targetSlug)) {
+          continue; // link already present — existing links are never touched
+        }
         try {
           await linkService.create({ sourceSlug, type: 'CHILD_OF', targetSlug });
           counters.links += 1;
+          if (existingLinks) {
+            this.logLine(
+              job,
+              'info',
+              `Достроена недостающая связь CHILD_OF: «${item.record.name}» → «${item.record.parentName}».`,
+            );
+          }
         } catch (err) {
           if (err instanceof DomainError) {
             this.logLine(

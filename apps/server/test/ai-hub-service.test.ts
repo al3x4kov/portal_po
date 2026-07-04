@@ -244,3 +244,72 @@ describe('T-802 AiHubService', () => {
     });
   });
 });
+
+/**
+ * ARC-T2 · upstream answers with MISSING content (no choices / null content):
+ * both generateDescription and chat must map them to AiUpstreamError (502)
+ * instead of returning an empty string or crashing on the optional chain.
+ */
+describe('ARC-T2 AiHubService · absent upstream content', () => {
+  let root: string;
+  let repo: AiConfigRepo;
+
+  beforeEach(async () => {
+    root = await makeTmpRoot();
+    repo = new AiConfigRepo(root);
+    await repo.update({ apiKey: SECRET, projectId: 'Demo', model: 'M' });
+  });
+  afterEach(async () => {
+    await cleanup(root);
+  });
+
+  function withCompletion(res: {
+    choices: Array<{ message: { content: string | null } }>;
+  }): AiHubService {
+    const client = mockClient({
+      chat: { completions: { create: vi.fn(async () => res) } },
+    });
+    return new AiHubService({ repo, makeClient: () => client });
+  }
+
+  const chatInput: AiChatRequest = {
+    projectId: 'Demo',
+    messages: [{ role: 'user', content: 'Привет' }],
+  };
+
+  it('generateDescription: empty choices array → AI_UPSTREAM', async () => {
+    await expect(
+      withCompletion({ choices: [] }).generateDescription(genInput),
+    ).rejects.toMatchObject({
+      code: 'AI_UPSTREAM',
+      message: 'AI Hub returned an empty description.',
+    });
+  });
+
+  it('generateDescription: null content → AI_UPSTREAM', async () => {
+    await expect(
+      withCompletion({ choices: [{ message: { content: null } }] }).generateDescription(genInput),
+    ).rejects.toMatchObject({ code: 'AI_UPSTREAM' });
+  });
+
+  it('generateDescription: whitespace-only content → AI_UPSTREAM', async () => {
+    await expect(
+      withCompletion({ choices: [{ message: { content: '   \n ' } }] }).generateDescription(
+        genInput,
+      ),
+    ).rejects.toMatchObject({ code: 'AI_UPSTREAM' });
+  });
+
+  it('chat: empty choices array → AI_UPSTREAM', async () => {
+    await expect(withCompletion({ choices: [] }).chat(chatInput)).rejects.toMatchObject({
+      code: 'AI_UPSTREAM',
+      message: 'AI Hub returned an empty chat response.',
+    });
+  });
+
+  it('chat: null content → AI_UPSTREAM', async () => {
+    await expect(
+      withCompletion({ choices: [{ message: { content: null } }] }).chat(chatInput),
+    ).rejects.toMatchObject({ code: 'AI_UPSTREAM' });
+  });
+});

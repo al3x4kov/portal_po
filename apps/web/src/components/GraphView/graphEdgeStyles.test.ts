@@ -31,4 +31,19 @@ describe('getEdgeStyle', () => {
     expect(style.markerEnd?.type).toBe(MarkerType.Arrow);
     expect(style.markerStart?.type).toBe(MarkerType.Arrow);
   });
+
+  // Task 12 · F-2.3: remaining edge-style branches (lines 46–55).
+  it('CHILD_OF — styled exactly like PARENT_OF (fallback for non-deduplicated edges)', () => {
+    const child = getEdgeStyle('CHILD_OF');
+    const parent = getEdgeStyle('PARENT_OF');
+    expect(child).toEqual(parent);
+  });
+
+  it('unknown link type — neutral gray thin line with a plain arrow', () => {
+    const style = getEdgeStyle('SOME_FUTURE_TYPE' as Parameters<typeof getEdgeStyle>[0]);
+    expect(style.style?.stroke).toBe('#94a3b8');
+    expect(style.style?.strokeWidth).toBe(1);
+    expect(style.markerEnd?.type).toBe(MarkerType.Arrow);
+    expect(style.markerStart).toBeUndefined();
+  });
 });

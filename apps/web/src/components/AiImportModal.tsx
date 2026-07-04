@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AiImportJobView, AiImportLogEntry, AiImportStage } from '@po/core';
+import type { AiImportJobView, AiImportStage } from '@po/core';
 import {
   useAiConfig,
   useAiImportJob,
@@ -10,6 +10,7 @@ import {
 import { errorMessage } from '../api/client';
 import { Modal } from './Modal';
 import { ConfirmDialog } from './ConfirmDialog';
+import { AI_IMPORT_LOG_BG, AI_IMPORT_LOG_LEVEL_COLOR, AI_IMPORT_LOG_TEXT } from '../lib/logColors';
 
 /**
  * Task 11: «AI подгрузка ФТ и НФТ из документации» — upload a zip/tar.gz
@@ -47,12 +48,6 @@ function formatTs(ts: string): string {
   if (Number.isNaN(d.getTime())) return ts;
   return d.toLocaleTimeString('ru-RU', { hour12: false });
 }
-
-const LOG_LEVEL_COLOR: Record<AiImportLogEntry['level'], string> = {
-  info: '#64748b',
-  warn: '#fbbf24',
-  error: '#f87171',
-};
 
 interface AiImportModalProps {
   projectId: string;
@@ -92,7 +87,16 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
     return [...set];
   }, [modelsQuery.data, selectedModel]);
 
-  const phase: Phase = !jobId ? 'setup' : !job || job.status === 'running' ? 'running' : job.status;
+  // PO-T2: the job vanished server-side (404 after a restart — jobs are
+  // in-memory). Treat it as a failure with a retry, not an eternal progress.
+  const jobLost = Boolean(jobId) && jobQuery.isError;
+  const phase: Phase = !jobId
+    ? 'setup'
+    : jobLost
+      ? 'failed'
+      : !job || job.status === 'running'
+        ? 'running'
+        : job.status;
   // Start already sent (or job view not loaded yet) counts as running for the
   // close guard — the job may well be alive on the server.
   const running = phase === 'running' || startMut.isPending;
@@ -422,10 +426,14 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                   <circle cx="12" cy="12" r="10" />
                   <path d="M12 8v4M12 16h.01" />
                 </svg>
-                Ошибка на этапе „{stageLabel}“
+                {jobLost ? 'Задание потеряно' : `Ошибка на этапе „${stageLabel}“`}
               </div>
-              <p className="mb-1 text-sm">{job?.error?.message}</p>
-              {job?.error?.hint ? (
+              <p className="mb-1 text-sm">
+                {jobLost
+                  ? 'Задание потеряно (сервер был перезапущен). Запустите анализ заново.'
+                  : job?.error?.message}
+              </p>
+              {!jobLost && job?.error?.hint ? (
                 <p className="text-sm font-semibold">Что делать: {job.error.hint}</p>
               ) : null}
             </div>
@@ -463,13 +471,13 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
           <div
             ref={logRef}
             className="overflow-y-auto rounded-lg p-2.5 font-mono text-xs leading-relaxed"
-            style={{ background: '#0f172a', color: '#cbd5e1', height: 170 }}
+            style={{ background: AI_IMPORT_LOG_BG, color: AI_IMPORT_LOG_TEXT, height: 170 }}
             data-testid="ai-import-log"
             aria-label="Лог автоматизации"
           >
             {(job?.log ?? []).map((entry, i) => (
               <div key={i}>
-                <span style={{ color: LOG_LEVEL_COLOR[entry.level] }}>
+                <span style={{ color: AI_IMPORT_LOG_LEVEL_COLOR[entry.level] }}>
                   {formatTs(entry.ts)}
                   {entry.level !== 'info' ? ` ${entry.level}` : ''}
                 </span>{' '}
