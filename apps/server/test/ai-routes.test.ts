@@ -160,6 +160,112 @@ describe('T-802 AI routes (integration, mock client)', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it('POST /api/ai/chat happy path returns an assistant message', async () => {
+    const client = okClient();
+    (client.chat.completions.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+      choices: [{ message: { content: '  Ответ ассистента.  ' } }],
+    });
+    await boot(client);
+    await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { apiKey: SECRET, projectId: 'Demo', model: 'GigaChat-2-Pro' },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: {
+        projectId: 'Demo',
+        messages: [{ role: 'user', content: 'Помоги сформулировать требование' }],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      message: { role: 'assistant', content: 'Ответ ассистента.' },
+    });
+    const createMock = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(createMock).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'GigaChat-2-Pro', temperature: 0.7, max_tokens: 1000 }),
+    );
+  });
+
+  it('POST /api/ai/chat prefers the model override from the body', async () => {
+    const client = okClient();
+    await boot(client);
+    await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { apiKey: SECRET, projectId: 'Demo', model: 'ProjectModel' },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: {
+        projectId: 'Demo',
+        model: 'OverrideModel',
+        messages: [{ role: 'user', content: 'Привет' }],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const createMock = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'OverrideModel' }));
+  });
+
+  it('POST /api/ai/chat returns 400 for an invalid body (bad role / empty history)', async () => {
+    await boot(okClient());
+    const badRole = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: { messages: [{ role: 'system', content: 'x' }] },
+    });
+    expect(badRole.statusCode).toBe(400);
+    const empty = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: { messages: [] },
+    });
+    expect(empty.statusCode).toBe(400);
+  });
+
+  it('POST /api/ai/chat returns 400 when no key or no model is configured', async () => {
+    await boot(okClient());
+    const noKey = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: { messages: [{ role: 'user', content: 'Привет' }] },
+    });
+    expect(noKey.statusCode).toBe(400);
+
+    await app.inject({ method: 'PUT', url: '/api/ai/config', payload: { apiKey: SECRET } });
+    const noModel = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: { messages: [{ role: 'user', content: 'Привет' }] },
+    });
+    expect(noModel.statusCode).toBe(400);
+    expect(noModel.json().message).toContain('No AI model is selected');
+  });
+
+  it('POST /api/ai/chat maps upstream failure to 502 without the key', async () => {
+    const boom = okClient();
+    (boom.chat.completions.create as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error(`chat upstream down key=${SECRET}`),
+    );
+    await boot(boom);
+    await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { apiKey: SECRET, projectId: 'Demo', model: 'GigaChat-2-Pro' },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: { projectId: 'Demo', messages: [{ role: 'user', content: 'Привет' }] },
+    });
+    expect(res.statusCode).toBe(502);
+    expect(res.body).not.toContain(SECRET);
+  });
+
   it('POST /api/ai/generate-description maps upstream failure to 502 without the key', async () => {
     const boom = okClient();
     (boom.chat.completions.create as ReturnType<typeof vi.fn>).mockRejectedValue(

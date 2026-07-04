@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import type {
+  AiChatRequest,
+  AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
   AiModelsView,
@@ -22,6 +24,7 @@ export const queryKeys = {
   project: (id: string) => ['projects', id] as const,
   requirements: (projectId: string) => ['projects', projectId, 'requirements'] as const,
   aiConfig: (projectId: string) => ['ai', 'config', projectId] as const,
+  aiModels: ['ai', 'models'] as const,
 };
 
 export function useProjects(): UseQueryResult<ProjectSummary[]> {
@@ -104,11 +107,15 @@ export function useDeleteRequirement(projectId: string) {
 
 /* ── AI Hub (Task 8, T-803) ──────────────────────────────────────────────── */
 
+/**
+ * AI Hub config view. With `projectId` includes the per-project model; without
+ * it (Task 9 chat widget on screens with no open project) returns the global
+ * view — `hasApiKey`/`baseURL` only.
+ */
 export function useAiConfig(projectId: string | undefined): UseQueryResult<AiConfigView> {
   return useQuery({
     queryKey: queryKeys.aiConfig(projectId ?? ''),
-    queryFn: () => aiApi.getConfig(projectId as string),
-    enabled: Boolean(projectId),
+    queryFn: () => aiApi.getConfig(projectId),
   });
 }
 
@@ -127,6 +134,27 @@ export function useSaveAiConfig(projectId: string | undefined) {
 export function useListAiModels() {
   return useMutation<AiModelsView, Error, void>({
     mutationFn: () => aiApi.listModels(),
+  });
+}
+
+/* ── AI chat widget (Task 9) ─────────────────────────────────────────────── */
+
+/**
+ * Cached model list for the chat dropdown. Like the AiPage flow, models are
+ * requested only once a key is stored (`enabled` = hasApiKey && widget open).
+ */
+export function useAiModels(enabled: boolean): UseQueryResult<AiModelsView> {
+  return useQuery({
+    queryKey: queryKeys.aiModels,
+    queryFn: () => aiApi.listModels(),
+    enabled,
+  });
+}
+
+/** One chat turn: POST /api/ai/chat with the trailing message history. */
+export function useAiChat() {
+  return useMutation<AiChatResponse, Error, AiChatRequest>({
+    mutationFn: (input) => aiApi.chat(input),
   });
 }
 

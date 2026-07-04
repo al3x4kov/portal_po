@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { GenerateDescriptionRequest } from '@po/core';
-import { buildDescriptionMessages } from '../src/services/aiPrompt.js';
+import type { AiChatRequest, GenerateDescriptionRequest } from '@po/core';
+import { buildChatMessages, buildDescriptionMessages } from '../src/services/aiPrompt.js';
 
 const base: GenerateDescriptionRequest = {
   projectId: 'Demo',
@@ -60,5 +60,30 @@ describe('T-802 buildDescriptionMessages', () => {
       requirement: { ...base.requirement, type: 'NFR' },
     }).at(-1)!;
     expect(user.content).toContain('Нефункциональное требование (НФТ)');
+  });
+});
+
+describe('T-901 buildChatMessages', () => {
+  const input: AiChatRequest = {
+    messages: [
+      { role: 'user', content: 'Помоги с критериями приёмки' },
+      { role: 'assistant', content: 'Конечно, вот они.' },
+      { role: 'user', content: 'Дополни первый пункт' },
+    ],
+  };
+
+  it('starts with a Russian PO-assistant system prompt', () => {
+    const [system] = buildChatMessages(input);
+    expect(system.role).toBe('system');
+    expect(system.content).toContain('Product Owner');
+    expect(system.content).toContain('требован');
+    expect(system.content).toContain('русском');
+    expect(system.content).toContain('НЕ выдумывай');
+  });
+
+  it('appends the client history after the system prompt, unchanged', () => {
+    const msgs = buildChatMessages(input);
+    expect(msgs).toHaveLength(input.messages.length + 1);
+    expect(msgs.slice(1)).toEqual(input.messages);
   });
 });

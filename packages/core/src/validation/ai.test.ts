@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AI_CHAT_HISTORY_LIMIT,
+  AI_CHAT_MAX_TOKENS,
+  AI_CHAT_TEMPERATURE,
   AI_DEFAULT_BASE_URL,
   AI_GEN_MAX_TOKENS,
   AI_GEN_TEMPERATURE,
+  aiChatMessageSchema,
+  aiChatRequestSchema,
+  aiChatResponseSchema,
   aiConfigUpdateSchema,
   aiConfigViewSchema,
   aiModelsViewSchema,
@@ -126,5 +132,93 @@ describe('T-801 generateDescriptionResponseSchema', () => {
     expect(generateDescriptionResponseSchema.parse({ description: 'text' }).description).toBe(
       'text',
     );
+  });
+});
+
+describe('T-901 AI chat contract constants', () => {
+  it('exposes the PO-decided chat parameters', () => {
+    expect(AI_CHAT_TEMPERATURE).toBe(0.7);
+    expect(AI_CHAT_MAX_TOKENS).toBe(1000);
+    expect(AI_CHAT_HISTORY_LIMIT).toBe(20);
+  });
+});
+
+describe('T-901 aiChatMessageSchema', () => {
+  it('accepts user and assistant messages', () => {
+    expect(aiChatMessageSchema.parse({ role: 'user', content: 'Привет' })).toEqual({
+      role: 'user',
+      content: 'Привет',
+    });
+    expect(aiChatMessageSchema.safeParse({ role: 'assistant', content: 'Ответ' }).success).toBe(
+      true,
+    );
+  });
+
+  it('rejects an empty content', () => {
+    expect(aiChatMessageSchema.safeParse({ role: 'user', content: '' }).success).toBe(false);
+  });
+
+  it('rejects a content over 8000 characters', () => {
+    const content = 'x'.repeat(8001);
+    expect(aiChatMessageSchema.safeParse({ role: 'user', content }).success).toBe(false);
+    expect(aiChatMessageSchema.safeParse({ role: 'user', content: content.slice(1) }).success).toBe(
+      true,
+    );
+  });
+
+  it('rejects unknown roles (system is server-side only)', () => {
+    expect(aiChatMessageSchema.safeParse({ role: 'system', content: 'x' }).success).toBe(false);
+    expect(aiChatMessageSchema.safeParse({ role: 'bot', content: 'x' }).success).toBe(false);
+  });
+});
+
+describe('T-901 aiChatRequestSchema', () => {
+  const msg = { role: 'user', content: 'Сформулируй критерии приёмки' };
+
+  it('accepts a minimal request (messages only)', () => {
+    const parsed = aiChatRequestSchema.parse({ messages: [msg] });
+    expect(parsed.projectId).toBeUndefined();
+    expect(parsed.model).toBeUndefined();
+    expect(parsed.messages).toHaveLength(1);
+  });
+
+  it('accepts optional projectId and model override', () => {
+    const parsed = aiChatRequestSchema.parse({
+      projectId: 'Demo',
+      model: 'GigaChat-2-Pro',
+      messages: [msg],
+    });
+    expect(parsed.model).toBe('GigaChat-2-Pro');
+  });
+
+  it('rejects an empty projectId or model', () => {
+    expect(aiChatRequestSchema.safeParse({ projectId: '', messages: [msg] }).success).toBe(false);
+    expect(aiChatRequestSchema.safeParse({ model: '', messages: [msg] }).success).toBe(false);
+  });
+
+  it('rejects an empty messages array', () => {
+    expect(aiChatRequestSchema.safeParse({ messages: [] }).success).toBe(false);
+  });
+
+  it('rejects more than AI_CHAT_HISTORY_LIMIT messages', () => {
+    const many = Array.from({ length: AI_CHAT_HISTORY_LIMIT + 1 }, () => msg);
+    expect(aiChatRequestSchema.safeParse({ messages: many }).success).toBe(false);
+    expect(aiChatRequestSchema.safeParse({ messages: many.slice(1) }).success).toBe(true);
+  });
+
+  it('rejects an invalid message inside the array', () => {
+    const res = aiChatRequestSchema.safeParse({ messages: [{ role: 'system', content: 'x' }] });
+    expect(res.success).toBe(false);
+  });
+});
+
+describe('T-901 aiChatResponseSchema', () => {
+  it('accepts an assistant message', () => {
+    const parsed = aiChatResponseSchema.parse({ message: { role: 'assistant', content: 'Ок' } });
+    expect(parsed.message.role).toBe('assistant');
+  });
+
+  it('rejects a response without a message', () => {
+    expect(aiChatResponseSchema.safeParse({}).success).toBe(false);
   });
 });

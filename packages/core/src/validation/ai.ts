@@ -71,3 +71,38 @@ export const generateDescriptionResponseSchema = z.object({
   description: z.string(),
 });
 export type GenerateDescriptionResponse = z.infer<typeof generateDescriptionResponseSchema>;
+
+/** Sampling temperature for the chat widget (PO decision, Task 9 §6.5). */
+export const AI_CHAT_TEMPERATURE = 0.7;
+/** Token budget for one chat reply (PO decision, Task 9 §6.5). */
+export const AI_CHAT_MAX_TOKENS = 1000;
+/** How many trailing messages of the conversation go into one request (§6.4). */
+export const AI_CHAT_HISTORY_LIMIT = 20;
+
+/**
+ * One visible chat turn. The `system` role is deliberately NOT accepted from
+ * clients — the server prepends its own system prompt.
+ */
+export const aiChatMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.string().min(1).max(8000),
+});
+export type AiChatMessage = z.infer<typeof aiChatMessageSchema>;
+
+/**
+ * Body of `POST /api/ai/chat`. `model` is the widget override and wins over the
+ * per-project model resolved via optional `projectId`; without either the
+ * server answers 400.
+ */
+export const aiChatRequestSchema = z.object({
+  projectId: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  messages: z.array(aiChatMessageSchema).min(1).max(AI_CHAT_HISTORY_LIMIT),
+});
+export type AiChatRequest = z.infer<typeof aiChatRequestSchema>;
+
+/** Response of `POST /api/ai/chat` — always a single assistant message. */
+export const aiChatResponseSchema = z.object({
+  message: aiChatMessageSchema,
+});
+export type AiChatResponse = z.infer<typeof aiChatResponseSchema>;

@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  aiChatRequestSchema,
   aiConfigUpdateSchema,
   formatZodError,
   generateDescriptionRequestSchema,
+  type AiChatResponse,
   type AiConfigView,
   type AiModelsView,
   type GenerateDescriptionResponse,
@@ -56,5 +58,11 @@ export async function aiRoutes(app: FastifyInstance, deps: AppDeps): Promise<voi
     const input = parse400(generateDescriptionRequestSchema, req.body);
     const description = await service.generateDescription(input);
     return { description };
+  });
+
+  app.post('/api/ai/chat', async (req): Promise<AiChatResponse> => {
+    const input = parse400(aiChatRequestSchema, req.body);
+    const content = await service.chat(input);
+    return { message: { role: 'assistant', content } };
   });
 }

@@ -1,4 +1,6 @@
 import type {
+  AiChatRequest,
+  AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
   AiModelsView,
@@ -131,13 +133,19 @@ export const requirementsApi = {
  * (`projectId` carries the association on save).
  */
 export const aiApi = {
-  getConfig: (projectId: string): Promise<AiConfigView> =>
-    apiRequest(`/ai/config?projectId=${encodeURIComponent(projectId)}`),
+  /** `projectId` is optional (Task 9): without it the global view is returned
+   *  (`hasApiKey`/`baseURL`, no per-project model) — used by the chat widget
+   *  on screens where no project is open. */
+  getConfig: (projectId?: string): Promise<AiConfigView> =>
+    apiRequest(projectId ? `/ai/config?projectId=${encodeURIComponent(projectId)}` : '/ai/config'),
   saveConfig: (update: AiConfigUpdate): Promise<AiConfigView> =>
     apiRequest('/ai/config', { method: 'PUT', body: update }),
   listModels: (): Promise<AiModelsView> => apiRequest('/ai/models'),
   generateDescription: (input: GenerateDescriptionRequest): Promise<GenerateDescriptionResponse> =>
     apiRequest('/ai/generate-description', { method: 'POST', body: input }),
+  /** Task 9: one chat turn — sends the trailing history, gets one assistant reply. */
+  chat: (input: AiChatRequest): Promise<AiChatResponse> =>
+    apiRequest('/ai/chat', { method: 'POST', body: input }),
 };
 
 export const linksApi = {

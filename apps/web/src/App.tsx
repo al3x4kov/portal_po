@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useUiStore } from './store/ui';
 import { ToastProvider } from './components/Toast';
+import { ChatWidget } from './components/ChatWidget';
 import { Start } from './pages/Start';
 import { NewProject } from './pages/NewProject';
 import { Import } from './pages/Import';
@@ -51,6 +52,8 @@ export function App(): React.ReactElement {
       <ToastProvider>
         <BrowserRouter>
           <AppRoutes />
+          {/* Task 9: floating AI chat, available on every screen. */}
+          <ChatWidget />
         </BrowserRouter>
       </ToastProvider>
     </QueryClientProvider>

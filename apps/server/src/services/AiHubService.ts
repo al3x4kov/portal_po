@@ -1,8 +1,15 @@
-import { AI_GEN_MAX_TOKENS, AI_GEN_TEMPERATURE, type GenerateDescriptionRequest } from '@po/core';
+import {
+  AI_CHAT_MAX_TOKENS,
+  AI_CHAT_TEMPERATURE,
+  AI_GEN_MAX_TOKENS,
+  AI_GEN_TEMPERATURE,
+  type AiChatRequest,
+  type GenerateDescriptionRequest,
+} from '@po/core';
 import type { AiConfigRepo } from '../repositories/AiConfigRepo.js';
 import { AiUpstreamError, BadRequestError } from '../lib/errors.js';
 import type { OpLogger } from '../lib/logger.js';
-import { buildDescriptionMessages, type AiChatMessage } from './aiPrompt.js';
+import { buildChatMessages, buildDescriptionMessages, type AiChatMessage } from './aiPrompt.js';
 
 /** Parameters passed to a chat completion (subset we rely on). */
 export interface AiChatCompletionParams {
@@ -136,6 +143,47 @@ export class AiHubService {
     const text = (content ?? '').trim();
     if (!text) {
       throw new AiUpstreamError('AI Hub returned an empty description.');
+    }
+    return text;
+  }
+
+  /**
+   * Answer one chat-widget turn (Task 9). Requires a stored key; the model is
+   * the request override, else the per-project model of `input.projectId`,
+   * else 400. Returns the trimmed assistant reply.
+   */
+  async chat(input: AiChatRequest): Promise<string> {
+    const cfg = await this.repo.read();
+    if (!cfg.apiKey) {
+      throw new BadRequestError('AI Hub API key is not configured.');
+    }
+    const model =
+      input.model ?? (input.projectId ? cfg.modelByProject[input.projectId] : undefined);
+    if (!model) {
+      throw new BadRequestError(
+        'No AI model is selected. Choose a model in the chat or configure the project.',
+      );
+    }
+
+    const client = this.makeClient(cfg.apiKey, cfg.baseURL);
+    const messages = buildChatMessages(input);
+
+    let content: string | null;
+    try {
+      const res = await client.chat.completions.create({
+        model,
+        messages,
+        temperature: AI_CHAT_TEMPERATURE,
+        max_tokens: AI_CHAT_MAX_TOKENS,
+      });
+      content = res.choices?.[0]?.message?.content ?? null;
+    } catch (err) {
+      throw new AiUpstreamError(sanitize(`AI Hub chat failed: ${describeError(err)}`, cfg.apiKey));
+    }
+
+    const text = (content ?? '').trim();
+    if (!text) {
+      throw new AiUpstreamError('AI Hub returned an empty chat response.');
     }
     return text;
   }

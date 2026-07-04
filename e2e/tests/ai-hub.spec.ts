@@ -1,7 +1,7 @@
-import { createServer, type Server } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { startAiStub, type AiStub } from './helpers/ai-stub.js';
 import { createProject, uniqueName } from './helpers/app.js';
 
 /**
@@ -23,59 +23,17 @@ const STUB_MODELS = ['GigaChat-2-Pro', 'GigaChat-2'];
 const STUB_DESC =
   'Система должна валидировать вводимые данные и отображать понятное сообщение об ошибке при некорректном вводе.';
 
-let stub: Server;
+let stub: AiStub;
 let stubBaseUrl: string;
-// Mutable so a single test can force an upstream failure on /chat/completions.
-let chatMode: 'ok' | 'error' = 'ok';
 
 test.beforeAll(async () => {
-  chatMode = 'ok';
-  stub = createServer((req, res) => {
-    const url = req.url ?? '';
-    // Drain the request body (openai SDK sends JSON on POST).
-    req.on('data', () => {});
-    req.on('end', () => {
-      if (req.method === 'GET' && url.endsWith('/models')) {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            object: 'list',
-            data: STUB_MODELS.map((id) => ({ id, object: 'model' })),
-          }),
-        );
-        return;
-      }
-      if (req.method === 'POST' && url.endsWith('/chat/completions')) {
-        if (chatMode === 'error') {
-          res.writeHead(500, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ error: { message: 'stub upstream failure' } }));
-          return;
-        }
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            id: 'chatcmpl-stub',
-            object: 'chat.completion',
-            choices: [{ index: 0, message: { role: 'assistant', content: STUB_DESC } }],
-          }),
-        );
-        return;
-      }
-      res.writeHead(404, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: { message: 'not found' } }));
-    });
-  });
-
-  await new Promise<void>((resolve) => {
-    stub.listen(0, '127.0.0.1', resolve);
-  });
-  const addr = stub.address();
-  if (addr === null || typeof addr === 'string') throw new Error('stub failed to bind a port');
-  stubBaseUrl = `http://127.0.0.1:${addr.port}/v1`;
+  // Shared stub helper (e2e/tests/helpers/ai-stub.ts); also used by task 9.
+  stub = await startAiStub({ models: STUB_MODELS, reply: STUB_DESC });
+  stubBaseUrl = stub.baseUrl;
 });
 
 test.afterAll(async () => {
-  await new Promise<void>((resolve) => stub.close(() => resolve()));
+  await stub.close();
 });
 
 /** id from a `/p/:id/...` URL (works on AI/dashboard/main routes). */
@@ -241,7 +199,7 @@ test.describe('Task 8 · AI Hub', () => {
     const initial = 'Описание до попытки генерации.';
     await openNewRequirement(page, { name: uniqueName('Req'), description: initial });
 
-    chatMode = 'error';
+    stub.setChatMode('error');
     try {
       await expect(page.getByTestId('ai-gen-open')).toBeEnabled();
       await page.getByTestId('ai-gen-open').click();
@@ -251,7 +209,7 @@ test.describe('Task 8 · AI Hub', () => {
       // Description untouched.
       await expect(page.getByTestId('req-description')).toHaveValue(initial);
     } finally {
-      chatMode = 'ok';
+      stub.setChatMode('ok');
     }
   });
 });

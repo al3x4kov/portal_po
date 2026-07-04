@@ -1,0 +1,56 @@
+import { create } from 'zustand';
+import type { AiChatMessage } from '@po/core';
+
+/** Screen coordinates of a dragged element; `null` = default corner slot. */
+export interface ChatPosition {
+  x: number;
+  y: number;
+}
+
+/**
+ * Task 9: AI chat widget state. Lives in memory only (PO decision §6.1/§6.6):
+ * the conversation survives navigation between screens but not a page reload.
+ * Closing the widget (`close`) intentionally KEEPS `messages`; only `newChat`
+ * clears the conversation and any displayed error.
+ */
+interface ChatState {
+  /** Widget expanded (true) vs collapsed to the FAB (false). */
+  isOpen: boolean;
+  /** FAB position after dragging; null = default bottom-right corner. */
+  fabPos: ChatPosition | null;
+  /** Widget position after dragging; null = default bottom-right corner. */
+  widgetPos: ChatPosition | null;
+  /** Model chosen in the widget dropdown; overrides the project model (§6.3). */
+  modelOverride: string | null;
+  /** Full visible conversation (requests send only the trailing N). */
+  messages: AiChatMessage[];
+  /** Human-readable send error shown in the feed; history is kept. */
+  error: string | null;
+
+  open: () => void;
+  close: () => void;
+  newChat: () => void;
+  appendMessage: (message: AiChatMessage) => void;
+  setModelOverride: (model: string | null) => void;
+  setFabPos: (pos: ChatPosition) => void;
+  setWidgetPos: (pos: ChatPosition) => void;
+  setError: (error: string | null) => void;
+}
+
+export const useChatStore = create<ChatState>((set) => ({
+  isOpen: false,
+  fabPos: null,
+  widgetPos: null,
+  modelOverride: null,
+  messages: [],
+  error: null,
+
+  open: () => set({ isOpen: true }),
+  close: () => set({ isOpen: false }),
+  newChat: () => set({ messages: [], error: null }),
+  appendMessage: (message) => set((s) => ({ messages: [...s.messages, message] })),
+  setModelOverride: (modelOverride) => set({ modelOverride }),
+  setFabPos: (fabPos) => set({ fabPos }),
+  setWidgetPos: (widgetPos) => set({ widgetPos }),
+  setError: (error) => set({ error }),
+}));

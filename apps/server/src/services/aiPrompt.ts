@@ -1,10 +1,17 @@
-import type { Criticality, GenerateDescriptionRequest, RequirementType } from '@po/core';
+import type {
+  AiChatMessage as CoreChatMessage,
+  AiChatRequest,
+  Criticality,
+  GenerateDescriptionRequest,
+  RequirementType,
+} from '@po/core';
 
-/** One OpenAI-style chat message. */
-export interface AiChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
+/**
+ * One OpenAI-style chat message: the shared core turn (`user`/`assistant`)
+ * widened with the server-only `system` role. Kept under the historical name
+ * so existing imports keep working while the shape stays defined in `@po/core`.
+ */
+export type AiChatMessage = CoreChatMessage | { role: 'system'; content: string };
 
 const TYPE_LABEL: Record<RequirementType, string> = {
   FUNCTION: 'Функциональное требование (ФТ)',
@@ -89,4 +96,26 @@ export function buildDescriptionMessages(input: GenerateDescriptionRequest): AiC
     { role: 'assistant', content: FEW_SHOT_ASSISTANT },
     { role: 'user', content: lines.join('\n') },
   ];
+}
+
+/**
+ * System prompt (RU) for the floating chat widget (Task 9): a Product Owner
+ * assistant inside the requirements-management portal. Concise, Russian, no
+ * invented facts. Kept as a constant so prompt tests can assert on it.
+ */
+const CHAT_SYSTEM_PROMPT = [
+  'Ты — ассистент Product Owner в портале управления требованиями.',
+  'Помогаешь формулировать требования, критерии приёмки и описания,',
+  'отвечаешь на вопросы по управлению требованиями.',
+  'Отвечай кратко и по делу, на русском языке.',
+  'НЕ выдумывай факты: если данных не хватает — скажи об этом и уточни вопрос.',
+].join('\n');
+
+/**
+ * Build the chat-completion messages for the widget: the server-side system
+ * prompt followed by the client-provided history (already length-limited by
+ * {@link AiChatRequest}'s schema).
+ */
+export function buildChatMessages(input: AiChatRequest): AiChatMessage[] {
+  return [{ role: 'system', content: CHAT_SYSTEM_PROMPT }, ...input.messages];
 }
