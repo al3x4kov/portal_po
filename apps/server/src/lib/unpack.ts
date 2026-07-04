@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, type Stats } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -20,6 +20,33 @@ export interface UnpackedDocs {
   files: string[];
   /** Entries skipped because they resolved outside the temp dir (zip-slip). */
   unsafeEntries: number;
+  /** Number of file (non-directory) entries found in the archive. */
+  totalEntries: number;
+  /** Extension → count over extracted files (lowercased; '' = no extension; macOS junk excluded). */
+  extensionCounts: Record<string, number>;
+}
+
+/**
+ * Normalize an archive entry name to a relative POSIX-style path: backslashes
+ * become '/', a Windows drive prefix ('C:'), leading '/' and leading './'
+ * segments are stripped. `..` segments are intentionally KEPT so that
+ * {@link resolveSafe} still rejects traversal — zip-slip defense is unchanged.
+ * Real-world Finder/Windows archives carry absolute or backslash entry names;
+ * without normalization every entry would be silently dropped as "unsafe".
+ */
+export function normalizeEntryName(entryName: string): string {
+  let name = entryName.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
+  for (;;) {
+    const stripped = name.replace(/^\/+/, '').replace(/^(\.\/)+/, '');
+    if (stripped === name) return name;
+    name = stripped;
+  }
+}
+
+/** macOS Finder metadata: the `__MACOSX/` payload and AppleDouble `._*` files. */
+function isMacJunk(rel: string): boolean {
+  const parts = rel.split(path.sep);
+  return parts.includes('__MACOSX') || (parts[parts.length - 1] ?? '').startsWith('._');
 }
 
 /** Detect the archive format from the leading magic bytes (as ArchiveRepo). */
@@ -76,6 +103,7 @@ export async function unpackDocsArchive(
   await ensureDir(dir);
 
   let unsafeEntries = 0;
+  let totalEntries = 0;
   try {
     if (format === 'zip') {
       let zip: AdmZip;
@@ -86,9 +114,12 @@ export async function unpackDocsArchive(
       }
       for (const entry of zip.getEntries()) {
         if (entry.isDirectory) continue;
+        const name = normalizeEntryName(entry.entryName);
+        if (name === '' || name.endsWith('/')) continue; // directory-like entry
+        totalEntries += 1;
         let target: string;
         try {
-          target = resolveSafe(dir, entry.entryName); // rejects traversal
+          target = resolveSafe(dir, name); // rejects traversal ('..')
         } catch {
           unsafeEntries += 1;
           continue;
@@ -101,12 +132,21 @@ export async function unpackDocsArchive(
         await tar.x({
           file: archivePath,
           cwd: dir,
-          filter: (p: string): boolean => {
+          filter: (p: string, entry: tar.ReadEntry | Stats): boolean => {
+            const isFile = 'type' in entry ? entry.type === 'File' : entry.isFile();
+            if (isFile) totalEntries += 1;
+            const name = normalizeEntryName(p);
+            if (name === '') {
+              if (isFile) unsafeEntries += 1;
+              return false;
+            }
             try {
-              resolveSafe(dir, p); // rejects traversal inside the archive
+              // Check the normalized name: tar itself strips absolute prefixes
+              // on extraction; '..' traversal is still rejected here.
+              resolveSafe(dir, name);
               return true;
             } catch {
-              unsafeEntries += 1;
+              if (isFile) unsafeEntries += 1;
               return false;
             }
           },
@@ -114,13 +154,38 @@ export async function unpackDocsArchive(
       } catch (err) {
         throw new ArchiveError(`Corrupt tar.gz archive: ${(err as Error).message}`);
       }
+      // tar cannot rename entries during extraction: on POSIX an entry named
+      // 'docs\sub\index.md' lands as ONE literal file — move it into place.
+      for (const rel of await walk(dir, dir)) {
+        if (!rel.includes('\\')) continue;
+        const name = normalizeEntryName(rel.split(path.sep).join('/'));
+        const from = path.join(dir, rel);
+        let target: string;
+        try {
+          if (name === '') throw new Error('empty entry name');
+          target = resolveSafe(dir, name);
+        } catch {
+          unsafeEntries += 1;
+          await fs.rm(from, { force: true });
+          continue;
+        }
+        if (target === from) continue;
+        await ensureDir(path.dirname(target));
+        await fs.rename(from, target);
+      }
     }
 
-    const files = (await walk(dir, dir)).filter(isDocFile).sort((a, b) => a.localeCompare(b));
+    const extracted = (await walk(dir, dir)).filter((rel) => !isMacJunk(rel));
+    const extensionCounts: Record<string, number> = {};
+    for (const rel of extracted) {
+      const ext = path.extname(rel).toLowerCase();
+      extensionCounts[ext] = (extensionCounts[ext] ?? 0) + 1;
+    }
+    const files = extracted.filter(isDocFile).sort((a, b) => a.localeCompare(b));
     if (files.length > maxDocFiles) {
       throw new ArchiveError(`Archive has too many documentation files (limit ${maxDocFiles}).`);
     }
-    return { dir, files, unsafeEntries };
+    return { dir, files, unsafeEntries, totalEntries, extensionCounts };
   } catch (err) {
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
     throw err;

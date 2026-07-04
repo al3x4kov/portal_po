@@ -21,7 +21,7 @@ import type { LinkService } from './LinkService.js';
 import type { AiClient, AiClientFactory } from './AiHubService.js';
 import type { AiImportJobs, AiImportJobState } from './AiImportJobs.js';
 import type { OpLogger } from '../lib/logger.js';
-import { unpackDocsArchive } from '../lib/unpack.js';
+import { unpackDocsArchive, type UnpackedDocs } from '../lib/unpack.js';
 import { BadRequestError, NotFoundError } from '../lib/errors.js';
 import {
   buildArchiveMap,
@@ -71,6 +71,28 @@ function sanitize(message: string, apiKey: string): string {
 /** Case-insensitive, trimmed identity of a requirement name within a type. */
 function nameKey(type: string, name: string): string {
   return `${type}:${name.trim().toLowerCase()}`;
+}
+
+/**
+ * Diagnostic for «no documentation files» (spec §4: readable, actionable):
+ * instead of a mute refusal, tell the user WHAT the archive actually holds —
+ * total file count, extension breakdown, and unsafe-entry count when present.
+ */
+export function noDocsMessage(
+  stats: Pick<UnpackedDocs, 'totalEntries' | 'extensionCounts' | 'unsafeEntries'>,
+): string {
+  if (stats.totalEntries === 0) return 'Архив пуст.';
+  const breakdown = Object.entries(stats.extensionCounts)
+    .sort(([extA, countA], [extB, countB]) => countB - countA || extA.localeCompare(extB))
+    .map(([ext, count]) => `${ext === '' ? '(без расширения)' : ext} — ${count}`)
+    .join(', ');
+  let message =
+    `В архиве нет файлов документации (.md/.markdown/.txt). ` +
+    `В архиве ${stats.totalEntries} файлов${breakdown ? `: ${breakdown}` : ''}.`;
+  if (stats.unsafeEntries > 0) {
+    message += ` Пропущено небезопасных записей: ${stats.unsafeEntries} (пути вне каталога распаковки).`;
+  }
+  return message;
 }
 
 export interface AiImportServiceDeps {
@@ -232,11 +254,10 @@ export class AiImportService {
       // ── unpack (0–5) ────────────────────────────────────────────────────
       job.stage = 'unpack';
       this.logLine(job, 'info', 'Распаковка архива документации…');
-      let files: string[];
+      let unpacked: UnpackedDocs;
       try {
-        const unpacked = await unpackDocsArchive(archivePath);
+        unpacked = await unpackDocsArchive(archivePath);
         docsDir = unpacked.dir;
-        files = unpacked.files;
         if (unpacked.unsafeEntries > 0) {
           this.logLine(
             job,
@@ -252,12 +273,9 @@ export class AiImportService {
         );
         return;
       }
+      const files = unpacked.files;
       if (files.length === 0) {
-        this.fail(
-          job,
-          'В архиве нет файлов документации (.md/.markdown/.txt).',
-          AI_IMPORT_HINT_NO_DOCS,
-        );
+        this.fail(job, noDocsMessage(unpacked), AI_IMPORT_HINT_NO_DOCS);
         return;
       }
       this.logLine(job, 'info', `Найдено файлов документации: ${files.length}.`);

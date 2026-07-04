@@ -31,6 +31,31 @@ async function writeZip(files: Record<string, string | Buffer>): Promise<string>
   return file;
 }
 
+/**
+ * Build a zip whose entry names adm-zip's addFile() would sanitize (leading
+ * '/', backslashes, drive prefixes): add a same-length placeholder name and
+ * patch the raw bytes (same trick as the zip-slip test below).
+ */
+async function writeZipRenamed(
+  files: Record<string, string>,
+  renames: Record<string, string>,
+): Promise<string> {
+  const zip = new AdmZip();
+  for (const [name, content] of Object.entries(files)) {
+    zip.addFile(name, Buffer.from(content, 'utf8'));
+  }
+  const raw = zip.toBuffer();
+  for (const [placeholder, actual] of Object.entries(renames)) {
+    const from = Buffer.from(placeholder);
+    const to = Buffer.from(actual);
+    if (from.length !== to.length) throw new Error('rename placeholder length mismatch');
+    for (let idx = raw.indexOf(from); idx !== -1; idx = raw.indexOf(from)) to.copy(raw, idx);
+  }
+  const file = path.join(scratchHolder.dir, `raw-${randomBytes(6).toString('hex')}.zip`);
+  await fs.writeFile(file, raw);
+  return file;
+}
+
 /** Directories left behind by unpackDocsArchive (must be none after a failure). */
 async function leftoverUnpackDirs(): Promise<string[]> {
   const entries = await fs.readdir(scratchHolder.dir, { withFileTypes: true });
@@ -174,6 +199,146 @@ describe('ARC-T2 · unpackDocsArchive (lib/unpack.ts)', () => {
     expect(result.files).toEqual(['good.md']);
     // The escaped path was never written next to the extraction dir.
     await expect(fs.access(path.join(scratchHolder.dir, evil))).rejects.toThrow();
+    await fs.rm(result.dir, { recursive: true, force: true });
+  });
+
+  it('normalizes zip entries with a leading "/" instead of dropping them as unsafe', async () => {
+    const hex = randomBytes(4).toString('hex');
+    // 'X…' placeholder → '/…' actual: same length, adm-zip keeps the placeholder.
+    const placeholder = `Xd-${hex}/documents/about/index.md`;
+    const actual = `/d-${hex}/documents/about/index.md`;
+    const file = await writeZipRenamed(
+      { [placeholder]: '# О продукте' },
+      { [placeholder]: actual },
+    );
+
+    const result = await unpackDocsArchive(file);
+    expect(result.unsafeEntries).toBe(0);
+    expect(result.files).toEqual([path.join(`d-${hex}`, 'documents', 'about', 'index.md')]);
+    await expect(
+      fs.readFile(path.join(result.dir, `d-${hex}`, 'documents', 'about', 'index.md'), 'utf8'),
+    ).resolves.toBe('# О продукте');
+    await fs.rm(result.dir, { recursive: true, force: true });
+  });
+
+  it('normalizes zip entries with backslash separators into the nested structure', async () => {
+    const hex = randomBytes(4).toString('hex');
+    const placeholder = `d-${hex}/sub/index.md`;
+    const actual = `d-${hex}\\sub\\index.md`;
+    const file = await writeZipRenamed({ [placeholder]: '# Раздел' }, { [placeholder]: actual });
+
+    const result = await unpackDocsArchive(file);
+    expect(result.unsafeEntries).toBe(0);
+    expect(result.files).toEqual([path.join(`d-${hex}`, 'sub', 'index.md')]);
+    await expect(
+      fs.readFile(path.join(result.dir, `d-${hex}`, 'sub', 'index.md'), 'utf8'),
+    ).resolves.toBe('# Раздел');
+    await fs.rm(result.dir, { recursive: true, force: true });
+  });
+
+  it('strips a Windows drive prefix ("C:/") from zip entry names', async () => {
+    const hex = randomBytes(4).toString('hex');
+    const placeholder = `ZZ/docs/dr-${hex}.md`;
+    const actual = `C:\\docs\\dr-${hex}.md`; // same length: 2+1+4+1+8+3
+    const file = await writeZipRenamed({ [placeholder]: 'Диск' }, { [placeholder]: actual });
+
+    const result = await unpackDocsArchive(file);
+    expect(result.unsafeEntries).toBe(0);
+    expect(result.files).toEqual([path.join('docs', `dr-${hex}.md`)]);
+    await fs.rm(result.dir, { recursive: true, force: true });
+  });
+
+  it('still rejects "..\\" traversal after backslash normalization (zip-slip stays blocked)', async () => {
+    const hex = randomBytes(4).toString('hex');
+    const evil = `po-bs-${hex}.md`; // 16 chars
+    const placeholder = `AA/po-bs-${hex}.md`;
+    const actual = `..\\po-bs-${hex}.md`;
+    const file = await writeZipRenamed(
+      { 'good.md': 'ok', [placeholder]: 'evil' },
+      { [placeholder]: actual },
+    );
+
+    const result = await unpackDocsArchive(file);
+    expect(result.unsafeEntries).toBe(1);
+    expect(result.files).toEqual(['good.md']);
+    await expect(fs.access(path.join(scratchHolder.dir, evil))).rejects.toThrow();
+    await fs.rm(result.dir, { recursive: true, force: true });
+  });
+
+  it('filters macOS Finder junk (__MACOSX/, AppleDouble ._*) out of doc files and stats', async () => {
+    const file = await writeZip({
+      '__MACOSX/._index.md': Buffer.from([0x00, 0x05, 0x16, 0x07]), // AppleDouble blob
+      '__MACOSX/docs/._a.md': 'resource fork',
+      '._readme.md': 'apple double at root',
+      'index.md': '# Настоящий документ',
+    });
+
+    const result = await unpackDocsArchive(file);
+    expect(result.files).toEqual(['index.md']);
+    expect(result.extensionCounts).toEqual({ '.md': 1 });
+    await expect(fs.readFile(path.join(result.dir, 'index.md'), 'utf8')).resolves.toBe(
+      '# Настоящий документ',
+    );
+    await fs.rm(result.dir, { recursive: true, force: true });
+  });
+
+  it('reports totalEntries and extensionCounts when the archive has no doc files', async () => {
+    const file = await writeZip({
+      'site/a.html': '<html>a</html>',
+      'site/b.html': '<html>b</html>',
+      'img/logo.png': Buffer.from([1, 2, 3]),
+      LICENSE: 'MIT',
+    });
+
+    const result = await unpackDocsArchive(file);
+    expect(result.files).toEqual([]);
+    expect(result.totalEntries).toBe(4);
+    expect(result.extensionCounts).toEqual({ '.html': 2, '.png': 1, '': 1 });
+    await fs.rm(result.dir, { recursive: true, force: true });
+  });
+
+  it('reports totalEntries=0 for an empty zip', async () => {
+    const file = path.join(scratchHolder.dir, 'empty.zip');
+    await fs.writeFile(file, new AdmZip().toBuffer());
+
+    const result = await unpackDocsArchive(file);
+    expect(result.files).toEqual([]);
+    expect(result.totalEntries).toBe(0);
+    expect(result.extensionCounts).toEqual({});
+    expect(result.unsafeEntries).toBe(0);
+    await fs.rm(result.dir, { recursive: true, force: true });
+  });
+
+  it('normalizes tar.gz entries whose names carry backslash separators (POSIX literal files)', async () => {
+    const src = path.join(scratchHolder.dir, 'src-bs');
+    await fs.mkdir(src, { recursive: true });
+    // On POSIX a backslash is a legal filename character: a Windows-built
+    // archive can carry 'docs\sub\index.md' as ONE entry name.
+    await fs.writeFile(path.join(src, 'docs\\sub\\index.md'), '# Из Windows', 'utf8');
+    const file = path.join(scratchHolder.dir, 'bs.tar.gz');
+    await tar.create({ gzip: true, cwd: src, file }, ['docs\\sub\\index.md']);
+
+    const result = await unpackDocsArchive(file);
+    expect(result.unsafeEntries).toBe(0);
+    expect(result.files).toEqual([path.join('docs', 'sub', 'index.md')]);
+    await expect(
+      fs.readFile(path.join(result.dir, 'docs', 'sub', 'index.md'), 'utf8'),
+    ).resolves.toBe('# Из Windows');
+    await fs.rm(result.dir, { recursive: true, force: true });
+  });
+
+  it('counts totalEntries for tar.gz archives (files only, not directories)', async () => {
+    const src = path.join(scratchHolder.dir, 'src-cnt');
+    await fs.mkdir(path.join(src, 'site'), { recursive: true });
+    await fs.writeFile(path.join(src, 'site', 'a.html'), '<html>', 'utf8');
+    await fs.writeFile(path.join(src, 'site', 'b.css'), 'body{}', 'utf8');
+    const file = path.join(scratchHolder.dir, 'cnt.tar.gz');
+    await tar.create({ gzip: true, cwd: src, file }, ['.']);
+
+    const result = await unpackDocsArchive(file);
+    expect(result.files).toEqual([]);
+    expect(result.totalEntries).toBe(2);
+    expect(result.extensionCounts).toEqual({ '.html': 1, '.css': 1 });
     await fs.rm(result.dir, { recursive: true, force: true });
   });
 });

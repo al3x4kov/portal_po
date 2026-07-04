@@ -207,6 +207,61 @@ describe('ARC-T2 · AiImportService error branches (populate/link/unpack)', () =
     ).toBe(true);
   });
 
+  it('an archive without doc files reports totalEntries and the extension breakdown', async () => {
+    const service = makeService(fixedClient('[]'));
+    const archive = await writeZip({
+      'site/a.html': '<html>a</html>',
+      'site/b.html': '<html>b</html>',
+      'img/logo.png': Buffer.from([1, 2, 3]),
+    });
+    const jobId = await runToEnd(service, archive);
+
+    const view = service.getView(jobId);
+    expect(view.status).toBe('failed');
+    expect(view.stage).toBe('unpack');
+    expect(view.error?.message).toContain('В архиве нет файлов документации (.md/.markdown/.txt)');
+    expect(view.error?.message).toContain('В архиве 3 файлов');
+    expect(view.error?.message).toContain('.html — 2');
+    expect(view.error?.message).toContain('.png — 1');
+  });
+
+  it('an empty archive fails with «Архив пуст»', async () => {
+    const service = makeService(fixedClient('[]'));
+    const file = path.join(os.tmpdir(), `po-test-empty-${randomBytes(6).toString('hex')}.zip`);
+    await fs.writeFile(file, new AdmZip().toBuffer());
+    const jobId = await runToEnd(service, file);
+
+    const view = service.getView(jobId);
+    expect(view.status).toBe('failed');
+    expect(view.stage).toBe('unpack');
+    expect(view.error?.message).toContain('Архив пуст');
+  });
+
+  it('unsafe (zip-slip) entries are counted in the no-docs diagnostic', async () => {
+    // adm-zip sanitizes '../' in addFile(): patch a same-length placeholder
+    // in the raw bytes (same trick as the unpack zip-slip test).
+    const hex = randomBytes(4).toString('hex');
+    const placeholder = `AA/po-un-${hex}.md`;
+    const zip = new AdmZip();
+    zip.addFile('page.html', Buffer.from('<html>', 'utf8'));
+    zip.addFile(placeholder, Buffer.from('evil', 'utf8'));
+    const raw = zip.toBuffer();
+    const from = Buffer.from(placeholder);
+    const to = Buffer.from(`../po-un-${hex}.md`);
+    for (let idx = raw.indexOf(from); idx !== -1; idx = raw.indexOf(from)) to.copy(raw, idx);
+    const file = path.join(os.tmpdir(), `po-test-unsafe-${randomBytes(6).toString('hex')}.zip`);
+    await fs.writeFile(file, raw);
+
+    const service = makeService(fixedClient('[]'));
+    const jobId = await runToEnd(service, file);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('failed');
+    expect(view.error?.message).toContain('В архиве нет файлов документации');
+    expect(view.error?.message).toContain(
+      'Пропущено небезопасных записей: 1 (пути вне каталога распаковки)',
+    );
+  });
+
   it('a corrupt tar.gz (gzip magic + garbage) fails the unpack stage with a readable message', async () => {
     const file = path.join(os.tmpdir(), `po-test-corrupt-${randomBytes(6).toString('hex')}.tar.gz`);
     await fs.writeFile(file, Buffer.concat([Buffer.from([0x1f, 0x8b]), randomBytes(128)]));
