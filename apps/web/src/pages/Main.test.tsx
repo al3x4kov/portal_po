@@ -27,6 +27,14 @@ vi.mock('../api/endpoints', () => ({
     remove: vi.fn(),
   },
   linksApi: { create: vi.fn(), remove: vi.fn() },
+  // Task 11: the AI-import modal reads the AI config/models once opened.
+  aiApi: {
+    getConfig: vi
+      .fn()
+      .mockResolvedValue({ baseURL: 'https://ai', hasApiKey: true, model: 'GigaChat-2-Pro' }),
+    listModels: vi.fn().mockResolvedValue({ models: ['GigaChat-2-Pro'] }),
+  },
+  aiImportApi: { start: vi.fn(), getJob: vi.fn(), cancel: vi.fn() },
 }));
 
 const requirements = [
@@ -187,6 +195,19 @@ describe('Main page (E11 integration)', () => {
     expect(confirm).not.toBeDisabled();
     await user.click(confirm);
     expect(await screen.findByTestId('toast')).toHaveTextContent('Требование удалено');
+  });
+
+  it('Task 11: «AI подгрузка из документации» footer button opens the AI-import modal', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    const btn = await screen.findByTestId('footer-ai-import');
+    expect(btn).toHaveTextContent('AI подгрузка из документации');
+    await user.click(btn);
+    expect(await screen.findByTestId('ai-import')).toBeInTheDocument();
+    expect(screen.getByTestId('ai-import-drop')).toBeInTheDocument();
+    // Idle → the ✕ closes without any confirmation.
+    await user.click(screen.getByTestId('ai-import-close'));
+    await waitFor(() => expect(screen.queryByTestId('ai-import')).not.toBeInTheDocument());
   });
 
   it('opens the description drawer on demand and closes it (T-1104)', async () => {

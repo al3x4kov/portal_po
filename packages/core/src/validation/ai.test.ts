@@ -265,3 +265,189 @@ describe('T-901 aiChatResponseSchema', () => {
     expect(aiChatResponseSchema.safeParse({}).success).toBe(false);
   });
 });
+
+// ── Task 11: AI import contract ─────────────────────────────────────────────
+import {
+  AI_IMPORT_CHUNK_CHARS,
+  AI_IMPORT_MAX_ARCHIVE_BYTES,
+  AI_IMPORT_MAX_DOC_FILES,
+  AI_IMPORT_MAX_TOKENS,
+  AI_IMPORT_STAGES,
+  AI_IMPORT_STATUSES,
+  AI_IMPORT_TEMPERATURE,
+  aiExtractedRequirementSchema,
+  aiImportJobViewSchema,
+  aiImportLogEntrySchema,
+  aiImportResultSchema,
+  aiImportStartResponseSchema,
+} from './ai.js';
+
+describe('T11 AI import contract constants', () => {
+  it('exposes the PO-decided extraction parameters', () => {
+    expect(AI_IMPORT_TEMPERATURE).toBe(0.2);
+    expect(AI_IMPORT_MAX_TOKENS).toBe(2000);
+    expect(AI_IMPORT_CHUNK_CHARS).toBe(12_000);
+    expect(AI_IMPORT_MAX_ARCHIVE_BYTES).toBe(50 * 1024 * 1024);
+    expect(AI_IMPORT_MAX_DOC_FILES).toBe(500);
+  });
+
+  it('exposes the stage and status unions', () => {
+    expect(AI_IMPORT_STAGES).toEqual(['unpack', 'analyze', 'aggregate', 'populate', 'done']);
+    expect(AI_IMPORT_STATUSES).toEqual(['running', 'succeeded', 'failed', 'cancelled']);
+  });
+});
+
+describe('T11 aiImportLogEntrySchema', () => {
+  it('accepts a valid entry', () => {
+    const e = aiImportLogEntrySchema.parse({
+      ts: '2026-06-29T10:00:00.000Z',
+      level: 'info',
+      message: 'распаковка завершена',
+    });
+    expect(e.level).toBe('info');
+  });
+
+  it('rejects an unknown level', () => {
+    expect(
+      aiImportLogEntrySchema.safeParse({ ts: 't', level: 'debug', message: 'x' }).success,
+    ).toBe(false);
+  });
+});
+
+describe('T11 aiImportResultSchema', () => {
+  it('accepts non-negative integer counters', () => {
+    const r = aiImportResultSchema.parse({
+      createdFunctions: 2,
+      createdNfrs: 1,
+      skippedExisting: 0,
+      links: 1,
+    });
+    expect(r.createdFunctions).toBe(2);
+  });
+
+  it('rejects negative or fractional counters', () => {
+    expect(
+      aiImportResultSchema.safeParse({
+        createdFunctions: -1,
+        createdNfrs: 0,
+        skippedExisting: 0,
+        links: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      aiImportResultSchema.safeParse({
+        createdFunctions: 0.5,
+        createdNfrs: 0,
+        skippedExisting: 0,
+        links: 0,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('T11 aiImportJobViewSchema', () => {
+  const base = {
+    jobId: 'j1',
+    projectId: 'Demo',
+    status: 'running',
+    stage: 'analyze',
+    progress: 42,
+    log: [{ ts: 't', level: 'warn', message: 'm' }],
+  };
+
+  it('accepts a running job without result/error', () => {
+    const v = aiImportJobViewSchema.parse(base);
+    expect(v.result).toBeUndefined();
+    expect(v.error).toBeUndefined();
+  });
+
+  it('accepts a succeeded job with a result', () => {
+    const v = aiImportJobViewSchema.parse({
+      ...base,
+      status: 'succeeded',
+      stage: 'done',
+      progress: 100,
+      result: { createdFunctions: 1, createdNfrs: 0, skippedExisting: 2, links: 0 },
+    });
+    expect(v.result?.skippedExisting).toBe(2);
+  });
+
+  it('accepts a failed job with message + hint', () => {
+    const v = aiImportJobViewSchema.parse({
+      ...base,
+      status: 'failed',
+      error: { message: 'boom', hint: 'что делать' },
+    });
+    expect(v.error?.hint).toBe('что делать');
+  });
+
+  it('rejects progress outside 0..100 and unknown stage/status', () => {
+    expect(aiImportJobViewSchema.safeParse({ ...base, progress: 101 }).success).toBe(false);
+    expect(aiImportJobViewSchema.safeParse({ ...base, progress: -1 }).success).toBe(false);
+    expect(aiImportJobViewSchema.safeParse({ ...base, stage: 'zip' }).success).toBe(false);
+    expect(aiImportJobViewSchema.safeParse({ ...base, status: 'paused' }).success).toBe(false);
+  });
+});
+
+describe('T11 aiImportStartResponseSchema', () => {
+  it('accepts a jobId and rejects a missing one', () => {
+    expect(aiImportStartResponseSchema.parse({ jobId: 'j1' }).jobId).toBe('j1');
+    expect(aiImportStartResponseSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('T11 aiExtractedRequirementSchema', () => {
+  const minimal = {
+    type: 'FUNCTION',
+    name: 'Вход по паролю',
+    description: 'Пользователь входит по email и паролю.',
+    source: 'auth.md § Вход',
+  };
+
+  it('accepts a minimal record (source is mandatory)', () => {
+    const r = aiExtractedRequirementSchema.parse(minimal);
+    expect(r.source).toBe('auth.md § Вход');
+    expect(r.criticality).toBeUndefined();
+  });
+
+  it('accepts all optional fields', () => {
+    const r = aiExtractedRequirementSchema.parse({
+      ...minimal,
+      criticality: 'HIGH',
+      implemented: false,
+      targetQuarter: 'Q3',
+      targetYear: 2026,
+      parentName: 'Аутентификация',
+    });
+    expect(r.targetQuarter).toBe('Q3');
+    expect(r.parentName).toBe('Аутентификация');
+  });
+
+  it('rejects a record without source or with an empty source', () => {
+    const { source: _source, ...noSource } = minimal;
+    expect(aiExtractedRequirementSchema.safeParse(noSource).success).toBe(false);
+    expect(aiExtractedRequirementSchema.safeParse({ ...minimal, source: '' }).success).toBe(false);
+  });
+
+  it('rejects unknown type/criticality/quarter and out-of-limit lengths', () => {
+    expect(aiExtractedRequirementSchema.safeParse({ ...minimal, type: 'BUG' }).success).toBe(false);
+    expect(
+      aiExtractedRequirementSchema.safeParse({ ...minimal, criticality: 'URGENT' }).success,
+    ).toBe(false);
+    expect(
+      aiExtractedRequirementSchema.safeParse({ ...minimal, targetQuarter: 'Q5' }).success,
+    ).toBe(false);
+    expect(
+      aiExtractedRequirementSchema.safeParse({ ...minimal, name: 'x'.repeat(201) }).success,
+    ).toBe(false);
+    expect(
+      aiExtractedRequirementSchema.safeParse({ ...minimal, source: 'x'.repeat(301) }).success,
+    ).toBe(false);
+    expect(aiExtractedRequirementSchema.safeParse({ ...minimal, description: '' }).success).toBe(
+      false,
+    );
+    expect(aiExtractedRequirementSchema.safeParse({ ...minimal, targetYear: 2026.5 }).success).toBe(
+      false,
+    );
+  });
+});

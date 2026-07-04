@@ -7,7 +7,7 @@ vi.mock('./client', () => ({
 }));
 
 import { apiDownload, apiRequest } from './client';
-import { projectsApi, requirementsApi, linksApi } from './endpoints';
+import { aiImportApi, projectsApi, requirementsApi, linksApi } from './endpoints';
 
 const apiRequestMock = vi.mocked(apiRequest);
 const apiDownloadMock = vi.mocked(apiDownload);
@@ -175,6 +175,38 @@ describe('requirementsApi', () => {
     expect(apiRequestMock).toHaveBeenCalledWith('/projects/p/requirements/s%2Flug', {
       method: 'DELETE',
     });
+  });
+});
+
+describe('aiImportApi (Task 11)', () => {
+  it('start → POST /projects/:id/ai-import with FormData carrying model + file', async () => {
+    const file = new File(['x'], 'docs.zip');
+    await aiImportApi.start('p id', file, 'Qwen-Coder-Next');
+    const [path, opts] = apiRequestMock.mock.calls[0];
+    expect(path).toBe('/projects/p%20id/ai-import');
+    expect(opts?.method).toBe('POST');
+    const fd = opts?.formData as FormData;
+    expect(fd).toBeInstanceOf(FormData);
+    expect(fd.get('file')).toBe(file);
+    expect(fd.get('model')).toBe('Qwen-Coder-Next');
+  });
+
+  it('start omits the model field when no override is chosen', async () => {
+    const file = new File(['x'], 'docs.tar.gz');
+    await aiImportApi.start('p', file);
+    const fd = apiRequestMock.mock.calls[0][1]?.formData as FormData;
+    expect(fd.get('file')).toBe(file);
+    expect(fd.has('model')).toBe(false);
+  });
+
+  it('getJob → GET /ai-import/:jobId (encoded)', async () => {
+    await aiImportApi.getJob('job/1');
+    expect(apiRequestMock).toHaveBeenCalledWith('/ai-import/job%2F1');
+  });
+
+  it('cancel → POST /ai-import/:jobId/cancel', async () => {
+    await aiImportApi.cancel('job-1');
+    expect(apiRequestMock).toHaveBeenCalledWith('/ai-import/job-1/cancel', { method: 'POST' });
   });
 });
 

@@ -1,16 +1,19 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import type {
   AiChatRequest,
   AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
+  AiImportJobView,
+  AiImportStartResponse,
   AiModelsView,
   GenerateDescriptionRequest,
   GenerateDescriptionResponse,
   Requirement,
 } from '@po/core';
 import { useToast } from '../components/Toast';
-import { aiApi, linksApi, projectsApi, requirementsApi } from './endpoints';
+import { aiApi, aiImportApi, linksApi, projectsApi, requirementsApi } from './endpoints';
 import type {
   LinkInput,
   ProjectSummary,
@@ -27,6 +30,7 @@ export const queryKeys = {
   aiConfigAll: ['ai', 'config'] as const,
   aiConfig: (projectId: string) => ['ai', 'config', projectId] as const,
   aiModels: ['ai', 'models'] as const,
+  aiImportJob: (jobId: string) => ['ai-import', jobId] as const,
 };
 
 export function useProjects(): UseQueryResult<ProjectSummary[]> {
@@ -182,6 +186,54 @@ export function useAiChat() {
 export function useGenerateDescription() {
   return useMutation<GenerateDescriptionResponse, Error, GenerateDescriptionRequest>({
     mutationFn: (input) => aiApi.generateDescription(input),
+  });
+}
+
+/* ── AI import of ФТ/НФТ from documentation (Task 11) ────────────────────── */
+
+/** Polling cadence for a running AI-import job (PO decision §3.3). */
+export const AI_IMPORT_POLL_MS = 800;
+
+/** Starts an AI-import job: uploads the archive, gets back `{ jobId }`. */
+export function useStartAiImport(projectId: string) {
+  return useMutation<AiImportStartResponse, Error, { file: File; model?: string }>({
+    mutationFn: ({ file, model }) => aiImportApi.start(projectId, file, model),
+  });
+}
+
+/**
+ * Polls `GET /api/ai-import/:jobId` every ~800 ms while the job is running.
+ * When the job finishes with `succeeded` or `cancelled`, the project's
+ * requirements query is invalidated — created items must appear in the tree
+ * without a manual refresh (spec §3.6).
+ */
+export function useAiImportJob(
+  projectId: string,
+  jobId: string | null,
+): UseQueryResult<AiImportJobView> {
+  const qc = useQueryClient();
+  const query = useQuery({
+    queryKey: queryKeys.aiImportJob(jobId ?? ''),
+    queryFn: () => aiImportApi.getJob(jobId as string),
+    enabled: Boolean(jobId),
+    refetchInterval: (q) =>
+      q.state.data === undefined || q.state.data.status === 'running' ? AI_IMPORT_POLL_MS : false,
+  });
+  const status = query.data?.status;
+  useEffect(() => {
+    if (status === 'succeeded' || status === 'cancelled') {
+      invalidateRequirements(qc, projectId);
+    }
+  }, [status, projectId, qc]);
+  return query;
+}
+
+/** Cancels a job (idempotent); the fresh view lands in the cache right away. */
+export function useCancelAiImport() {
+  const qc = useQueryClient();
+  return useMutation<AiImportJobView, Error, string>({
+    mutationFn: (jobId) => aiImportApi.cancel(jobId),
+    onSuccess: (job) => qc.setQueryData(queryKeys.aiImportJob(job.jobId), job),
   });
 }
 

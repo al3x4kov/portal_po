@@ -11,6 +11,7 @@ import { requirementRoutes } from './routes/requirements.js';
 import { linkRoutes } from './routes/links.js';
 import { archiveRoutes } from './routes/archive.js';
 import { aiRoutes } from './routes/ai.js';
+import { aiImportRoutes } from './routes/aiImport.js';
 import type { AiClientFactory } from './services/AiHubService.js';
 
 export interface BuildAppOptions {
@@ -82,6 +83,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(linkRoutes, deps);
   await app.register(archiveRoutes, deps);
   await app.register(aiRoutes, deps);
+  await app.register(aiImportRoutes, deps);
 
   if (opts.staticRoot) {
     await app.register(fastifyStatic, { root: path.resolve(opts.staticRoot) });

@@ -10,6 +10,13 @@ interface ModalProps {
   testid?: string;
   /** Optional pill shown before the title (e.g. requirement type). */
   badge?: string;
+  /**
+   * Opt-in backdrop click handler (Task 11 AI-import modal: the spec requires
+   * a click outside to behave like ✕ — guarded by its own ConfirmDialog while
+   * a job is running). Absent by default, which keeps the UX-10 policy below
+   * for every form-bearing dialog.
+   */
+  onOverlayClick?: () => void;
 }
 
 /**
@@ -29,6 +36,7 @@ export function Modal({
   widthClass = 'max-w-xl',
   testid = 'modal',
   badge,
+  onOverlayClick,
 }: ModalProps): React.ReactElement {
   const cardRef = useRef<HTMLDivElement>(null);
   // UX-5: capture the opener during the first render — before the form's inner
@@ -55,6 +63,13 @@ export function Modal({
       className="fixed inset-0 z-50 grid place-items-center p-4"
       style={{ background: 'rgba(15,23,42,.5)' }}
       data-testid={`${testid}-overlay`}
+      onClick={
+        onOverlayClick
+          ? (e) => {
+              if (e.target === e.currentTarget) onOverlayClick();
+            }
+          : undefined
+      }
     >
       <div
         ref={cardRef}

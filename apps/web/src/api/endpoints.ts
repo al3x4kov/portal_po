@@ -3,6 +3,8 @@ import type {
   AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
+  AiImportJobView,
+  AiImportStartResponse,
   AiModelsView,
   ExportOptionalField,
   GenerateDescriptionRequest,
@@ -146,6 +148,28 @@ export const aiApi = {
   /** Task 9: one chat turn — sends the trailing history, gets one assistant reply. */
   chat: (input: AiChatRequest): Promise<AiChatResponse> =>
     apiRequest('/ai/chat', { method: 'POST', body: input }),
+};
+
+/**
+ * Task 11: AI-import of ФТ/НФТ from a documentation archive. `start` uploads
+ * the archive as multipart (same client path as `projectsApi.import`); `model`
+ * is an optional override — absent means "use the project model" (server
+ * falls back and answers 400 when neither is set).
+ */
+export const aiImportApi = {
+  start: (projectId: string, file: File, model?: string): Promise<AiImportStartResponse> => {
+    const fd = new FormData();
+    if (model) fd.append('model', model);
+    fd.append('file', file);
+    return apiRequest(`/projects/${encodeURIComponent(projectId)}/ai-import`, {
+      method: 'POST',
+      formData: fd,
+    });
+  },
+  getJob: (jobId: string): Promise<AiImportJobView> =>
+    apiRequest(`/ai-import/${encodeURIComponent(jobId)}`),
+  cancel: (jobId: string): Promise<AiImportJobView> =>
+    apiRequest(`/ai-import/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' }),
 };
 
 export const linksApi = {

@@ -24,6 +24,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ExportModal } from '../components/ExportModal';
 import { ExportTasksModal } from '../components/ExportTasksModal';
 import { GraphView } from '../components/GraphView/GraphView';
+import { AiImportModal } from '../components/AiImportModal';
 
 export function Main(): React.ReactElement {
   const { id = '' } = useParams<{ id: string }>();
@@ -49,6 +50,9 @@ export function Main(): React.ReactElement {
   const createLinkMut = useCreateLink(id);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [descReq, setDescReq] = useState<Requirement | null>(null);
+  // Task 11: AI-import modal lives outside the ui-store modal union — it must
+  // survive job polling regardless of other modals opening from the tree.
+  const [aiImportOpen, setAiImportOpen] = useState(false);
 
   const requirements = reqQuery.data?.requirements ?? [];
   const broken = reqQuery.data?.broken ?? [];
@@ -409,6 +413,24 @@ export function Main(): React.ReactElement {
             >
               + НФТ
             </button>
+            <button
+              type="button"
+              className="btn btn-secondary inline-flex items-center gap-1.5 text-sm"
+              style={{ color: 'var(--color-primary)', borderColor: 'var(--color-primary)' }}
+              data-testid="footer-ai-import"
+              onClick={() => setAiImportOpen(true)}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M12 2l1.7 5.3L19 9l-5.3 1.7L12 16l-1.7-5.3L5 9l5.3-1.7L12 2zm7 12l.9 2.6L22.5 18l-2.6.9L19 21.5l-.9-2.6L15.5 18l2.6-.9L19 14z" />
+              </svg>
+              AI подгрузка из документации
+            </button>
           </div>
         </footer>
 
@@ -506,6 +528,10 @@ export function Main(): React.ReactElement {
 
         {modal?.kind === 'export-tasks' ? (
           <ExportTasksModal projectId={id} requirements={requirements} onClose={closeModal} />
+        ) : null}
+
+        {aiImportOpen ? (
+          <AiImportModal projectId={id} onClose={() => setAiImportOpen(false)} />
         ) : null}
       </div>
     </>
