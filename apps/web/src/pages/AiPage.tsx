@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { AI_DEFAULT_BASE_URL, type AiConfigUpdate } from '@po/core';
-import { useAiConfig, useListAiModels, useProject, useSaveAiConfig } from '../api/hooks';
+import {
+  useAiConfig,
+  useDeleteAiKey,
+  useListAiModels,
+  useProject,
+  useSaveAiConfig,
+} from '../api/hooks';
 import { errorMessage } from '../api/client';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Sidebar } from '../components/Sidebar';
 import { PathHeader } from '../components/PathHeader';
 import { useUiStore } from '../store/ui';
@@ -33,6 +40,7 @@ export function AiPage(): React.ReactElement {
 
   const saveMut = useSaveAiConfig(id);
   const modelsMut = useListAiModels();
+  const deleteKeyMut = useDeleteAiKey();
 
   // ── Local form state ──────────────────────────────────────────────────────
   const [showKey, setShowKey] = useState(false);
@@ -43,6 +51,7 @@ export function AiPage(): React.ReactElement {
   const [models, setModels] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [confirmDeleteKey, setConfirmDeleteKey] = useState(false);
 
   // Hydrate baseURL/model once the saved config arrives (don't clobber edits).
   useEffect(() => {
@@ -53,7 +62,7 @@ export function AiPage(): React.ReactElement {
     }
   }, [config, hydrated]);
 
-  const busy = saveMut.isPending || modelsMut.isPending;
+  const busy = saveMut.isPending || modelsMut.isPending || deleteKeyMut.isPending;
   const hasStoredKey = Boolean(config?.hasApiKey);
   const keyProvided = hasStoredKey || apiKey.trim().length > 0;
 
@@ -88,6 +97,18 @@ export function AiPage(): React.ReactElement {
       });
     } catch (err) {
       setStatus({ kind: 'error', text: `Не удалось подключиться: ${errorMessage(err)}` });
+    }
+  };
+
+  const handleDeleteKey = async (): Promise<void> => {
+    try {
+      await deleteKeyMut.mutateAsync();
+      setConfirmDeleteKey(false);
+      // Drop any previous success/error status so the empty state
+      // («Введите API-ключ…») becomes visible again.
+      setStatus(null);
+    } catch {
+      // The error is rendered inside the ConfirmDialog via its `error` prop.
     }
   };
 
@@ -169,13 +190,25 @@ export function AiPage(): React.ReactElement {
                   </button>
                 </div>
                 {hasStoredKey ? (
-                  <p
-                    className="mt-1 text-xs"
-                    style={{ color: 'var(--color-success-fg)' }}
-                    data-testid="ai-key-saved"
-                  >
-                    ✓ ключ сохранён
-                  </p>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <p
+                      className="text-xs"
+                      style={{ color: 'var(--color-success-fg)' }}
+                      data-testid="ai-key-saved"
+                    >
+                      ✓ ключ сохранён
+                    </p>
+                    <button
+                      type="button"
+                      className="text-xs underline"
+                      style={{ color: 'var(--color-danger-fg)' }}
+                      data-testid="ai-delete-key"
+                      disabled={busy}
+                      onClick={() => setConfirmDeleteKey(true)}
+                    >
+                      Удалить ключ
+                    </button>
+                  </div>
                 ) : (
                   <p className="mt-1 text-xs" style={{ color: 'var(--color-text-3)' }}>
                     Ключ хранится локально и не отображается повторно.
@@ -397,6 +430,22 @@ export function AiPage(): React.ReactElement {
             </section>
           </div>
         </main>
+
+        {confirmDeleteKey ? (
+          <ConfirmDialog
+            title="Удалить API-ключ?"
+            message="Чат и генерация описаний перестанут работать, пока вы не введёте новый ключ. Выбранные модели проектов сохранятся."
+            confirmLabel="Удалить ключ"
+            danger
+            busy={deleteKeyMut.isPending}
+            error={deleteKeyMut.isError ? errorMessage(deleteKeyMut.error) : null}
+            onConfirm={() => void handleDeleteKey()}
+            onCancel={() => {
+              setConfirmDeleteKey(false);
+              deleteKeyMut.reset();
+            }}
+          />
+        ) : null}
 
         {modal?.kind === 'requirement' ? (
           <RequirementModal

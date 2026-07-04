@@ -1,6 +1,3 @@
-import { promises as fs } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { startAiStub, type AiStub } from './helpers/ai-stub.js';
 import { createProject, projectIdFromUrl, uniqueName } from './helpers/app.js';
@@ -15,16 +12,11 @@ import { createProject, projectIdFromUrl, uniqueName } from './helpers/app.js';
  * the model-override and history behaviour can be asserted end-to-end.
  *
  * ORDER MATTERS inside this file: the AI config (`.ai-config.json` in
- * PROJECTS_ROOT) is global and `PUT /api/ai/config` can never CLEAR a stored
- * key — and ai-hub.spec.ts (task 8) runs before this file and stores one. So
- * the «no key» scenario removes the config file directly from disk (tests run
- * on the same machine as the server, which re-reads the file per request),
- * and every «with key» scenario re-configures explicitly afterwards.
+ * PROJECTS_ROOT) is global — and ai-hub.spec.ts (task 8) runs before this file
+ * and stores a key. So the «no key» scenario clears the stored key through the
+ * official API (`PUT /api/ai/config {apiKey: null}`, task 10), and every
+ * «with key» scenario re-configures explicitly afterwards.
  */
-
-// Same computation as playwright.config.ts / global-setup.ts.
-const PROJECTS_ROOT = process.env.E2E_PROJECTS_ROOT ?? path.join(os.tmpdir(), 'po-e2e-projects');
-const AI_CONFIG_FILE = path.join(PROJECTS_ROOT, '.ai-config.json');
 
 const STUB_MODELS = ['GigaChat-2-Pro', 'GigaChat-2'];
 const STUB_REPLY = 'Стабовый ответ ассистента: краткое пояснение по требованиям.';
@@ -39,9 +31,10 @@ test.afterAll(async () => {
   await stub.close();
 });
 
-/** Global AI config → no key at all (server re-reads the file per request). */
-async function resetAiConfig(): Promise<void> {
-  await fs.rm(AI_CONFIG_FILE, { force: true });
+/** Global AI config → no key: official API reset (task 10, `apiKey: null`). */
+async function resetAiConfig(page: Page): Promise<void> {
+  const res = await page.request.put('/api/ai/config', { data: { apiKey: null } });
+  if (!res.ok()) throw new Error(`PUT /api/ai/config {apiKey:null} failed (${res.status()})`);
 }
 
 /** Store key+baseURL (global) and the model for `projectId` via the API. */
@@ -104,8 +97,8 @@ test.describe('Task 9 · плавающий AI-чат', () => {
   test('без API-ключа: селект модели disabled с тултипом, отправка disabled', async ({
     page,
   }, testInfo) => {
-    // Wipe the global config BEFORE the app loads (ai-hub.spec.ts stored a key).
-    await resetAiConfig();
+    // Clear the stored key BEFORE the app loads (ai-hub.spec.ts stored one).
+    await resetAiConfig(page);
 
     await page.goto('/');
     await openWidget(page);

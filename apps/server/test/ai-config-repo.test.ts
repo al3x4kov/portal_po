@@ -77,6 +77,45 @@ describe('T-802 AiConfigRepo', () => {
     expect((await repo.getView('C')).model).toBeUndefined();
   });
 
+  it('update({apiKey: null}) deletes the stored key (T-1001)', async () => {
+    await repo.update({ apiKey: 'sk-delete-me' });
+    expect((await repo.getView()).hasApiKey).toBe(true);
+
+    const view = await repo.update({ apiKey: null });
+    expect(view.hasApiKey).toBe(false);
+
+    const cfg = await repo.read();
+    expect(cfg.apiKey).toBeUndefined();
+    const raw = await fs.readFile(path.join(root, AI_CONFIG_FILENAME), 'utf8');
+    expect(raw).not.toContain('sk-delete-me');
+  });
+
+  it('update({apiKey: null}) keeps modelByProject and baseURL intact (T-1001)', async () => {
+    await repo.update({
+      apiKey: 'sk-x',
+      baseURL: 'https://stub.test/v1',
+      projectId: 'Demo',
+      model: 'GigaChat-2-Pro',
+    });
+    const view = await repo.update({ apiKey: null });
+    expect(view).toEqual({ baseURL: 'https://stub.test/v1', hasApiKey: false });
+
+    const cfg = await repo.read();
+    expect(cfg.modelByProject).toEqual({ Demo: 'GigaChat-2-Pro' });
+    expect(cfg.baseURL).toBe('https://stub.test/v1');
+  });
+
+  it('update({apiKey: null}) on an empty config is a safe no-op (T-1001)', async () => {
+    const view = await repo.update({ apiKey: null });
+    expect(view).toEqual({ baseURL: AI_DEFAULT_BASE_URL, hasApiKey: false });
+  });
+
+  it("update({apiKey: ''}) still keeps the key after deletion support (T-1001)", async () => {
+    await repo.update({ apiKey: 'sk-keep' });
+    await repo.update({ apiKey: '' });
+    expect((await repo.read()).apiKey).toBe('sk-keep');
+  });
+
   it('read() tolerates a corrupt config file', async () => {
     await fs.writeFile(path.join(root, AI_CONFIG_FILENAME), 'not json', 'utf8');
     const cfg = await repo.read();

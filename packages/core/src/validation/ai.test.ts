@@ -72,6 +72,49 @@ describe('T-801 aiConfigUpdateSchema', () => {
   });
 });
 
+describe('T-1001 aiConfigUpdateSchema apiKey deletion contract', () => {
+  it('accepts apiKey: null (delete the stored key)', () => {
+    const parsed = aiConfigUpdateSchema.parse({ apiKey: null });
+    expect(parsed.apiKey).toBeNull();
+  });
+
+  it('still accepts an omitted apiKey (undefined — key untouched)', () => {
+    const parsed = aiConfigUpdateSchema.parse({});
+    expect(parsed.apiKey).toBeUndefined();
+    expect('apiKey' in parsed).toBe(false);
+  });
+
+  it('still accepts an empty-string apiKey (key untouched, task 8 semantics)', () => {
+    const parsed = aiConfigUpdateSchema.parse({ apiKey: '' });
+    expect(parsed.apiKey).toBe('');
+  });
+
+  it('still accepts a non-empty string apiKey', () => {
+    expect(aiConfigUpdateSchema.parse({ apiKey: 'sk-new' }).apiKey).toBe('sk-new');
+  });
+
+  it('rejects non-string, non-null apiKey values', () => {
+    expect(aiConfigUpdateSchema.safeParse({ apiKey: 42 }).success).toBe(false);
+    expect(aiConfigUpdateSchema.safeParse({ apiKey: { k: 'v' } }).success).toBe(false);
+    expect(aiConfigUpdateSchema.safeParse({ apiKey: false }).success).toBe(false);
+  });
+
+  it('accepts apiKey: null alongside other fields (partial update)', () => {
+    const parsed = aiConfigUpdateSchema.parse({
+      apiKey: null,
+      baseURL: 'https://example.test/v1',
+      projectId: 'Demo',
+      model: 'GigaChat-2-Pro',
+    });
+    expect(parsed).toEqual({
+      apiKey: null,
+      baseURL: 'https://example.test/v1',
+      projectId: 'Demo',
+      model: 'GigaChat-2-Pro',
+    });
+  });
+});
+
 describe('T-801 aiModelsViewSchema', () => {
   it('accepts a list of model ids', () => {
     expect(aiModelsViewSchema.parse({ models: ['a', 'b'] }).models).toEqual(['a', 'b']);

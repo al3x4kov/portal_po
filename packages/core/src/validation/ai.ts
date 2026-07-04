@@ -31,12 +31,14 @@ export type AiConfigView = z.infer<typeof aiConfigViewSchema>;
 
 /**
  * Body of `PUT /api/ai/config`. Every field is optional (partial update). The
- * key is only persisted when passed non-empty; the model is stored under
- * `modelByProject[projectId]`, so `projectId` is required to set a model.
+ * key is only persisted when passed non-empty; `''`/omitted keep the existing
+ * key, while an explicit `null` deletes the stored key (Task 10). The model is
+ * stored under `modelByProject[projectId]`, so `projectId` is required to set
+ * a model.
  */
 export const aiConfigUpdateSchema = z.object({
   baseURL: z.string().url().optional(),
-  apiKey: z.string().optional(),
+  apiKey: z.string().nullable().optional(),
   projectId: z.string().min(1).optional(),
   model: z.string().optional(),
 });

@@ -23,6 +23,8 @@ export const queryKeys = {
   projects: ['projects'] as const,
   project: (id: string) => ['projects', id] as const,
   requirements: (projectId: string) => ['projects', projectId, 'requirements'] as const,
+  /** Prefix matching every cached AI config (any project + the global '' key). */
+  aiConfigAll: ['ai', 'config'] as const,
   aiConfig: (projectId: string) => ['ai', 'config', projectId] as const,
   aiModels: ['ai', 'models'] as const,
 };
@@ -127,6 +129,25 @@ export function useSaveAiConfig(projectId: string | undefined) {
     mutationFn: (update) => aiApi.saveConfig(update),
     onSuccess: () => {
       if (projectId) void qc.invalidateQueries({ queryKey: queryKeys.aiConfig(projectId) });
+    },
+  });
+}
+
+/**
+ * Deletes the stored AI Hub API key: `PUT /api/ai/config` with `{ apiKey: null }`
+ * (Task 10). `''`/`undefined` keep the key untouched (Task 8 semantics), so `null`
+ * is the only "forget the key" signal. Per-project models are preserved server-side.
+ * Invalidates every cached config (the key is global) so the AI page returns to its
+ * empty state and the chat widget greys out immediately.
+ */
+export function useDeleteAiKey() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation<AiConfigView, Error, void>({
+    mutationFn: () => aiApi.saveConfig({ apiKey: null }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.aiConfigAll });
+      toast.show('API-ключ удалён');
     },
   });
 }

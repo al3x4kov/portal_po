@@ -123,6 +123,60 @@ describe('AiPage (T-803)', () => {
     });
   });
 
+  // ── Task 10: delete stored API key ─────────────────────────────────────────
+
+  it('hides the delete-key button when no key is stored', async () => {
+    getConfig.mockResolvedValue({ baseURL: '', hasApiKey: false });
+    renderAiPage();
+    await screen.findByTestId('ai-page');
+    await waitFor(() =>
+      expect(screen.getByTestId('ai-status')).toHaveTextContent('Введите API-ключ'),
+    );
+    expect(screen.queryByTestId('ai-delete-key')).not.toBeInTheDocument();
+  });
+
+  it('deletes the key after confirmation and returns to the empty state', async () => {
+    // First fetch: key stored; refetch after invalidation: key gone.
+    getConfig
+      .mockResolvedValueOnce({ baseURL: 'https://api.ai.sbt/openai/v1', hasApiKey: true })
+      .mockResolvedValue({ baseURL: 'https://api.ai.sbt/openai/v1', hasApiKey: false });
+    saveConfig.mockResolvedValue({ baseURL: 'https://api.ai.sbt/openai/v1', hasApiKey: false });
+    const user = userEvent.setup();
+    renderAiPage();
+
+    await user.click(await screen.findByTestId('ai-delete-key'));
+    const dialog = await screen.findByTestId('confirm-dialog');
+    expect(dialog).toHaveTextContent('Удалить API-ключ?');
+    expect(dialog).toHaveTextContent('Выбранные модели проектов сохранятся');
+
+    await user.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    // Exactly { apiKey: null } — '' / undefined mean "keep the key" (Task 8).
+    await waitFor(() => expect(saveConfig).toHaveBeenCalledWith({ apiKey: null }));
+    await waitFor(() => expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument());
+    // Config invalidation refetches hasApiKey=false → empty state is back.
+    await waitFor(() =>
+      expect(screen.getByTestId('ai-status')).toHaveTextContent('Введите API-ключ'),
+    );
+    expect(screen.queryByTestId('ai-key-saved')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ai-delete-key')).not.toBeInTheDocument();
+  });
+
+  it('cancelling the delete confirmation sends nothing', async () => {
+    getConfig.mockResolvedValue({ baseURL: 'https://api.ai.sbt/openai/v1', hasApiKey: true });
+    const user = userEvent.setup();
+    renderAiPage();
+
+    await user.click(await screen.findByTestId('ai-delete-key'));
+    await screen.findByTestId('confirm-dialog');
+    await user.click(screen.getByTestId('confirm-dialog-cancel'));
+
+    await waitFor(() => expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument());
+    expect(saveConfig).not.toHaveBeenCalled();
+    // Key is still reported as stored.
+    expect(screen.getByTestId('ai-key-saved')).toBeInTheDocument();
+  });
+
   it('allows manual model id entry as a fallback', async () => {
     getConfig.mockResolvedValue({ baseURL: '', hasApiKey: false });
     const user = userEvent.setup();

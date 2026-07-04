@@ -246,6 +246,64 @@ describe('T-802 AI routes (integration, mock client)', () => {
     expect(noModel.json().message).toContain('No AI model is selected');
   });
 
+  it('PUT /api/ai/config with apiKey: null deletes the stored key (T-1001)', async () => {
+    await boot(okClient());
+    await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { apiKey: SECRET, projectId: 'Demo', model: 'GigaChat-2-Pro' },
+    });
+
+    const del = await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { apiKey: null },
+    });
+    expect(del.statusCode).toBe(200);
+    expect(del.json()).toEqual({ baseURL: 'https://api.ai.sbt/openai/v1', hasApiKey: false });
+
+    // The per-project model survives key deletion (PO decision §3).
+    const get = await app.inject({ method: 'GET', url: '/api/ai/config?projectId=Demo' });
+    expect(get.json()).toEqual({
+      baseURL: 'https://api.ai.sbt/openai/v1',
+      hasApiKey: false,
+      model: 'GigaChat-2-Pro',
+    });
+
+    // Without a key, models/chat report "not configured" (400).
+    const models = await app.inject({ method: 'GET', url: '/api/ai/models' });
+    expect(models.statusCode).toBe(400);
+    const chat = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: { projectId: 'Demo', messages: [{ role: 'user', content: 'Привет' }] },
+    });
+    expect(chat.statusCode).toBe(400);
+  });
+
+  it("PUT /api/ai/config with apiKey: '' still keeps the stored key (T-1001)", async () => {
+    await boot(okClient());
+    await app.inject({ method: 'PUT', url: '/api/ai/config', payload: { apiKey: SECRET } });
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { apiKey: '' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ hasApiKey: true });
+  });
+
+  it('PUT /api/ai/config with apiKey: null on an empty config does not fail (T-1001)', async () => {
+    await boot(okClient());
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { apiKey: null },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ baseURL: 'https://api.ai.sbt/openai/v1', hasApiKey: false });
+  });
+
   it('POST /api/ai/chat maps upstream failure to 502 without the key', async () => {
     const boom = okClient();
     (boom.chat.completions.create as ReturnType<typeof vi.fn>).mockRejectedValue(

@@ -213,3 +213,101 @@ test.describe('Task 8 · AI Hub', () => {
     }
   });
 });
+
+test.describe('Task 10 · удаление API-ключа', () => {
+  test('удаление ключа: подтверждение → пустое состояние экрана AI и серый чат', async ({
+    page,
+  }) => {
+    const name = uniqueName('AI-DelKey');
+    await createProject(page, name);
+    const id = projectId(page);
+    await configureAi(page, id);
+
+    // Key stored → the delete button is offered next to the «saved» badge.
+    await expect(page.getByTestId('ai-delete-key')).toBeVisible();
+    await page.getByTestId('ai-delete-key').click();
+
+    // ConfirmDialog → confirm.
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible();
+    await page.getByTestId('confirm-dialog-confirm').click();
+
+    // Toast + the dialog is gone.
+    await expect(page.getByTestId('toast').filter({ hasText: 'API-ключ удалён' })).toBeVisible();
+    await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
+
+    // AI screen back to the empty state: no badge, no delete button, empty hint.
+    await expect(page.getByTestId('ai-key-saved')).toHaveCount(0);
+    await expect(page.getByTestId('ai-delete-key')).toHaveCount(0);
+    await expect(page.getByTestId('ai-status').locator('[data-state="empty"]')).toBeVisible();
+
+    // API view: hasApiKey=false, but the per-project model SURVIVES (spec:
+    // modelByProject stays untouched so the model is back once a key returns).
+    const res = await page.request.get(`/api/ai/config?projectId=${encodeURIComponent(id)}`);
+    expect(res.ok()).toBe(true);
+    const view = (await res.json()) as { hasApiKey: boolean; model?: string };
+    expect(view.hasApiKey).toBe(false);
+    expect(view.model).toBe('GigaChat-2-Pro');
+
+    // Chat widget (task 9) greys out immediately — the shared config query is
+    // invalidated: disabled model select + tooltip hint + disabled send.
+    await page.getByTestId('chat-fab').click();
+    await expect(page.getByTestId('chat-widget')).toBeVisible();
+    await expect(page.getByTestId('chat-model-select')).toBeDisabled();
+    await expect(page.getByTestId('chat-model-hint')).toBeVisible();
+    await page.getByTestId('chat-input').fill('Проверка после удаления ключа');
+    await expect(page.getByTestId('chat-send')).toBeDisabled();
+
+    await page.screenshot({
+      path: path.join(SCREENSHOT_DIR, 'ai-key-deleted.png'),
+      fullPage: true,
+    });
+  });
+
+  test('отмена удаления: ключ остаётся сохранённым', async ({ page }) => {
+    const name = uniqueName('AI-DelCancel');
+    await createProject(page, name);
+    const id = projectId(page);
+    await configureAi(page, id);
+
+    await page.getByTestId('ai-delete-key').click();
+    await expect(page.getByTestId('confirm-dialog')).toBeVisible();
+    await page.getByTestId('confirm-dialog-cancel').click();
+    await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
+
+    // Key intact: badge and delete button still there, no empty-state hint.
+    await expect(page.getByTestId('ai-key-saved')).toBeVisible();
+    await expect(page.getByTestId('ai-delete-key')).toBeVisible();
+    await expect(page.getByTestId('ai-status').locator('[data-state="empty"]')).toHaveCount(0);
+
+    const res = await page.request.get('/api/ai/config');
+    expect(res.ok()).toBe(true);
+    expect(((await res.json()) as { hasApiKey: boolean }).hasApiKey).toBe(true);
+  });
+
+  test('API: apiKey="" не трогает ключ, apiKey=null удаляет его', async ({ request }) => {
+    const getHasKey = async (): Promise<boolean> => {
+      const res = await request.get('/api/ai/config');
+      expect(res.ok()).toBe(true);
+      return ((await res.json()) as { hasApiKey: boolean }).hasApiKey;
+    };
+
+    // Arrange: store a key via the API.
+    const saved = await request.put('/api/ai/config', {
+      data: { baseURL: stubBaseUrl, apiKey: 'sk-e2e-task10' },
+    });
+    expect(saved.ok()).toBe(true);
+    expect(((await saved.json()) as { hasApiKey: boolean }).hasApiKey).toBe(true);
+
+    // '' keeps the task-8 semantics: the stored key is NOT touched.
+    const blank = await request.put('/api/ai/config', { data: { apiKey: '' } });
+    expect(blank.ok()).toBe(true);
+    expect(((await blank.json()) as { hasApiKey: boolean }).hasApiKey).toBe(true);
+    expect(await getHasKey()).toBe(true);
+
+    // Explicit null deletes the key (task 10).
+    const del = await request.put('/api/ai/config', { data: { apiKey: null } });
+    expect(del.ok()).toBe(true);
+    expect(((await del.json()) as { hasApiKey: boolean }).hasApiKey).toBe(false);
+    expect(await getHasKey()).toBe(false);
+  });
+});

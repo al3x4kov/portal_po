@@ -66,14 +66,17 @@ export class AiConfigRepo {
 
   /**
    * Apply a partial update and persist atomically. `apiKey` is written only when
-   * passed non-empty (blank keeps the existing key); `model` is stored under
-   * `modelByProject[projectId]` (requires `projectId`). Returns the safe view.
+   * passed non-empty (blank/omitted keep the existing key); an explicit `null`
+   * deletes the stored key while leaving `modelByProject` untouched (Task 10).
+   * `model` is stored under `modelByProject[projectId]` (requires `projectId`).
+   * Returns the safe view.
    */
   async update(patch: AiConfigUpdate): Promise<AiConfigView> {
     const cfg = await this.read();
 
     if (patch.baseURL) cfg.baseURL = patch.baseURL;
-    if (patch.apiKey && patch.apiKey.trim().length > 0) cfg.apiKey = patch.apiKey;
+    if (patch.apiKey === null) delete cfg.apiKey;
+    else if (patch.apiKey && patch.apiKey.trim().length > 0) cfg.apiKey = patch.apiKey;
     if (patch.projectId && patch.model) cfg.modelByProject[patch.projectId] = patch.model;
 
     await atomicWrite(this.file, JSON.stringify(cfg, null, 2));
