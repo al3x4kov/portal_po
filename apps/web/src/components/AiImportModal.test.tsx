@@ -235,6 +235,10 @@ describe('AiImportModal (Task 11)', () => {
     const confirm = await screen.findByTestId('ai-import-confirm');
     expect(confirm).toHaveTextContent('Прекратить автоматизацию?');
     expect(confirm).toHaveTextContent('Анализ документации ещё выполняется');
+    // Stop-the-job confirmation shows a stop icon, not the delete trash can.
+    const icon = screen.getByTestId('ai-import-confirm-icon');
+    expect(icon).toHaveTextContent('⏹');
+    expect(icon).not.toHaveTextContent('🗑');
 
     await user.click(screen.getByTestId('ai-import-confirm-cancel')); // «Продолжить анализ»
     await waitFor(() => expect(screen.queryByTestId('ai-import-confirm')).not.toBeInTheDocument());

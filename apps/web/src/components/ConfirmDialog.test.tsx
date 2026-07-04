@@ -53,6 +53,55 @@ describe('ConfirmDialog (T-606, FR-9)', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it('keeps the legacy 🗑 icon for danger dialogs when `icon` is not given', () => {
+    render(
+      <ConfirmDialog
+        testid="delete-dialog"
+        danger
+        title="Точно удалить требование?"
+        message="«X» будет удалено."
+        confirmLabel="Удалить"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('delete-dialog-icon')).toHaveTextContent('🗑');
+  });
+
+  it('renders a custom icon instead of 🗑 when `icon` is provided (Task 11 follow-up)', () => {
+    render(
+      <ConfirmDialog
+        testid="stop-dialog"
+        danger
+        icon="⏹"
+        title="Прекратить автоматизацию?"
+        message="Анализ будет остановлен."
+        confirmLabel="Остановить"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const icon = screen.getByTestId('stop-dialog-icon');
+    expect(icon).toHaveTextContent('⏹');
+    expect(icon).not.toHaveTextContent('🗑');
+  });
+
+  it('renders no icon at all when `icon` is null', () => {
+    render(
+      <ConfirmDialog
+        testid="stop-dialog"
+        danger
+        icon={null}
+        title="Прекратить автоматизацию?"
+        message="Анализ будет остановлен."
+        confirmLabel="Остановить"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('stop-dialog-icon')).not.toBeInTheDocument();
+  });
+
   it('focuses the safe Cancel button on open (UX-5)', () => {
     render(
       <ConfirmDialog

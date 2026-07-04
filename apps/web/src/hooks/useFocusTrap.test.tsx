@@ -65,4 +65,47 @@ describe('useFocusTrap (UX-5)', () => {
     await user.click(screen.getByTestId('first')); // closes the trap
     expect(screen.getByTestId('trigger')).toHaveFocus();
   });
+
+  it('with nested traps, only the TOP-MOST trap cycles Tab (ConfirmDialog over Modal)', async () => {
+    function InnerTrap(): React.ReactElement {
+      const ref = useRef<HTMLDivElement>(null);
+      useFocusTrap(ref);
+      return (
+        <div ref={ref} data-testid="inner-trap">
+          <button type="button" data-testid="inner-first">
+            Внутр. 1
+          </button>
+          <button type="button" data-testid="inner-last">
+            Внутр. 2
+          </button>
+        </div>
+      );
+    }
+    function NestedHarness(): React.ReactElement {
+      const [innerOpen, setInnerOpen] = useState(true);
+      return (
+        <div>
+          <Trap onClose={() => {}} />
+          {innerOpen ? <InnerTrap /> : null}
+          <button type="button" data-testid="close-inner" onClick={() => setInnerOpen(false)}>
+            Закрыть внутренний
+          </button>
+        </div>
+      );
+    }
+
+    const user = userEvent.setup();
+    render(<NestedHarness />);
+
+    // Inner (top-most) trap owns the Tab cycle: last → first stays inside it.
+    screen.getByTestId('inner-last').focus();
+    await user.tab();
+    expect(screen.getByTestId('inner-first')).toHaveFocus();
+
+    // Close the inner trap — the outer one takes over the cycle again.
+    await user.click(screen.getByTestId('close-inner'));
+    screen.getByTestId('last').focus();
+    await user.tab();
+    expect(screen.getByTestId('first')).toHaveFocus();
+  });
 });

@@ -125,14 +125,16 @@ export function useAiConfig(projectId: string | undefined): UseQueryResult<AiCon
   });
 }
 
-/** Saves the AI config (key/baseURL global, model per-project). Invalidates the
- *  cached config so `hasApiKey` / model status refresh immediately. */
-export function useSaveAiConfig(projectId: string | undefined) {
+/** Saves the AI config (key/baseURL global, model per-project). The API key and
+ *  baseURL are GLOBAL, so invalidate every cached config view (`aiConfigAll`
+ *  prefix covers the global `''` key and every per-project key) — otherwise the
+ *  chat widget / other projects keep a stale `hasApiKey` until a reload. */
+export function useSaveAiConfig() {
   const qc = useQueryClient();
   return useMutation<AiConfigView, Error, AiConfigUpdate>({
     mutationFn: (update) => aiApi.saveConfig(update),
     onSuccess: () => {
-      if (projectId) void qc.invalidateQueries({ queryKey: queryKeys.aiConfig(projectId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.aiConfigAll });
     },
   });
 }

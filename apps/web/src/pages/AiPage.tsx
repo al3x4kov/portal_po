@@ -38,7 +38,7 @@ export function AiPage(): React.ReactElement {
   const configQuery = useAiConfig(id);
   const config = configQuery.data;
 
-  const saveMut = useSaveAiConfig(id);
+  const saveMut = useSaveAiConfig();
   const modelsMut = useListAiModels();
   const deleteKeyMut = useDeleteAiKey();
 

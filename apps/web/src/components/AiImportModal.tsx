@@ -484,6 +484,7 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
         <ConfirmDialog
           testid="ai-import-confirm"
           danger
+          icon="⏹"
           title="Прекратить автоматизацию?"
           message={CONFIRM_MESSAGE}
           confirmLabel="Остановить и закрыть"

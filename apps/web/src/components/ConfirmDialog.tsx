@@ -14,6 +14,13 @@ interface ConfirmDialogProps {
    * click that would fail server-side rather than surfacing the error after.
    */
   confirmDisabled?: boolean;
+  /**
+   * Icon shown in the tinted circle above the title. `undefined` (default)
+   * keeps the legacy behaviour — 🗑 when `danger` (delete confirmations),
+   * nothing otherwise. Pass a node (e.g. '⏹' for "stop the job") for
+   * non-delete destructive confirmations, or `null` to hide the icon.
+   */
+  icon?: React.ReactNode | null;
   /** Optional coloured note box (e.g. children-safety hint for delete). */
   note?: { tone: 'warning' | 'danger'; text: string };
   error?: string | null;
@@ -31,6 +38,7 @@ export function ConfirmDialog({
   danger = false,
   busy = false,
   confirmDisabled = false,
+  icon,
   note,
   error,
   onConfirm,
@@ -49,6 +57,10 @@ export function ConfirmDialog({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [onCancel]);
+
+  // `undefined` = legacy default (trash can for delete-style danger dialogs);
+  // `null` = explicitly no icon; anything else renders as-is.
+  const resolvedIcon = icon === undefined ? (danger ? '🗑' : null) : icon;
 
   const noteStyle =
     note?.tone === 'danger'
@@ -69,13 +81,18 @@ export function ConfirmDialog({
         className="card w-full max-w-md p-6"
         data-testid={testid}
       >
-        {danger ? (
+        {resolvedIcon != null ? (
           <div
             className="mb-4 grid h-11 w-11 place-items-center rounded-full text-xl"
-            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
+            style={
+              danger
+                ? { background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }
+                : { background: 'var(--color-warning-bg)', color: 'var(--color-warning-fg)' }
+            }
             aria-hidden="true"
+            data-testid={`${testid}-icon`}
           >
-            🗑
+            {resolvedIcon}
           </div>
         ) : null}
         <h2 className="mb-1 text-lg font-bold">{title}</h2>
