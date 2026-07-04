@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AI_IMPORT_TREE_CHARS,
+  buildArchiveMap,
   buildExtractionMessages,
   chunkText,
   parseExtractionResponse,
@@ -14,7 +16,7 @@ const record = {
 
 describe('T11 buildExtractionMessages', () => {
   it('starts with a RU system prompt encoding the skill rules', () => {
-    const messages = buildExtractionMessages('текст', 'auth.md', { index: 1, total: 3 });
+    const messages = buildExtractionMessages('текст', 'auth.md', { index: 1, total: 3 }, 'auth.md');
     expect(messages[0]?.role).toBe('system');
     const sys = messages[0]?.content ?? '';
     // Golden rule: extraction only from the given text, no invention.
@@ -34,17 +36,98 @@ describe('T11 buildExtractionMessages', () => {
     expect(sys).toContain('NFR');
   });
 
+  it('mentions the archive structure usage (source/parentName) without weakening the golden rule', () => {
+    const messages = buildExtractionMessages('текст', 'auth.md', { index: 1, total: 1 }, 'auth.md');
+    const sys = messages[0]?.content ?? '';
+    expect(sys).toMatch(/структур/i);
+    expect(sys).toContain('parentName');
+    // The golden rule stays: requirements come ONLY from the chunk text.
+    expect(sys).toMatch(/ТОЛЬКО/);
+  });
+
   it('puts the file name, chunk info and the chunk into the user message', () => {
-    const messages = buildExtractionMessages('## Раздел\nТекст', 'docs/auth.md', {
-      index: 2,
-      total: 5,
-    });
+    const messages = buildExtractionMessages(
+      '## Раздел\nТекст',
+      'docs/auth.md',
+      { index: 2, total: 5 },
+      'docs/auth.md',
+    );
     expect(messages).toHaveLength(2);
     expect(messages[1]?.role).toBe('user');
     expect(messages[1]?.content).toContain('docs/auth.md');
     expect(messages[1]?.content).toContain('2');
     expect(messages[1]?.content).toContain('5');
     expect(messages[1]?.content).toContain('## Раздел\nТекст');
+  });
+
+  it('adds the current directory and the archive map BEFORE the chunk text', () => {
+    const map = buildArchiveMap(['docs/api/auth.md', 'docs/nfr/perf.md', 'readme.md']);
+    const messages = buildExtractionMessages(
+      '## Вход\nТекст фрагмента.',
+      'docs/api/auth.md',
+      { index: 1, total: 2 },
+      map,
+    );
+    const user = messages[1]?.content ?? '';
+    expect(user).toContain('Файл: docs/api/auth.md (фрагмент 1 из 2)');
+    expect(user).toContain('Директория текущего файла: docs/api');
+    expect(user).toContain('Структура архива (файлы документации):\n' + map);
+    // The map (and headers) come before the chunk text.
+    const mapIdx = user.indexOf('Структура архива');
+    const chunkIdx = user.indexOf('## Вход\nТекст фрагмента.');
+    expect(mapIdx).toBeGreaterThanOrEqual(0);
+    expect(chunkIdx).toBeGreaterThan(mapIdx);
+  });
+
+  it('labels a root-level file as «корень архива»', () => {
+    const messages = buildExtractionMessages(
+      'Текст.',
+      'readme.md',
+      { index: 1, total: 1 },
+      buildArchiveMap(['readme.md']),
+    );
+    expect(messages[1]?.content).toContain('Директория текущего файла: корень архива');
+  });
+});
+
+describe('T13 buildArchiveMap', () => {
+  it('lists relative paths sorted, one per line', () => {
+    const map = buildArchiveMap(['readme.md', 'docs/nfr/perf.md', 'docs/api/auth.md']);
+    expect(map).toBe('docs/api/auth.md\ndocs/nfr/perf.md\nreadme.md');
+  });
+
+  it('returns an empty string for an empty list', () => {
+    expect(buildArchiveMap([])).toBe('');
+  });
+
+  it('fits within the default limit constant', () => {
+    const files = Array.from({ length: 200 }, (_, i) => `docs/module-${i}/file-${i}.md`);
+    expect(buildArchiveMap(files).length).toBeLessThanOrEqual(AI_IMPORT_TREE_CHARS);
+  });
+
+  it('truncates at a line boundary and reports the exact number of omitted files', () => {
+    const files = Array.from({ length: 50 }, (_, i) => `dir/file-${String(i).padStart(2, '0')}.md`);
+    // Each line is 14 chars; limit fits a few lines plus the «…и ещё N файлов» tail.
+    const map = buildArchiveMap(files, 60);
+    expect(map.length).toBeLessThanOrEqual(60);
+    const lines = map.split('\n');
+    const tail = lines[lines.length - 1] ?? '';
+    const match = /^…и ещё (\d+) файлов$/.exec(tail);
+    expect(match).not.toBeNull();
+    const omitted = Number(match?.[1]);
+    const listed = lines.length - 1;
+    expect(listed).toBeGreaterThan(0);
+    expect(listed + omitted).toBe(files.length);
+    // Every listed line is a complete path (line-boundary truncation).
+    for (const line of lines.slice(0, -1)) expect(files).toContain(line);
+    // The listed prefix is exactly the first `listed` sorted files.
+    expect(lines.slice(0, -1)).toEqual(files.slice(0, listed));
+  });
+
+  it('does not truncate when the list exactly fits the limit', () => {
+    const files = ['a.md', 'b.md'];
+    const joined = 'a.md\nb.md';
+    expect(buildArchiveMap(files, joined.length)).toBe(joined);
   });
 });
 

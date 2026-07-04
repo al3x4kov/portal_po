@@ -150,6 +150,43 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     await expect(fs.access(archive)).rejects.toThrow();
   });
 
+  it('T13: nested archive → user message carries the archive map, dir and full relative path', async () => {
+    const client = scriptedClient([
+      JSON.stringify([record({ name: 'Аутентификация', source: 'docs/api/auth.md § Вход' })]),
+      '[]',
+      '[]',
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({
+      'docs/api/auth.md': '# Вход\nПользователь входит по email и паролю.',
+      'docs/nfr/perf.md': '# SLA\nОтклик до 200 мс.',
+      'readme.md': '# Обзор',
+    });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).toHaveBeenCalledTimes(3);
+    type Call = { messages: Array<{ role: string; content: string }> };
+    const userOf = (i: number): string =>
+      (create.mock.calls[i]?.[0] as Call).messages.find((m) => m.role === 'user')?.content ?? '';
+    const expectedMap = 'docs/api/auth.md\ndocs/nfr/perf.md\nreadme.md';
+    for (let i = 0; i < 3; i++) {
+      expect(userOf(i)).toContain('Структура архива (файлы документации):\n' + expectedMap);
+    }
+    expect(userOf(0)).toContain('Файл: docs/api/auth.md (фрагмент 1 из 1)');
+    expect(userOf(0)).toContain('Директория текущего файла: docs/api');
+    expect(userOf(2)).toContain('Директория текущего файла: корень архива');
+
+    // The requirement was created and its source preserved.
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    const created = requirements.find((r) => r.name === 'Аутентификация');
+    expect(created).toBeDefined();
+    expect(created?.source).toBe('docs/api/auth.md § Вход');
+  });
+
   it('respects explicit criticality/implemented from the extraction (no defaults)', async () => {
     const client = scriptedClient([
       JSON.stringify([record({ criticality: 'HIGH', implemented: true })]),

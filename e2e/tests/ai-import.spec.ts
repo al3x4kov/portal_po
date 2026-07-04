@@ -53,12 +53,31 @@ const DOCS: Record<string, string> = {
     '',
   ].join('\n'),
   'ops.md': ['# Эксплуатация', '', '## Логи', 'Логи должны ротироваться ежедневно.', ''].join('\n'),
+  // Nested-directory archive (task 13): keys are archive-RELATIVE paths.
+  'overview.md': ['# Обзор', 'Система должна вести реестр требований.', ''].join('\n'),
+  'docs/api/auth.md': [
+    '# API авторизации',
+    '',
+    '## Вход',
+    'Вход в API должен выполняться по токену.',
+    '',
+  ].join('\n'),
+  'docs/nfr/perf.md': [
+    '# Производительность API',
+    '',
+    '## Отклик',
+    'Отклик API не должен превышать 200 мс.',
+    '',
+  ].join('\n'),
 };
 
 const REQ_LOGIN = 'Вход по логину и паролю';
 const REQ_RESET = 'Восстановление пароля по email';
 const REQ_REPORT = 'Отчёт формируется не дольше 5 секунд';
 const REQ_LOGS = 'Ротация логов ежедневно';
+const REQ_TREE_OVERVIEW = 'Ведение реестра требований';
+const REQ_TREE_TOKEN = 'Вход в API по токену';
+const REQ_TREE_LATENCY = 'Отклик API не дольше 200 мс';
 
 const EXTRACTION_ITEMS: Record<string, unknown[]> = {
   'auth.md': [
@@ -90,6 +109,32 @@ const EXTRACTION_ITEMS: Record<string, unknown[]> = {
       name: REQ_LOGS,
       description: 'Логи ротируются ежедневно.',
       source: 'ops.md § Логи',
+    },
+  ],
+  // Nested-directory archive (task 13): the stub matches by the FULL relative
+  // path from «Файл: <path> (фрагмент …)», so keys carry directories.
+  'overview.md': [
+    {
+      type: 'FUNCTION',
+      name: REQ_TREE_OVERVIEW,
+      description: 'Система ведёт реестр требований.',
+      source: 'overview.md § Обзор',
+    },
+  ],
+  'docs/api/auth.md': [
+    {
+      type: 'FUNCTION',
+      name: REQ_TREE_TOKEN,
+      description: 'Вход в API выполняется по токену.',
+      source: 'docs/api/auth.md § Вход',
+    },
+  ],
+  'docs/nfr/perf.md': [
+    {
+      type: 'NFR',
+      name: REQ_TREE_LATENCY,
+      description: 'Отклик API не превышает 200 мс.',
+      source: 'docs/nfr/perf.md § Отклик',
     },
   ],
 };
@@ -307,6 +352,86 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     expect(byName.get(REQ_LOGIN)?.source).toBe('auth.md § Вход');
     expect(byName.get(REQ_RESET)?.source).toBe('auth.md § Восстановление');
     expect(byName.get(REQ_REPORT)?.source).toBe('reports.md § Производительность');
+  });
+
+  /* Task 13: архив с древовидной структурой директорий — относительные пути
+     в «Файл:», «Директория текущего файла» и карта архива в каждом
+     extraction-вызове; не-doc файлы (png) в карту не попадают. */
+
+  test('архив с вложенными директориями: требования из вложенных файлов, карта архива и директория в запросах к модели', async ({
+    page,
+  }, testInfo) => {
+    await createProject(page, uniqueName('AiImp-Tree'));
+    const id = projectIdFromUrl(page);
+    await configureAi(page, id, 'Qwen-Coder-Next');
+    await page.reload();
+    await expect(page.getByTestId('main-page')).toBeVisible();
+
+    // Tree-shaped archive: root doc + two nested docs + a non-doc binary.
+    const zip = makeZip(testInfo, 'docs-tree.zip', {
+      'overview.md': DOCS['overview.md']!,
+      'docs/api/auth.md': DOCS['docs/api/auth.md']!,
+      'docs/nfr/perf.md': DOCS['docs/nfr/perf.md']!,
+      'docs/img/pixel.png': Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01,
+      ]),
+    });
+    const callsBefore = stub.extractionRequests.length;
+
+    await openAiImport(page);
+    await chooseFile(page, zip);
+    await startAnalysis(page);
+
+    // Success with requirements extracted from the NESTED files too.
+    const success = page.getByTestId('ai-import-success');
+    await expect(success).toBeVisible(JOB_TIMEOUT);
+    await expect(success).toContainText('Создано: 2 ФТ и 1 НФТ');
+    await attachShot(page, testInfo, 'tree-success');
+
+    await page.getByTestId('ai-import-done').click();
+    await expect(page.getByTestId('ai-import')).toHaveCount(0);
+    await expect(rowByName(page, REQ_TREE_OVERVIEW)).toBeVisible();
+    await expect(rowByName(page, REQ_TREE_TOKEN)).toBeVisible();
+    await expect(rowByName(page, REQ_TREE_LATENCY)).toBeVisible();
+
+    // Provenance keeps the FULL relative path of the nested source file.
+    const reqs = await listRequirements(page, id);
+    const byName = new Map(reqs.map((r) => [r.name, r]));
+    expect(byName.get(REQ_TREE_TOKEN)?.source).toBe('docs/api/auth.md § Вход');
+    expect(byName.get(REQ_TREE_LATENCY)?.source).toBe('docs/nfr/perf.md § Отклик');
+    expect(byName.get(REQ_TREE_OVERVIEW)?.source).toBe('overview.md § Обзор');
+
+    // The stub captured one extraction call per DOC file — the png caused none.
+    const calls = stub.extractionRequests.slice(callsBefore);
+    expect(calls).toHaveLength(3);
+    const userOf = (relPath: string): string => {
+      const call = calls.find((c) =>
+        (c.messages?.find((m) => m.role === 'user')?.content ?? '').startsWith(
+          `Файл: ${relPath} (фрагмент`,
+        ),
+      );
+      expect(call, `extraction call for ${relPath}`).toBeDefined();
+      return call?.messages?.find((m) => m.role === 'user')?.content ?? '';
+    };
+
+    // Nested file: full relative path, its directory and the archive map.
+    const authMsg = userOf('docs/api/auth.md');
+    expect(authMsg).toContain('Директория текущего файла: docs/api');
+    expect(authMsg).toContain('Структура архива (файлы документации):');
+    for (const rel of ['docs/api/auth.md', 'docs/nfr/perf.md', 'overview.md']) {
+      expect(authMsg).toContain(rel);
+    }
+
+    // Root-level file is labelled «корень архива».
+    const overviewMsg = userOf('overview.md');
+    expect(overviewMsg).toContain('Директория текущего файла: корень архива');
+    expect(overviewMsg).toContain('Структура архива (файлы документации):');
+
+    // Non-doc file never reaches the archive map of ANY extraction call.
+    for (const call of calls) {
+      const user = call.messages?.find((m) => m.role === 'user')?.content ?? '';
+      expect(user).not.toContain('pixel.png');
+    }
   });
 
   /* §5.5: идемпотентность — повторный запуск того же архива только пропускает. */

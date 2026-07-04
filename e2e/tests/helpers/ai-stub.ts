@@ -23,7 +23,9 @@ import { createServer, type Server } from 'node:http';
  *   using `opts.reply`, extraction replies return a STRICT JSON array of
  *   `{type, name, description, source, parentName?}` records looked up in
  *   `opts.extractionItemsByFile` by the doc file name (parsed from the user
- *   message «Файл: <name> (фрагмент i из n)»); unknown files yield `[]`;
+ *   message «Файл: <name> (фрагмент i из n)»; `<name>` is the RELATIVE path
+ *   inside the archive, so nested files match keys like `docs/api/auth.md`);
+ *   unknown files yield `[]`;
  * - extraction requests are additionally captured in `extractionRequests`
  *   (model + call count assertions);
  * - `setExtractionDelay(ms)` delays every extraction reply, so running /
@@ -72,7 +74,12 @@ export interface AiStub {
 /** Marker of the import extraction system prompt (services/aiImportPrompt.ts). */
 const EXTRACTION_PROMPT_MARKER = 'экстрактор требований';
 
-/** Pull the doc file name out of «Файл: <name> (фрагмент i из n)…». */
+/**
+ * Pull the doc file name out of «Файл: <name> (фрагмент i из n)…». The name is
+ * the archive-relative path (may contain directories, e.g. `docs/api/auth.md`);
+ * `.` never crosses the newline after the first line, so the trailing context
+ * lines («Директория текущего файла: …», «Структура архива…») never leak in.
+ */
 function extractionFileName(body: AiChatCompletionCapture | undefined): string | null {
   const user = body?.messages?.find((m) => m.role === 'user');
   const match = /^Файл: (.+) \(фрагмент \d+ из \d+\)/.exec(user?.content ?? '');

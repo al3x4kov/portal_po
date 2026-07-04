@@ -69,6 +69,48 @@ describe('ARC-T2 · unpackDocsArchive (lib/unpack.ts)', () => {
     await fs.rm(result.dir, { recursive: true, force: true });
   });
 
+  it('walks nested zip directories and returns sorted relative paths (T13)', async () => {
+    const file = await writeZip({
+      'docs/api/auth.md': '# Аутентификация',
+      'docs/nfr/perf.md': '# Производительность',
+      'readme.md': '# Обзор',
+      'docs/img/logo.png': Buffer.from([1, 2, 3]), // non-doc file in a subdirectory
+    });
+
+    const result = await unpackDocsArchive(file);
+    expect(result.unsafeEntries).toBe(0);
+    expect(result.files).toEqual([
+      path.join('docs', 'api', 'auth.md'),
+      path.join('docs', 'nfr', 'perf.md'),
+      'readme.md',
+    ]);
+    await expect(
+      fs.readFile(path.join(result.dir, 'docs', 'api', 'auth.md'), 'utf8'),
+    ).resolves.toBe('# Аутентификация');
+    await fs.rm(result.dir, { recursive: true, force: true });
+  });
+
+  it('walks nested tar.gz directories and returns sorted relative paths (T13)', async () => {
+    const src = path.join(scratchHolder.dir, 'src-nested');
+    await fs.mkdir(path.join(src, 'docs', 'api'), { recursive: true });
+    await fs.mkdir(path.join(src, 'docs', 'nfr'), { recursive: true });
+    await fs.mkdir(path.join(src, 'docs', 'img'), { recursive: true });
+    await fs.writeFile(path.join(src, 'docs', 'api', 'auth.md'), '# Аутентификация', 'utf8');
+    await fs.writeFile(path.join(src, 'docs', 'nfr', 'perf.md'), '# Производительность', 'utf8');
+    await fs.writeFile(path.join(src, 'readme.md'), '# Обзор', 'utf8');
+    await fs.writeFile(path.join(src, 'docs', 'img', 'logo.png'), Buffer.from([1, 2, 3]));
+    const file = path.join(scratchHolder.dir, 'nested.tar.gz');
+    await tar.create({ gzip: true, cwd: src, file }, ['.']);
+
+    const result = await unpackDocsArchive(file);
+    expect(result.files).toEqual([
+      path.join('docs', 'api', 'auth.md'),
+      path.join('docs', 'nfr', 'perf.md'),
+      'readme.md',
+    ]);
+    await fs.rm(result.dir, { recursive: true, force: true });
+  });
+
   it('unpacks a tar.gz archive equally', async () => {
     const src = path.join(scratchHolder.dir, 'src');
     await fs.mkdir(src, { recursive: true });

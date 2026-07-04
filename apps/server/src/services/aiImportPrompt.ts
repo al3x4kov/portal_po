@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { aiExtractedRequirementSchema, type AiExtractedRequirement } from '@po/core';
 import type { AiChatMessage } from './aiPrompt.js';
 
@@ -30,6 +31,9 @@ const SYSTEM_PROMPT = [
   'иначе опускай их полностью.',
   'Поле parentName указывай ТОЛЬКО если иерархия явно следует из структуры текста',
   '(раздел → подраздел, «модуль X включает Y»); иначе опускай.',
+  'Структуру архива (список файлов документации) можно использовать для поля source и для',
+  'parentName, когда иерархия следует из директорий (например, файлы одного модуля лежат',
+  'в одной поддиректории), но сами требования извлекай ТОЛЬКО из текста фрагмента.',
   'Ответ верни СТРОГО как JSON-массив объектов вида',
   '{"type":"FUNCTION"|"NFR","name":string,"description":string,"source":string,',
   '"criticality"?,"implemented"?,"targetQuarter"?,"targetYear"?,"parentName"?}.',
@@ -37,14 +41,59 @@ const SYSTEM_PROMPT = [
   'верни пустой массив [].',
 ].join(' ');
 
+/**
+ * Character budget for the archive map included in EVERY extraction call.
+ * 1500 chars is a deliberately small, flat add-on: with the production chunk
+ * size of 12 000 chars (AI_IMPORT_CHUNK_CHARS) it costs at most ~12% extra
+ * tokens per call — cheap enough to always give the model the full-archive
+ * context (relative paths → better `source`/`parentName`), while capping the
+ * worst case for archives with many files.
+ */
+export const AI_IMPORT_TREE_CHARS = 1500;
+
+/**
+ * Compact archive map: the sorted list of relative doc-file paths, one per
+ * line. When the joined list exceeds `maxChars`, it is truncated at a line
+ * boundary and terminated with «…и ещё N файлов» so the model still knows the
+ * total scope. The tail line is accounted for inside the budget.
+ */
+export function buildArchiveMap(files: string[], maxChars: number = AI_IMPORT_TREE_CHARS): string {
+  const sorted = [...files].sort((a, b) => a.localeCompare(b));
+  const full = sorted.join('\n');
+  if (full.length <= maxChars) return full;
+
+  const kept: string[] = [];
+  let length = 0; // length of kept.join('\n')
+  for (let i = 0; i < sorted.length; i++) {
+    const line = sorted[i]!;
+    const candidate = kept.length === 0 ? line.length : length + 1 + line.length;
+    const tail = `…и ещё ${sorted.length - (i + 1)} файлов`;
+    if (candidate + 1 + tail.length > maxChars) break;
+    kept.push(line);
+    length = candidate;
+  }
+  const tail = `…и ещё ${sorted.length - kept.length} файлов`;
+  return kept.length === 0 ? tail : `${kept.join('\n')}\n${tail}`;
+}
+
+/** Directory of a relative file path for the user message («корень архива» at root). */
+function dirLabel(fileName: string): string {
+  const dir = path.dirname(fileName.split(path.sep).join('/'));
+  return dir === '.' ? 'корень архива' : dir;
+}
+
 /** Build the two-message conversation for one documentation chunk. */
 export function buildExtractionMessages(
   chunk: string,
   fileName: string,
   chunkInfo: ChunkInfo,
+  archiveMap: string,
 ): AiChatMessage[] {
   const user = [
     `Файл: ${fileName} (фрагмент ${chunkInfo.index} из ${chunkInfo.total})`,
+    `Директория текущего файла: ${dirLabel(fileName)}`,
+    'Структура архива (файлы документации):',
+    archiveMap,
     '',
     chunk,
   ].join('\n');

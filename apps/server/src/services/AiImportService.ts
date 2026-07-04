@@ -23,7 +23,12 @@ import type { AiImportJobs, AiImportJobState } from './AiImportJobs.js';
 import type { OpLogger } from '../lib/logger.js';
 import { unpackDocsArchive } from '../lib/unpack.js';
 import { BadRequestError, NotFoundError } from '../lib/errors.js';
-import { buildExtractionMessages, chunkText, parseExtractionResponse } from './aiImportPrompt.js';
+import {
+  buildArchiveMap,
+  buildExtractionMessages,
+  chunkText,
+  parseExtractionResponse,
+} from './aiImportPrompt.js';
 
 /* Mandatory user-facing texts (spec §4): readable message + "what to do next". */
 export const AI_IMPORT_HINT_ARCHIVE =
@@ -256,6 +261,9 @@ export class AiImportService {
         return;
       }
       this.logLine(job, 'info', `Найдено файлов документации: ${files.length}.`);
+      // Built once per job: the same compact archive map goes into every
+      // extraction call so the model sees the overall structure (Task 13).
+      const archiveMap = buildArchiveMap(files);
       job.progress = 5;
 
       // ── analyze (5–80) ──────────────────────────────────────────────────
@@ -282,10 +290,12 @@ export class AiImportService {
         for (let i = 0; i < chunks.length; i++) {
           if (this.cancelIfRequested(job, counters)) return;
 
-          const messages = buildExtractionMessages(chunks[i]!, file, {
-            index: i + 1,
-            total: chunks.length,
-          });
+          const messages = buildExtractionMessages(
+            chunks[i]!,
+            file,
+            { index: i + 1, total: chunks.length },
+            archiveMap,
+          );
           let content: string;
           try {
             const res = await client.chat.completions.create({
