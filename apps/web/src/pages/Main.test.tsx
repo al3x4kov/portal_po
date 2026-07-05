@@ -180,7 +180,12 @@ describe('Main page (E11 integration)', () => {
     const deleteBtn = payRow.querySelector('[data-testid="delete-btn-pay"]') as HTMLElement;
     // T-509: the button itself is disabled when the node has children
     expect(deleteBtn).toBeDisabled();
-    expect(deleteBtn).toHaveAttribute('title', 'Сначала удалите дочерние');
+    expect(deleteBtn).toHaveAttribute('aria-label', 'Удалить (недоступно: есть дочерние)');
+    // §2.5: причина недоступности — в title обёртки (title у disabled-кнопки не всплывает).
+    expect(deleteBtn.closest('span')).toHaveAttribute(
+      'title',
+      'Сначала удалите дочерние требования',
+    );
     // No dialog should appear since the button is disabled
     expect(screen.queryByTestId('delete-dialog-confirm')).not.toBeInTheDocument();
   });

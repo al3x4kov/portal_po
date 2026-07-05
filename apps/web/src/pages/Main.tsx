@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { TriangleAlert } from 'lucide-react';
 import { SOURCE_PRESETS, type Requirement, type RequirementType } from '@po/core';
 import {
   useProject,
@@ -133,6 +134,14 @@ export function Main(): React.ReactElement {
     openModal({ kind: 'requirement', reqType: req.type, requirement: req });
   };
   const onLink = (req: Requirement): void => openModal({ kind: 'link', source: req });
+  // T3 (§2.5.4): «+ Описание» в пустой ячейке сразу открывает редактирование описания.
+  const onAddDesc = (req: Requirement): void =>
+    openModal({
+      kind: 'requirement',
+      reqType: req.type,
+      requirement: req,
+      focusField: 'description',
+    });
   // T4: create an NFR pre-linked to this functional requirement (ФТ BLOCKED_BY НФТ).
   const onAddNfr = (req: Requirement): void =>
     openModal({ kind: 'requirement', reqType: 'NFR', linkFrom: req.slug, linkType: 'BLOCKED_BY' });
@@ -190,7 +199,11 @@ export function Main(): React.ReactElement {
               data-testid="broken-panel"
             >
               <div className="flex items-center gap-2">
-                <span aria-hidden="true">⚠</span>
+                <TriangleAlert
+                  className="icon"
+                  style={{ color: 'var(--color-danger)' }}
+                  aria-hidden="true"
+                />
                 <h2 className="font-bold" style={{ color: 'var(--color-danger)' }}>
                   Битые файлы требований ({broken.length})
                 </h2>
@@ -367,6 +380,7 @@ export function Main(): React.ReactElement {
                 onAddChild={handleAddChild}
                 onDelete={onDelete}
                 onDescExpand={setDescReq}
+                onAddDesc={onAddDesc}
                 onExpandNode={toggleExpanded}
                 onToggleNode={toggleExpanded}
                 interactiveChevron={collapsed}
@@ -383,6 +397,7 @@ export function Main(): React.ReactElement {
                 onLink={onLink}
                 onDelete={onDelete}
                 onDescExpand={setDescReq}
+                onAddDesc={onAddDesc}
                 onExpandNode={toggleExpanded}
                 onToggleNode={toggleExpanded}
                 interactiveChevron={collapsed}

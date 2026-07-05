@@ -314,6 +314,80 @@ html.dark {
   animation: progress-slide 1.2s ease-in-out infinite;
 }
 
+/* ── Sidebar nav + тултипы (T3, new_design §2.8) ─────────────────────── */
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  color: var(--color-text-3);
+}
+.nav-item:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+.nav-item[aria-current='page'] {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+.tip {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--color-text);
+  color: var(--color-surface);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  /* display:none (а не opacity:0): скрытый absolute-бокс иначе остаётся в layout
+     и расширяет scrollable overflow страницы — горизонтальный скролл на узких
+     viewport (дефект QA, cross-browser). display участвует в overflow только
+     когда тултип реально показан; работает одинаково в chromium/webkit/firefox
+     без @starting-style. */
+  display: none;
+  pointer-events: none;
+  z-index: 60;
+}
+.nav-item:hover .tip,
+.nav-item:focus-visible .tip,
+.tip-host:hover .tip,
+.tip-host:focus-visible .tip {
+  display: block;
+}
+.tip-host {
+  position: relative;
+}
+.tip-below {
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+}
+
+/* Кнопка-иконка в строке дерева (T3, new_design §2.5) */
+.row-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 8px;
+}
+.row-icon-btn:hover {
+  background: var(--color-surface-2);
+}
+.row-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.row-icon-btn:disabled:hover {
+  background: transparent;
+}
+
 /* Row-actions: видимы всегда (приглушены), акцент по hover/focus-within;
    на touch-устройствах — полная видимость всегда. */
 .row-actions {

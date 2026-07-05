@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight, GitBranchPlus, Link2, ShieldPlus, Trash2 } from 'lucide-react';
 import type { LinkType, Requirement } from '@po/core';
 import type { VisibleRow } from '../lib/visibility';
 import { buildLineGuides, type LineGuide } from '../lib/treeLines';
@@ -19,84 +20,6 @@ function relChipStyle(type: LinkType): React.CSSProperties {
   }
 }
 
-/* ── SVG icon components (Lucide-style, 18×18) ─────────────────────────── */
-
-function IconChainLink(): React.ReactElement {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-    </svg>
-  );
-}
-
-function IconCirclePlus(): React.ReactElement {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="8" x2="12" y2="16" />
-      <line x1="8" y1="12" x2="16" y2="12" />
-    </svg>
-  );
-}
-
-function IconTrash(): React.ReactElement {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <polyline points="3 6 5 6 21 6" />
-      <path d="M19 6l-1 14H6L5 6" />
-      <path d="M10 11v6" />
-      <path d="M14 11v6" />
-      <path d="M9 6V4h6v2" />
-    </svg>
-  );
-}
-
-/* ── Shared icon-button base style ─────────────────────────────────────── */
-const iconBtnBase: React.CSSProperties = {
-  border: 'none',
-  background: 'transparent',
-  cursor: 'pointer',
-  padding: '4px',
-  borderRadius: '4px',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  color: 'var(--color-text-3)',
-  width: 30,
-  height: 30,
-};
-
 interface TreeTableProps {
   title: string;
   addLabel: string;
@@ -115,6 +38,8 @@ interface TreeTableProps {
   onAddChild?: (req: Requirement) => void;
   onDelete: (req: Requirement) => void;
   onDescExpand: (req: Requirement) => void;
+  /** T3 (§2.5.4): empty description renders «+ Описание» that jumps straight to editing. */
+  onAddDesc?: (req: Requirement) => void;
   /** Expand a collapsed branch (collapse mode chip). */
   onExpandNode: (slug: string) => void;
   /**
@@ -139,6 +64,7 @@ function Row({
   onAddChild,
   onDelete,
   onDescExpand,
+  onAddDesc,
   onExpandNode,
   onToggleNode,
   interactiveChevron,
@@ -152,6 +78,7 @@ function Row({
   onAddChild?: (r: Requirement) => void;
   onDelete: (r: Requirement) => void;
   onDescExpand: (r: Requirement) => void;
+  onAddDesc?: (r: Requirement) => void;
   onExpandNode: (slug: string) => void;
   onToggleNode?: (slug: string) => void;
   interactiveChevron?: boolean;
@@ -202,7 +129,7 @@ function Row({
             interactiveChevron ? (
               <button
                 type="button"
-                className="shrink-0 rounded px-0.5 text-sm hover:text-[var(--color-primary)]"
+                className="shrink-0 rounded p-0.5 hover:text-[var(--color-primary)]"
                 style={{ color: 'var(--color-text-3)' }}
                 data-testid="toggle-node"
                 data-slug={req.slug}
@@ -210,11 +137,23 @@ function Row({
                 aria-label={collapsedBranch ? `Раскрыть «${req.name}»` : `Свернуть «${req.name}»`}
                 onClick={() => onToggleNode?.(req.slug)}
               >
-                {collapsedBranch ? '▸' : '▾'}
+                {collapsedBranch ? (
+                  <ChevronRight className="icon-sm" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="icon-sm" aria-hidden="true" />
+                )}
               </button>
             ) : (
-              <span className="text-sm" style={{ color: 'var(--color-text-3)' }} aria-hidden="true">
-                {collapsedBranch ? '▸' : '▾'}
+              <span
+                className="shrink-0"
+                style={{ color: 'var(--color-text-3)' }}
+                aria-hidden="true"
+              >
+                {collapsedBranch ? (
+                  <ChevronRight className="icon-sm" aria-hidden="true" />
+                ) : (
+                  <ChevronDown className="icon-sm" aria-hidden="true" />
+                )}
               </span>
             )
           ) : null}
@@ -231,7 +170,7 @@ function Row({
           </button>
           {isContext ? (
             <span
-              className="text-[10px] font-semibold uppercase tracking-wide"
+              className="text-[11px] font-semibold uppercase tracking-wide"
               style={{ color: 'var(--color-text-3)' }}
               data-testid={`ancestor-label-${req.slug}`}
             >
@@ -241,7 +180,7 @@ function Row({
           {collapsedBranch ? (
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
               style={{ background: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}
               data-testid="expand-node"
               data-slug={req.slug}
@@ -260,7 +199,7 @@ function Row({
       </td>
       <td className="w-[130px] py-2.5 pr-3 align-middle" data-testid="req-source-cell">
         {req.source ? (
-          <span className="text-sm">{req.source}</span>
+          <span>{req.source}</span>
         ) : (
           <span style={{ color: 'var(--color-text-3)' }}>—</span>
         )}
@@ -273,7 +212,7 @@ function Row({
               return (
                 <span
                   key={`${l.type}-${l.targetSlug}`}
-                  className="inline-flex max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+                  className="inline-flex max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium"
                   style={relChipStyle(l.type)}
                   data-testid={`rel-chip-${req.slug}-${l.targetSlug}`}
                   data-rel-type={l.type}
@@ -289,83 +228,109 @@ function Row({
           <span style={{ color: 'var(--color-text-3)' }}>—</span>
         )}
       </td>
-      <td className="py-2.5 pr-3 align-middle text-sm">
-        <button
-          type="button"
-          className="flex w-full items-center gap-1.5 text-left hover:text-[var(--color-primary)]"
-          style={{ color: 'var(--color-text-2)' }}
-          data-testid="desc-expand"
-          data-slug={req.slug}
-          onClick={() => onDescExpand(req)}
-          title="Открыть описание"
-          aria-label="Открыть описание"
-        >
-          <span className="block min-w-0 flex-1 truncate">
-            {req.description && req.description.length > 0 ? req.description : '—'}
-          </span>
-        </button>
+      <td className="py-2.5 pr-3 align-middle text-[13px]">
+        {req.description && req.description.length > 0 ? (
+          <button
+            type="button"
+            className="block max-w-full truncate text-left underline decoration-dotted underline-offset-4 hover:text-[var(--color-primary)]"
+            style={{ color: 'var(--color-text-2)' }}
+            data-testid="desc-expand"
+            data-slug={req.slug}
+            onClick={() => onDescExpand(req)}
+            title="Открыть описание"
+            aria-label="Открыть описание"
+          >
+            {req.description}
+          </button>
+        ) : onAddDesc ? (
+          // §2.5.4: пустое описание — явная кнопка «+ Описание», а не кликабельный «—»
+          <button
+            type="button"
+            className="chip"
+            style={{ color: 'var(--color-primary)' }}
+            data-testid="desc-add"
+            data-slug={req.slug}
+            onClick={() => onAddDesc(req)}
+          >
+            + Описание
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="flex w-full items-center gap-1.5 text-left hover:text-[var(--color-primary)]"
+            style={{ color: 'var(--color-text-2)' }}
+            data-testid="desc-expand"
+            data-slug={req.slug}
+            onClick={() => onDescExpand(req)}
+            title="Открыть описание"
+            aria-label="Открыть описание"
+          >
+            <span className="block min-w-0 flex-1 truncate">—</span>
+          </button>
+        )}
       </td>
-      {/* T-509: icon action buttons hidden at rest, visible on row hover */}
+      {/* §2.5.1: row-actions видимы всегда (приглушены), ярче по hover/focus-within */}
       <td className="w-[140px] py-2.5 pr-4 align-middle text-right">
         <div
-          className="inline-flex flex-nowrap justify-end gap-0.5 whitespace-nowrap opacity-0 transition-opacity group-hover:opacity-100"
+          className="row-actions inline-flex flex-nowrap justify-end gap-0.5 whitespace-nowrap"
           data-testid={`row-actions-${req.slug}`}
         >
-          {/* ФТ-only: add child (T-510 will wire the create modal) */}
+          {/* ФТ-only: добавить дочернее требование (git-branch-plus) */}
           {canAddChild ? (
             <button
               type="button"
-              style={{ ...iconBtnBase, color: 'var(--color-primary)' }}
+              className="row-icon-btn"
               data-testid="row-add-child"
               data-slug={req.slug}
               title="Добавить дочернее требование"
               aria-label="Добавить дочернее требование"
               onClick={() => onAddChild?.(req)}
             >
-              <IconCirclePlus />
+              <GitBranchPlus className="icon-sm" aria-hidden="true" />
             </button>
           ) : null}
-          {/* Link button — all rows */}
-          <button
-            type="button"
-            style={iconBtnBase}
-            className="hover:text-[var(--color-primary)]"
-            data-testid={`link-btn-${req.slug}`}
-            title="Связать с другим требованием"
-            aria-label="Связать с другим требованием"
-            onClick={() => onLink(req)}
-          >
-            <IconChainLink />
-          </button>
-          {/* ФТ-only: add pre-linked NFR */}
+          {/* ФТ-only: добавить связанное НФТ (shield-plus) */}
           {canAddNfr ? (
             <button
               type="button"
-              style={{ ...iconBtnBase, color: 'var(--color-success)' }}
+              className="row-icon-btn"
               data-testid="row-add-nfr"
               data-slug={req.slug}
-              title="Добавить связанное НФТ"
-              aria-label="Добавить связанное НФТ"
+              title="Добавить НФТ"
+              aria-label="Добавить НФТ"
               onClick={() => onAddNfr?.(req)}
             >
-              <IconCirclePlus />
+              <ShieldPlus className="icon-sm" aria-hidden="true" />
             </button>
           ) : null}
-          {/* Delete — all rows; disabled when node has children */}
+          {/* Связать — все строки */}
           <button
             type="button"
-            style={
-              deleteDisabled ? { ...iconBtnBase, opacity: 0.4, cursor: 'not-allowed' } : iconBtnBase
-            }
-            className={deleteDisabled ? '' : 'hover:text-[var(--color-danger)]'}
-            data-testid={`delete-btn-${req.slug}`}
-            title={deleteDisabled ? 'Сначала удалите дочерние' : 'Удалить требование'}
-            aria-label={deleteDisabled ? 'Сначала удалите дочерние' : 'Удалить требование'}
-            disabled={deleteDisabled}
-            onClick={() => !deleteDisabled && onDelete(req)}
+            className="row-icon-btn hover:text-[var(--color-primary)]"
+            data-testid={`link-btn-${req.slug}`}
+            title="Связать"
+            aria-label="Связать"
+            onClick={() => onLink(req)}
           >
-            <IconTrash />
+            <Link2 className="icon-sm" aria-hidden="true" />
           </button>
+          {/* Удалить — все строки; недоступно при наличии дочерних */}
+          <span title={deleteDisabled ? 'Сначала удалите дочерние требования' : undefined}>
+            <button
+              type="button"
+              className={`row-icon-btn ${deleteDisabled ? '' : 'hover:text-[var(--color-danger)]'}`}
+              data-testid={`delete-btn-${req.slug}`}
+              title={deleteDisabled ? undefined : 'Удалить'}
+              aria-label={
+                deleteDisabled ? 'Удалить (недоступно: есть дочерние)' : 'Удалить требование'
+              }
+              aria-disabled={deleteDisabled || undefined}
+              disabled={deleteDisabled}
+              onClick={() => !deleteDisabled && onDelete(req)}
+            >
+              <Trash2 className="icon-sm" aria-hidden="true" />
+            </button>
+          </span>
         </div>
       </td>
     </tr>
@@ -386,6 +351,7 @@ export function TreeTable({
   onAddChild,
   onDelete,
   onDescExpand,
+  onAddDesc,
   onExpandNode,
   onToggleNode,
   interactiveChevron,
@@ -430,7 +396,8 @@ export function TreeTable({
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-sm" data-testid={`table-${testidPrefix}`}>
+          {/* Правка PO: шрифт таблицы дерева чуть мельче макета — 13px в ячейках. */}
+          <table className="w-full table-fixed text-[13px]" data-testid={`table-${testidPrefix}`}>
             <thead>
               <tr
                 className="text-left text-xs uppercase tracking-wide"
@@ -460,6 +427,7 @@ export function TreeTable({
                   onAddChild={onAddChild}
                   onDelete={onDelete}
                   onDescExpand={onDescExpand}
+                  onAddDesc={onAddDesc}
                   onExpandNode={onExpandNode}
                   onToggleNode={onToggleNode}
                   interactiveChevron={interactiveChevron}

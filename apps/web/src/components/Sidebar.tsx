@@ -1,5 +1,6 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ChartColumn, ClipboardList, Download, ListTree, Sparkle, Waypoints } from 'lucide-react';
+import { useUiStore } from '../store/ui';
 
 export interface SidebarProps {
   projectId: string;
@@ -8,135 +9,12 @@ export interface SidebarProps {
   onOpenTasks: () => void;
 }
 
-/* ── SVG icons (Lucide-style, 20×20, stroke="currentColor" strokeWidth="2") ── */
-
-function IconGrid(): React.ReactElement {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="3" width="7" height="7" />
-      <rect x="14" y="3" width="7" height="7" />
-      <rect x="3" y="14" width="7" height="7" />
-      <rect x="14" y="14" width="7" height="7" />
-    </svg>
-  );
-}
-
-function IconBarChart(): React.ReactElement {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M18 20V10" />
-      <path d="M12 20V4" />
-      <path d="M6 20v-6" />
-    </svg>
-  );
-}
-
-function IconDownload(): React.ReactElement {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-      <polyline points="7 10 12 15 17 10" />
-      <line x1="12" y1="15" x2="12" y2="3" />
-    </svg>
-  );
-}
-
-function IconClipboardList(): React.ReactElement {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-      <rect x="8" y="2" width="8" height="4" rx="1" />
-      <path d="M9 12h6" />
-      <path d="M9 16h6" />
-    </svg>
-  );
-}
-
-function IconSparkle(): React.ReactElement {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4z" />
-      <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z" />
-    </svg>
-  );
-}
-
-/* ── Tooltip span shown on hover ── */
-
-const tooltipStyle: React.CSSProperties = {
-  position: 'absolute',
-  left: 'calc(100% + 8px)',
-  top: '50%',
-  transform: 'translateY(-50%)',
-  background: '#1e293b',
-  color: '#f8fafc',
-  padding: '4px 8px',
-  borderRadius: '4px',
-  fontSize: '12px',
-  whiteSpace: 'nowrap',
-  pointerEvents: 'none',
-  zIndex: 101,
-};
-
-/* ── Nav button ── */
+/* ── Nav item: icon + tooltip on hover AND :focus-visible (new_design §2.8) ── */
 
 interface NavBtnProps {
   label: string;
   testId: string;
   active?: boolean;
-  hovered: boolean;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
   onClick: () => void;
   children: React.ReactNode;
 }
@@ -145,50 +23,30 @@ function NavBtn({
   label,
   testId,
   active = false,
-  hovered,
-  onMouseEnter,
-  onMouseLeave,
   onClick,
   children,
 }: NavBtnProps): React.ReactElement {
-  const btnStyle: React.CSSProperties = {
-    width: '40px',
-    height: '40px',
-    borderRadius: '8px',
-    border: 'none',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    background: active
-      ? 'var(--sidebar-active-bg)'
-      : hovered
-        ? 'var(--sidebar-hover-bg)'
-        : 'transparent',
-    color: active ? 'var(--sidebar-icon-active)' : 'var(--sidebar-icon)',
-    transition: 'background 0.15s, color 0.15s',
-  };
-
   return (
     <button
       type="button"
-      style={btnStyle}
+      className="nav-item"
       data-testid={testId}
       aria-label={label}
       aria-current={active ? 'page' : undefined}
       onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
     >
       {children}
-      {hovered && <span style={tooltipStyle}>{label}</span>}
+      <span className="tip">{label}</span>
     </button>
   );
 }
 
-/* ── Main Sidebar component ── */
-
+/**
+ * Fixed icon sidebar (new_design §2.8): the navigation zone (Требования /
+ * Дашборд / Настройка AI / Граф связей) is separated from the actions zone
+ * (Экспорт проекта / Генерация задач) by a divider labelled «Действия».
+ * The «PO» logo links back to the Start screen.
+ */
 export function Sidebar({
   projectId,
   activePage,
@@ -196,116 +54,93 @@ export function Sidebar({
   onOpenTasks,
 }: SidebarProps): React.ReactElement {
   const navigate = useNavigate();
-  const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
+  const graphView = useUiStore((s) => s.graphView);
+  const setGraphView = useUiStore((s) => s.setGraphView);
 
-  const containerStyle: React.CSSProperties = {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    width: 'var(--sidebar-width)',
-    background: 'var(--sidebar-bg)',
-    zIndex: 100,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    padding: '8px 0',
-    gap: '4px',
-    borderRight: '1px solid rgba(255,255,255,0.08)',
+  const goRequirements = (): void => {
+    setGraphView(false);
+    navigate(`/p/${projectId}`);
   };
-
-  const logoStyle: React.CSSProperties = {
-    width: '40px',
-    height: '40px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: 'var(--sidebar-icon-active)',
-    fontSize: '14px',
-    fontWeight: 700,
-    letterSpacing: '0.05em',
-    marginBottom: '4px',
-    userSelect: 'none',
+  // «Граф связей» switches the existing graph mode of the tree page (no new route).
+  const goGraph = (): void => {
+    setGraphView(true);
+    navigate(`/p/${projectId}`);
   };
-
-  const dividerStyle: React.CSSProperties = {
-    width: '32px',
-    height: '1px',
-    background: 'rgba(255,255,255,0.15)',
-    margin: '4px 0',
-  };
-
-  const hover = (id: string) => ({
-    onMouseEnter: () => setHoveredBtn(id),
-    onMouseLeave: () => setHoveredBtn(null),
-  });
 
   return (
-    <nav style={containerStyle} aria-label="Боковая навигация" data-testid="sidebar">
-      {/* Logo */}
-      <div style={logoStyle} aria-hidden="true">
+    <nav
+      className="fixed inset-y-0 left-0 z-40 flex flex-col items-center gap-1 border-r py-3"
+      style={{
+        width: 'var(--sidebar-width)',
+        background: 'var(--color-surface)',
+        borderColor: 'var(--color-border)',
+      }}
+      aria-label="Основная навигация"
+      data-testid="sidebar"
+    >
+      {/* Логотип PO — ссылка на Start (§2.8) */}
+      <button
+        type="button"
+        className="nav-item mb-2 text-sm font-bold text-white"
+        style={{ background: 'var(--color-primary)', color: '#fff' }}
+        aria-label="К списку проектов"
+        data-testid="sidebar-home"
+        onClick={() => navigate('/')}
+      >
         PO
-      </div>
+        <span className="tip">К списку проектов</span>
+      </button>
 
-      {/* Requirements */}
+      {/* Зона НАВИГАЦИИ */}
       <NavBtn
         label="Требования"
         testId="sidebar-nav-requirements"
-        active={activePage === 'requirements'}
-        hovered={hoveredBtn === 'requirements'}
-        {...hover('requirements')}
-        onClick={() => navigate(`/p/${projectId}`)}
+        active={activePage === 'requirements' && !graphView}
+        onClick={goRequirements}
       >
-        <IconGrid />
+        <ListTree className="icon" aria-hidden="true" />
       </NavBtn>
-
-      {/* Dashboard */}
       <NavBtn
         label="Дашборд"
         testId="sidebar-nav-dashboard"
         active={activePage === 'dashboard'}
-        hovered={hoveredBtn === 'dashboard'}
-        {...hover('dashboard')}
         onClick={() => navigate(`/p/${projectId}/dashboard`)}
       >
-        <IconBarChart />
+        <ChartColumn className="icon" aria-hidden="true" />
       </NavBtn>
-
-      {/* Divider */}
-      <div style={dividerStyle} role="separator" aria-hidden="true" />
-
-      {/* AI */}
       <NavBtn
-        label="AI"
+        label="Настройка AI"
         testId="sidebar-nav-ai"
         active={activePage === 'ai'}
-        hovered={hoveredBtn === 'ai'}
-        {...hover('ai')}
         onClick={() => navigate(`/p/${projectId}/ai`)}
       >
-        <IconSparkle />
+        <Sparkle className="icon" aria-hidden="true" />
+      </NavBtn>
+      <NavBtn
+        label="Граф связей"
+        testId="sidebar-nav-graph"
+        active={activePage === 'requirements' && graphView}
+        onClick={goGraph}
+      >
+        <Waypoints className="icon" aria-hidden="true" />
       </NavBtn>
 
-      {/* Export */}
-      <NavBtn
-        label="Экспорт"
-        testId="sidebar-open-export"
-        hovered={hoveredBtn === 'export'}
-        {...hover('export')}
-        onClick={onOpenExport}
-      >
-        <IconDownload />
-      </NavBtn>
+      {/* Разделитель: зона ДЕЙСТВИЙ (§2.8 — не смешивать с навигацией) */}
+      <div
+        className="mb-1 mt-3 w-8 border-t"
+        style={{ borderColor: 'var(--color-border)' }}
+        role="separator"
+        aria-hidden="true"
+      />
+      <span className="t3 mb-1" style={{ fontSize: 'var(--text-min)' }}>
+        Действия
+      </span>
 
-      {/* Tasks */}
-      <NavBtn
-        label="Задачи для трекера"
-        testId="sidebar-open-tasks"
-        hovered={hoveredBtn === 'tasks'}
-        {...hover('tasks')}
-        onClick={onOpenTasks}
-      >
-        <IconClipboardList />
+      <NavBtn label="Экспорт проекта" testId="sidebar-open-export" onClick={onOpenExport}>
+        <Download className="icon" aria-hidden="true" />
+      </NavBtn>
+      <NavBtn label="Генерация задач" testId="sidebar-open-tasks" onClick={onOpenTasks}>
+        <ClipboardList className="icon" aria-hidden="true" />
       </NavBtn>
     </nav>
   );

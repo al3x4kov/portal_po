@@ -11,7 +11,7 @@ vi.mock('react-router-dom', async () => {
 });
 
 describe('PathHeader', () => {
-  it('renders the project name and main path', () => {
+  it('renders the project name (h1) and the mono main path', () => {
     renderWithProviders(
       <PathHeader name="payments-platform" mainPath="/Projects/payments-platform" />,
     );
@@ -21,17 +21,28 @@ describe('PathHeader', () => {
     expect(path).toHaveAttribute('title', '/Projects/payments-platform');
   });
 
-  it('navigates back to "/" when the back button is clicked', async () => {
+  it('navigates back to "/" via «Проекты»', async () => {
     const user = userEvent.setup();
     navigate.mockClear();
     renderWithProviders(<PathHeader name="proj" mainPath="/Projects/proj" />);
-    await user.click(screen.getByTestId('main-back'));
+    const back = screen.getByTestId('main-back');
+    expect(back).toHaveTextContent('Проекты');
+    await user.click(back);
     expect(navigate).toHaveBeenCalledWith('/');
+  });
+
+  it('copies the path to the clipboard on click and shows a toast (§2.9)', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<PathHeader name="proj" mainPath="/Projects/proj" />);
+    const copyBtn = screen.getByTestId('copy-path');
+    expect(copyBtn).toHaveTextContent('копируется по клику');
+    await user.click(copyBtn);
+    expect(await navigator.clipboard.readText()).toBe('/Projects/proj');
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Путь скопирован');
   });
 
   it('renders the theme toggle', () => {
     renderWithProviders(<PathHeader name="proj" mainPath="/Projects/proj" />);
-    // ThemeToggle renders a button; the header should contain more than just the back button.
     expect(screen.getByTestId('path-header')).toBeInTheDocument();
     expect(screen.getByTestId('main-back')).toBeInTheDocument();
   });

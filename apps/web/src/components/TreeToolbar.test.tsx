@@ -105,6 +105,24 @@ describe('TreeToolbar (T-1101/1103/1105)', () => {
     expect(useUiStore.getState().implementationFilter.size).toBe(0);
   });
 
+  it('T3 (§2.6): shows «Показано X из Y · Сбросить фильтры» when filters are applied', async () => {
+    useUiStore.setState({ criticalityFilter: new Set(['HIGH']) });
+    const user = userEvent.setup();
+    renderWithProviders(<TreeToolbar shown={3} total={12} />);
+    expect(screen.getByTestId('shown-count')).toHaveTextContent('Показано 3 из 12');
+    const reset = screen.getByTestId('toolbar-reset-filters');
+    expect(reset).toHaveTextContent('Сбросить фильтры');
+    await user.click(reset);
+    expect(useUiStore.getState().criticalityFilter.size).toBe(0);
+    expect(screen.queryByTestId('toolbar-reset-filters')).not.toBeInTheDocument();
+  });
+
+  it('T3 (§2.6): hides the reset link when no filters are applied', () => {
+    renderWithProviders(<TreeToolbar shown={5} total={5} />);
+    expect(screen.getByTestId('shown-count')).toHaveTextContent('Показано 5 из 5');
+    expect(screen.queryByTestId('toolbar-reset-filters')).not.toBeInTheDocument();
+  });
+
   // ── FR-19 · source filter dropdown (Task 12 · F-2.1) ────────────────────────
   describe('FR-19 · «Источник» dropdown', () => {
     const SOURCES = ['АС21', 'Регламент'];

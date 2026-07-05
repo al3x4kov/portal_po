@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { FoldVertical, Search, UnfoldVertical, X } from 'lucide-react';
 import { CRITICALITIES, type Criticality } from '@po/core';
 import { useUiStore, type ImplStatus } from '../store/ui';
 import { CRITICALITY_COLOR_VAR, CRITICALITY_LABEL } from '../lib/criticality';
@@ -64,6 +65,7 @@ export function TreeToolbar({
   const setSourceFilter = useUiStore((s) => s.setSourceFilter);
   const graphView = useUiStore((s) => s.graphView);
   const setGraphView = useUiStore((s) => s.setGraphView);
+  const resetFilters = useUiStore((s) => s.resetFilters);
 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Set<Criticality>>(new Set(applied));
@@ -79,6 +81,9 @@ export function TreeToolbar({
 
   // Source dropdown options: '' = "Не задан" + sorted unique sources from project
   const sourceOptions = ['', ...availableSources];
+
+  // §2.6: единая строка «Показано X из Y · Сбросить фильтры» активна при любом фильтре.
+  const filtersActive = applied.size > 0 || implApplied.size > 0 || srcApplied.size > 0;
 
   // Sync the draft with the applied set whenever the dropdown opens.
   useEffect(() => {
@@ -174,8 +179,12 @@ export function TreeToolbar({
 
   return (
     <div
-      className="surface sticky top-[57px] z-10 flex flex-wrap items-center gap-3 border-b px-4 py-2.5"
-      style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+      className="sticky z-10 flex flex-wrap items-center gap-3 border-b px-4 py-2.5"
+      style={{
+        top: 'var(--header-height)',
+        background: 'var(--color-surface)',
+        borderColor: 'var(--color-border)',
+      }}
       data-testid="tree-toolbar"
     >
       {/* T-G108 · view mode switcher: Дерево | Граф */}
@@ -243,52 +252,18 @@ export function TreeToolbar({
         </button>
       </div>
 
-      {/* B1 · tree display mode — only shown in tree view */}
-      {!graphView ? (
-        <div
-          className="inline-flex rounded-sm border p-0.5"
-          role="group"
-          aria-label="Отображение дерева"
-          style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
-        >
-          <button
-            type="button"
-            className={segBtn(treeMode === 'expand-all')}
-            style={
-              treeMode === 'expand-all'
-                ? { background: 'var(--color-surface)', color: 'var(--color-text)' }
-                : { color: 'var(--color-text-2)' }
-            }
-            aria-pressed={treeMode === 'expand-all'}
-            data-testid="toggle-expand-all"
-            onClick={() => setTreeMode('expand-all')}
-          >
-            Раскрыть все
-          </button>
-          <button
-            type="button"
-            className={segBtn(treeMode === 'collapse')}
-            style={
-              treeMode === 'collapse'
-                ? { background: 'var(--color-surface)', color: 'var(--color-text)' }
-                : { color: 'var(--color-text-2)' }
-            }
-            aria-pressed={treeMode === 'collapse'}
-            data-testid="toggle-collapse"
-            onClick={() => setTreeMode(treeMode === 'collapse' ? 'expand-all' : 'collapse')}
-          >
-            Свернуть вложенные
-          </button>
-        </div>
-      ) : null}
-
       {/* B3 · name search */}
-      <div className="relative w-full max-w-xs">
+      <div className="relative min-w-[180px] flex-1">
+        <Search
+          className="icon-sm t3 pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"
+          aria-hidden="true"
+        />
         <input
-          className="input"
+          className="input !pl-9"
           style={{ paddingRight: '30px' }}
-          placeholder="Поиск по названию…"
-          aria-label="Поиск по названию"
+          type="search"
+          placeholder="Поиск по имени…"
+          aria-label="Поиск по имени требования"
           data-testid="search-input"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -296,13 +271,13 @@ export function TreeToolbar({
         {search.length > 0 ? (
           <button
             type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 hover:bg-[var(--color-surface-2)]"
             style={{ color: 'var(--color-text-3)' }}
             aria-label="Очистить поиск"
             data-testid="search-clear"
             onClick={() => setSearch('')}
           >
-            ✕
+            <X className="icon-sm" aria-hidden="true" />
           </button>
         ) : null}
       </div>
@@ -577,9 +552,55 @@ export function TreeToolbar({
         ) : null}
       </div>
 
-      <div className="flex-1" />
-      <span className="text-xs" style={{ color: 'var(--color-text-3)' }} data-testid="shown-count">
+      {/* B1 · раскрыть/свернуть все уровни: две иконки-кнопки с tooltip (§2.6) */}
+      {!graphView ? (
+        <div className="inline-flex flex-none gap-1" role="group" aria-label="Отображение дерева">
+          <button
+            type="button"
+            className="tip-host btn btn-secondary btn-sm !px-2"
+            aria-pressed={treeMode === 'expand-all'}
+            aria-label="Раскрыть все уровни"
+            data-testid="toggle-expand-all"
+            onClick={() => setTreeMode('expand-all')}
+          >
+            <UnfoldVertical className="icon-sm" aria-hidden="true" />
+            <span className="tip tip-below">Раскрыть все</span>
+          </button>
+          <button
+            type="button"
+            className="tip-host btn btn-secondary btn-sm !px-2"
+            aria-pressed={treeMode === 'collapse'}
+            aria-label="Свернуть все уровни"
+            data-testid="toggle-collapse"
+            onClick={() => setTreeMode(treeMode === 'collapse' ? 'expand-all' : 'collapse')}
+          >
+            <FoldVertical className="icon-sm" aria-hidden="true" />
+            <span className="tip tip-below">Свернуть все</span>
+          </button>
+        </div>
+      ) : null}
+
+      {/* §2.6 · единая строка результата фильтрации (средний род: «Показано») */}
+      <span
+        className="ml-auto text-xs"
+        style={{ color: 'var(--color-text-3)' }}
+        role="status"
+        data-testid="shown-count"
+      >
         Показано {shown} из {total}
+        {filtersActive ? (
+          <>
+            {' · '}
+            <button
+              type="button"
+              className="underline underline-offset-2 hover:text-[var(--color-primary)]"
+              data-testid="toolbar-reset-filters"
+              onClick={resetFilters}
+            >
+              Сбросить фильтры
+            </button>
+          </>
+        ) : null}
       </span>
     </div>
   );

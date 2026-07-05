@@ -268,17 +268,89 @@ describe('TreeTable (T-1102, FR-7)', () => {
     expect(rowEl.querySelector('[data-testid="delete-btn-f1"]')).not.toBeNull();
   });
 
-  it('T-509: row actions are hidden by default (opacity-0) and always in DOM (keyboard-reachable)', () => {
+  it('T3 (§2.5.1): row actions are always visible (dimmed via .row-actions, not opacity-0)', () => {
     renderTree(false);
     const actions = screen.getByTestId('row-actions-r2');
-    // T-509: hidden at rest via opacity-0, shown on hover via group-hover:opacity-100.
-    // Always in DOM so keyboard users can still reach the buttons.
-    expect(actions.className).toContain('opacity-0');
-    expect(actions.className).toContain('group-hover:opacity-100');
-    // The action buttons are always in the DOM inside the row (keyboard-reachable).
+    // Always rendered dimmed; CSS brightens them on tr:hover / :focus-within,
+    // and keeps them fully visible on touch (pointer: coarse).
+    expect(actions.className).toContain('row-actions');
+    expect(actions.className).not.toContain('opacity-0');
     const rowEl = screen.getByTestId('tree-row-r2');
     expect(rowEl.contains(actions)).toBe(true);
     expect(actions.querySelector('[data-testid="delete-btn-r2"]')).not.toBeNull();
+  });
+
+  it('T3 (§2.5.2): action icons are distinct — git-branch-plus for a child, shield-plus for an NFR', () => {
+    const req = makeReq({ slug: 'f1', name: 'Функция', type: 'FUNCTION' });
+    const rows = computeVisibleRows({
+      forest: buildForest([req]),
+      search: '',
+      collapsed: false,
+      expanded: new Set(),
+      criticalityFilter: NO_CRIT,
+    }).rows;
+    renderWithProviders(
+      <TreeTable
+        title="Ф"
+        addLabel="+"
+        testidPrefix="function"
+        count={1}
+        rows={rows}
+        nameBySlug={new Map([['f1', 'Функция']])}
+        onAdd={vi.fn()}
+        onEdit={vi.fn()}
+        onLink={vi.fn()}
+        onAddNfr={vi.fn()}
+        onAddChild={vi.fn()}
+        onDelete={vi.fn()}
+        onDescExpand={vi.fn()}
+        onExpandNode={vi.fn()}
+      />,
+    );
+    const addChild = screen.getByTestId('row-add-child');
+    const addNfr = screen.getByTestId('row-add-nfr');
+    expect(addChild).toHaveAccessibleName('Добавить дочернее требование');
+    expect(addNfr).toHaveAccessibleName('Добавить НФТ');
+    // Different pictograms, not the same plus icon coloured differently.
+    expect(addChild.querySelector('svg')?.innerHTML).not.toBe(
+      addNfr.querySelector('svg')?.innerHTML,
+    );
+  });
+
+  it('T3 (§2.5.4): empty description renders «+ Описание» that opens editing', async () => {
+    const onAddDesc = vi.fn();
+    const user = userEvent.setup();
+    const req = makeReq({ slug: 'e1', name: 'Без описания' });
+    const rows = computeVisibleRows({
+      forest: buildForest([req]),
+      search: '',
+      collapsed: false,
+      expanded: new Set(),
+      criticalityFilter: NO_CRIT,
+    }).rows;
+    renderWithProviders(
+      <TreeTable
+        title="Ф"
+        addLabel="+"
+        testidPrefix="function"
+        count={1}
+        rows={rows}
+        nameBySlug={new Map([['e1', 'Без описания']])}
+        onAdd={vi.fn()}
+        onEdit={vi.fn()}
+        onLink={vi.fn()}
+        onDelete={vi.fn()}
+        onDescExpand={vi.fn()}
+        onAddDesc={onAddDesc}
+        onExpandNode={vi.fn()}
+      />,
+    );
+    const addDesc = screen.getByTestId('desc-add');
+    expect(addDesc).toHaveTextContent('+ Описание');
+    expect(screen.queryByTestId('desc-expand')).not.toBeInTheDocument();
+    await user.click(addDesc);
+    expect(onAddDesc).toHaveBeenCalledTimes(1);
+    expect(onAddDesc.mock.calls[0][0]).toMatchObject({ slug: 'e1' });
   });
 
   it('UX-7: an interactive chevron toggles the node in collapse mode', async () => {
