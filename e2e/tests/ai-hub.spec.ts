@@ -47,6 +47,11 @@ function projectId(page: Page): string {
  * Full AI-Hub setup for the CURRENT project: open the AI screen, enter the stub
  * Base URL + a key, load models, pick a model and save. Leaves the page on the
  * AI screen with the config persisted (key global, model per-project).
+ *
+ * T5 (todo_17): the dedicated «Сохранить и загрузить модели» button is gone —
+ * «Обновить список» (ai-models-refresh) with a freshly typed key saves the
+ * config first and then loads the models; the ONE «Сохранить» (ai-save) writes
+ * key + model + base URL together.
  */
 async function configureAi(page: Page, id: string): Promise<void> {
   await page.goto(`/p/${id}/ai`);
@@ -54,17 +59,18 @@ async function configureAi(page: Page, id: string): Promise<void> {
 
   await page.getByTestId('ai-baseurl-input').fill(stubBaseUrl);
   await page.getByTestId('ai-key-input').fill('sk-e2e-test-key');
-  await page.getByTestId('ai-load-models').click();
+  await page.getByTestId('ai-models-refresh').click();
 
-  // Models loaded → success status + populated select.
+  // Key saved + models loaded → success status under the save button.
   const status = page.getByTestId('ai-status');
   await expect(status.locator('[data-state="success"]')).toBeVisible();
+  await expect(status).toContainText('Подключение успешно');
   const select = page.getByTestId('ai-model-select');
   await expect(select).toBeVisible();
   await select.selectOption('GigaChat-2-Pro');
 
   await page.getByTestId('ai-save').click();
-  await expect(status.locator('[data-state="success"]')).toBeVisible();
+  await expect(status.locator('[data-state="success"]')).toContainText('Настройки сохранены');
   // Key is now stored and never echoed back.
   await expect(page.getByTestId('ai-key-saved')).toBeVisible();
 }
@@ -88,6 +94,8 @@ test.describe('Task 8 · AI Hub', () => {
 
     await page.getByTestId('sidebar-nav-ai').click();
     await expect(page.getByTestId('ai-page')).toBeVisible();
+    // T5 (todo_17): benefit-first title instead of the technical «Экран „AI“».
+    await expect(page.getByRole('heading', { name: 'Подключение AI' })).toBeVisible();
     // Empty state before any key is entered.
     await expect(page.getByTestId('ai-status').locator('[data-state="empty"]')).toBeVisible();
   });
@@ -110,10 +118,14 @@ test.describe('Task 8 · AI Hub', () => {
     // Key field is a password (masked) until toggled.
     await expect(page.getByTestId('ai-key-input')).toHaveAttribute('type', 'password');
 
-    await page.getByTestId('ai-load-models').click();
+    // T5 (todo_17): «Обновить список» with a freshly typed key saves the
+    // config first (PUT /api/ai/config) and then loads the models.
+    await page.getByTestId('ai-models-refresh').click();
 
     const status = page.getByTestId('ai-status');
     await expect(status.locator('[data-state="success"]')).toBeVisible();
+    await expect(status).toContainText('Подключение успешно');
+    await expect(status).toContainText('загружено 2');
 
     // Both stub models are offered in the select.
     const select = page.getByTestId('ai-model-select');
@@ -124,13 +136,113 @@ test.describe('Task 8 · AI Hub', () => {
 
     await select.selectOption('GigaChat-2-Pro');
     await page.getByTestId('ai-save').click();
-    await expect(status.locator('[data-state="success"]')).toBeVisible();
+    await expect(status.locator('[data-state="success"]')).toContainText('Настройки сохранены');
 
     // Key persisted & masked: "saved" badge shown, input cleared (never re-shown).
     await expect(page.getByTestId('ai-key-saved')).toBeVisible();
     await expect(page.getByTestId('ai-key-input')).toHaveValue('');
 
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'ai-screen.png'), fullPage: true });
+  });
+
+  /* T5 (todo_17) · единое сохранение: ОДНА кнопка «Сохранить» пишет ключ +
+     модель + base URL вместе; статус — сразу ПОД кнопкой. */
+
+  test('единое сохранение: одна кнопка «Сохранить» пишет ключ+модель+baseURL, статус под кнопкой', async ({
+    page,
+  }) => {
+    // Clean global config so the empty state is deterministic.
+    const reset = await page.request.put('/api/ai/config', { data: { apiKey: null } });
+    expect(reset.ok()).toBe(true);
+
+    const name = uniqueName('AI-OneSave');
+    await createProject(page, name);
+    const id = projectId(page);
+    await page.goto(`/p/${id}/ai`);
+    await expect(page.getByTestId('ai-page')).toBeVisible();
+
+    // The old separate «загрузить модели» button is gone for good.
+    await expect(page.getByTestId('ai-load-models')).toHaveCount(0);
+    await expect(page.getByTestId('ai-status').locator('[data-state="empty"]')).toBeVisible();
+
+    await page.getByTestId('ai-baseurl-input').fill(stubBaseUrl);
+    await page.getByTestId('ai-key-input').fill('sk-e2e-one-save');
+    // No model list loaded yet → the manual model input is offered.
+    await page.getByTestId('ai-model-manual').fill('GigaChat-2');
+
+    await page.getByTestId('ai-save').click();
+
+    // Success status with the mandated text, positioned UNDER the button.
+    const status = page.getByTestId('ai-status');
+    await expect(status.locator('[data-state="success"]')).toBeVisible();
+    await expect(status).toContainText('Настройки сохранены');
+    const saveBox = await page.getByTestId('ai-save').boundingBox();
+    const statusBox = await status.boundingBox();
+    expect(saveBox && statusBox && statusBox.y > saveBox.y, 'status must sit under Save').toBe(
+      true,
+    );
+
+    // Key stored (badge, input cleared) — all three fields went in one PUT.
+    await expect(page.getByTestId('ai-key-saved')).toBeVisible();
+    await expect(page.getByTestId('ai-key-input')).toHaveValue('');
+    const res = await page.request.get(`/api/ai/config?projectId=${encodeURIComponent(id)}`);
+    expect(res.ok()).toBe(true);
+    const view = (await res.json()) as { hasApiKey: boolean; model?: string; baseURL?: string };
+    expect(view.hasApiKey).toBe(true);
+    expect(view.model).toBe('GigaChat-2');
+    expect(view.baseURL).toBe(stubBaseUrl);
+  });
+
+  /* T5 (todo_17) · «Обновить список» с непустым ключом: сначала сохраняет
+     конфиг (PUT), затем грузит модели (GET) — статус «Подключение успешно». */
+
+  test('«Обновить список» с непустым ключом: сохраняет конфиг, затем грузит модели', async ({
+    page,
+  }) => {
+    const reset = await page.request.put('/api/ai/config', { data: { apiKey: null } });
+    expect(reset.ok()).toBe(true);
+
+    const name = uniqueName('AI-RefreshSave');
+    await createProject(page, name);
+    const id = projectId(page);
+    await page.goto(`/p/${id}/ai`);
+    await expect(page.getByTestId('ai-page')).toBeVisible();
+
+    await page.getByTestId('ai-baseurl-input').fill(stubBaseUrl);
+    await page.getByTestId('ai-key-input').fill('sk-e2e-refresh-saves');
+
+    // One click → the config PUT goes out first, then the models GET.
+    const [putRes, getRes] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.request().method() === 'PUT' && r.url().includes('/api/ai/config'),
+      ),
+      page.waitForResponse(
+        (r) => r.request().method() === 'GET' && r.url().includes('/api/ai/models'),
+      ),
+      page.getByTestId('ai-models-refresh').click(),
+    ]);
+    expect(putRes.ok()).toBe(true);
+    expect(getRes.status()).toBe(200);
+
+    // Status under the button: connection verified + models counted.
+    const status = page.getByTestId('ai-status');
+    await expect(status.locator('[data-state="success"]')).toBeVisible();
+    await expect(status).toContainText('Подключение успешно');
+    await expect(status).toContainText('загружено 2');
+
+    // Models offered; nothing was chosen before → the first one auto-selected.
+    const select = page.getByTestId('ai-model-select');
+    await expect(select).toBeVisible();
+    for (const m of STUB_MODELS) {
+      await expect(select.locator(`option[value="${m}"]`)).toHaveCount(1);
+    }
+
+    // The key is genuinely SAVED by the refresh flow (badge + API truth).
+    await expect(page.getByTestId('ai-key-saved')).toBeVisible();
+    await expect(page.getByTestId('ai-key-input')).toHaveValue('');
+    const res = await page.request.get('/api/ai/config');
+    expect(res.ok()).toBe(true);
+    expect(((await res.json()) as { hasApiKey: boolean }).hasApiKey).toBe(true);
   });
 
   test('генерация: превью описания и применение (append, исходное сохраняется)', async ({
@@ -256,7 +368,8 @@ test.describe('Task 10 · удаление API-ключа', () => {
     await expect(page.getByTestId('chat-widget')).toBeVisible();
     await expect(page.getByTestId('chat-model-select')).toBeDisabled();
     await expect(page.getByTestId('chat-model-hint')).toBeVisible();
-    await page.getByTestId('chat-input').fill('Проверка после удаления ключа');
+    // T5 (todo_17): without a key the composer input itself is disabled.
+    await expect(page.getByTestId('chat-input')).toBeDisabled();
     await expect(page.getByTestId('chat-send')).toBeDisabled();
 
     await page.screenshot({

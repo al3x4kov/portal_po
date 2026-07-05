@@ -37,6 +37,8 @@ export interface ModelRefreshButtonProps {
   onClick: () => void;
   className?: string;
   style?: React.CSSProperties;
+  /** Optional visible label next to the icon (ai-page mockup: «Обновить список»). */
+  label?: React.ReactNode;
 }
 
 export function ModelRefreshButton({
@@ -46,6 +48,7 @@ export function ModelRefreshButton({
   onClick,
   className = 'btn btn-secondary',
   style,
+  label,
 }: ModelRefreshButtonProps): React.ReactElement {
   return (
     <button
@@ -60,6 +63,7 @@ export function ModelRefreshButton({
       onClick={onClick}
     >
       <RefreshIcon spinning={refreshing} />
+      {label}
     </button>
   );
 }

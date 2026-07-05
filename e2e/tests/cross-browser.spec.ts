@@ -77,7 +77,8 @@ test('@smoke AI screen renders: heading and API-key field', async ({ page }) => 
 
   await page.getByTestId('sidebar-nav-ai').click();
   await expect(page.getByTestId('ai-page')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Экран «AI»' })).toBeVisible();
+  // T5 (todo_17): benefit-first heading «Подключение AI» (было «Экран „AI“»).
+  await expect(page.getByRole('heading', { name: 'Подключение AI' })).toBeVisible();
   await expect(page.getByTestId('ai-key-input')).toBeVisible();
   await expect(page.getByTestId('ai-key-input')).toHaveAttribute('type', 'password');
   await expect(page.getByTestId('ai-baseurl-input')).toBeVisible();

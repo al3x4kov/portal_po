@@ -98,9 +98,10 @@ test.describe('Q-1 · axe-сканы новых AI-поверхностей (0 s
     await expectNoSeriousA11y(page, 'AiPage (empty)');
 
     // Models loaded → select + success status rendered; scan the richer state.
+    // T5 (todo_17): «Обновить список» with a typed key saves + loads models.
     await page.getByTestId('ai-baseurl-input').fill(stub.baseUrl);
     await page.getByTestId('ai-key-input').fill('sk-e2e-a11y-key');
-    await page.getByTestId('ai-load-models').click();
+    await page.getByTestId('ai-models-refresh').click();
     await expect(page.getByTestId('ai-status').locator('[data-state="success"]')).toBeVisible();
     await expect(page.getByTestId('ai-model-select')).toBeVisible();
     await expectNoSeriousA11y(page, 'AiPage (models loaded)');

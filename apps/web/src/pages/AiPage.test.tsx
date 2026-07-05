@@ -63,8 +63,9 @@ describe('AiPage (T-803)', () => {
     await waitFor(() =>
       expect(screen.getByTestId('ai-status')).toHaveTextContent('Введите API-ключ'),
     );
-    // Load button is disabled without a key.
-    expect(screen.getByTestId('ai-load-models')).toBeDisabled();
+    // Model refresh is disabled without a key; the ONE save button is there.
+    expect(screen.getByTestId('ai-models-refresh')).toBeDisabled();
+    expect(screen.getByTestId('ai-save')).toHaveTextContent('Сохранить');
   });
 
   it('shows "ключ сохранён" when the server reports hasApiKey', async () => {
@@ -85,7 +86,7 @@ describe('AiPage (T-803)', () => {
     expect(input).toHaveAttribute('type', 'text');
   });
 
-  it('saves the config and loads models, showing a success status', async () => {
+  it('«Обновить список» with a freshly typed key saves it first, then loads models', async () => {
     getConfig.mockResolvedValue({ baseURL: '', hasApiKey: false });
     saveConfig.mockResolvedValue({ baseURL: 'https://api.ai.sbt/openai/v1', hasApiKey: true });
     listModels.mockResolvedValue({ models: ['GigaChat-2-Pro', 'GigaChat-2'] });
@@ -93,11 +94,13 @@ describe('AiPage (T-803)', () => {
     renderAiPage();
 
     await user.type(await screen.findByTestId('ai-key-input'), 'sk-secret');
-    await user.click(screen.getByTestId('ai-load-models'));
+    await user.click(screen.getByTestId('ai-models-refresh'));
 
     await waitFor(() =>
       expect(screen.getByTestId('ai-status')).toHaveTextContent('Подключение успешно'),
     );
+    // Russian plural forms: 1 модель / 2 модели / 5 моделей.
+    expect(screen.getByTestId('ai-status')).toHaveTextContent('загружено 2 модели');
     expect(saveConfig).toHaveBeenCalledWith(
       expect.objectContaining({ apiKey: 'sk-secret', projectId: 'proj-1' }),
     );
@@ -106,7 +109,7 @@ describe('AiPage (T-803)', () => {
     expect(screen.getByTestId('ai-key-input')).toHaveValue('');
   });
 
-  it('shows a readable error when loading models fails', async () => {
+  it('shows a readable error under the save button when loading models fails', async () => {
     getConfig.mockResolvedValue({ baseURL: '', hasApiKey: false });
     saveConfig.mockResolvedValue({ baseURL: '', hasApiKey: true });
     listModels.mockRejectedValue(new Error('401 — проверьте ключ'));
@@ -114,12 +117,56 @@ describe('AiPage (T-803)', () => {
     renderAiPage();
 
     await user.type(await screen.findByTestId('ai-key-input'), 'sk-bad');
-    await user.click(screen.getByTestId('ai-load-models'));
+    await user.click(screen.getByTestId('ai-models-refresh'));
 
     await waitFor(() => {
       const status = screen.getByTestId('ai-status');
       expect(status).toHaveTextContent('Не удалось подключиться');
       expect(status).toHaveTextContent('401');
+    });
+  });
+
+  // ── §2.16.1/§2.16.4: the ONE save button + status right under it ──────────
+
+  it('«Сохранить» writes key, model and base URL together and reports «Настройки сохранены»', async () => {
+    getConfig.mockResolvedValue({ baseURL: '', hasApiKey: false });
+    saveConfig.mockResolvedValue({ baseURL: 'https://api.ai.sbt/openai/v1', hasApiKey: true });
+    const user = userEvent.setup();
+    renderAiPage();
+
+    await user.type(await screen.findByTestId('ai-key-input'), 'sk-secret');
+    await user.click(screen.getByTestId('ai-model-mode-manual'));
+    await user.type(screen.getByTestId('ai-model-manual'), 'GigaChat-2-Pro');
+    await user.click(screen.getByTestId('ai-save'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('ai-status')).toHaveTextContent('Настройки сохранены'),
+    );
+    expect(saveConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: 'sk-secret',
+        model: 'GigaChat-2-Pro',
+        baseURL: 'https://api.ai.sbt/openai/v1',
+        projectId: 'proj-1',
+      }),
+    );
+    expect(screen.getByTestId('ai-key-input')).toHaveValue('');
+  });
+
+  it('save failure: danger status «Настройки не сохранены» under the button', async () => {
+    getConfig.mockResolvedValue({ baseURL: '', hasApiKey: false });
+    saveConfig.mockRejectedValue(new Error('401 Unauthorized'));
+    const user = userEvent.setup();
+    renderAiPage();
+
+    await user.type(await screen.findByTestId('ai-key-input'), 'sk-bad');
+    await user.click(screen.getByTestId('ai-save'));
+
+    await waitFor(() => {
+      const status = screen.getByTestId('ai-status');
+      expect(status).toHaveTextContent('Не удалось подключиться');
+      expect(status).toHaveTextContent('401 Unauthorized');
+      expect(status).toHaveTextContent('Настройки не сохранены');
     });
   });
 

@@ -19,6 +19,7 @@ import {
   setTreeMode,
   uniqueName,
 } from './helpers/app.js';
+import { expectAiImportSummary } from './helpers/ai-import.js';
 
 /**
  * Task 11 · E2E for «AI подгрузка ФТ и НФТ из документации» (spec §5 matrix).
@@ -243,7 +244,7 @@ async function chooseFile(page: Page, archivePath: string): Promise<void> {
   await expect(page.getByTestId('ai-import-file-name')).toContainText(path.basename(archivePath));
 }
 
-/** Click «Запустить анализ» and return the started job's id (202 body). */
+/** Click «Начать анализ» and return the started job's id (202 body). */
 async function startAnalysis(page: Page): Promise<string> {
   const [res] = await Promise.all([
     page.waitForResponse(
@@ -319,17 +320,33 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await expect(page.getByTestId('footer-ai-import')).toBeVisible();
     await openAiImport(page);
     await expect(page.getByTestId('ai-import-drop')).toBeVisible();
+    // T5 (todo_17): new title + «Начать анализ» label + footer hint/cancel.
+    await expect(page.getByTestId('ai-import')).toContainText('AI-импорт документации');
 
-    // No file yet → start is disabled with the mandated tooltip.
+    // No file yet → start is disabled with the mandated tooltip; the same
+    // reason is readable text in the footer hint.
     const start = page.getByTestId('ai-import-start');
     await expect(start).toBeDisabled();
+    await expect(start).toHaveText('Начать анализ');
     await expect(start).toHaveAttribute('title', 'Загрузите архив документации');
+    await expect(page.getByTestId('ai-import-footer-hint')).toHaveText(
+      'Загрузите архив документации',
+    );
+    await expect(page.getByTestId('ai-import-cancel')).toBeVisible();
 
-    // Selecting an archive activates the start button.
+    // Selecting an archive activates the start button; the hint flips.
     const zip = makeZip(testInfo, 'docs.zip', { 'auth.md': DOCS['auth.md']! });
     await chooseFile(page, zip);
     await expect(start).toBeEnabled();
+    await expect(page.getByTestId('ai-import-footer-hint')).toHaveText(
+      'Файл выбран — можно начинать',
+    );
     await attachShot(page, testInfo, 'setup-file-selected');
+
+    // «Отмена» in the setup footer closes silently too — reopen for the X check.
+    await page.getByTestId('ai-import-cancel').click();
+    await expect(page.getByTestId('ai-import')).toHaveCount(0);
+    await openAiImport(page);
 
     // Idle X: closes immediately, no ConfirmDialog involved.
     await page.getByTestId('ai-import-close').click();
@@ -382,12 +399,18 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await chooseFile(page, zip);
     await startAnalysis(page);
 
-    // Job finishes: success block with the exact counters (2 ФТ + 1 НФТ, 1 связь).
+    // Job finishes: success view with the 5-row summary TABLE (§2.18.3):
+    // 2 ФТ + 1 НФТ, 1 связь в дереве, 0 связей НФТ↔ФТ, 0 пропущено.
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
-    await expect(success).toContainText('Создано: 2 ФТ и 1 НФТ');
-    await expect(success).toContainText('связей: 1');
-    await expect(success).toContainText('Пропущено как существующие: 0');
+    await expect(success).toContainText('Анализ завершён');
+    await expectAiImportSummary(page, {
+      functions: 2,
+      nfrs: 1,
+      treeLinks: 1,
+      relatesLinks: 0,
+      skipped: 0,
+    });
     await expect(page.getByTestId('ai-import-progress-pct')).toHaveText('100%');
 
     // The work log is populated (stages + created items).
@@ -405,7 +428,7 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
       expect(call['max_tokens']).toBe(2000);
     }
 
-    // «Закрыть и перейти к проекту» → modal gone, tree already refreshed.
+    // «Готово» → modal gone, tree already refreshed.
     await page.getByTestId('ai-import-done').click();
     await expect(page.getByTestId('ai-import')).toHaveCount(0);
     await expect(rowByName(page, REQ_LOGIN)).toBeVisible();
@@ -457,7 +480,13 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     // Success with requirements extracted from the NESTED files too.
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
-    await expect(success).toContainText('Создано: 2 ФТ и 1 НФТ');
+    await expectAiImportSummary(page, {
+      functions: 2,
+      nfrs: 1,
+      treeLinks: 0,
+      relatesLinks: 0,
+      skipped: 0,
+    });
     await attachShot(page, testInfo, 'tree-success');
 
     await page.getByTestId('ai-import-done').click();
@@ -538,9 +567,13 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await startAnalysis(page);
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
-    await expect(success).toContainText('Создано: 0 ФТ и 0 НФТ');
-    await expect(success).toContainText('связей: 0');
-    await expect(success).toContainText('Пропущено как существующие: 3');
+    await expectAiImportSummary(page, {
+      functions: 0,
+      nfrs: 0,
+      treeLinks: 0,
+      relatesLinks: 0,
+      skipped: 3,
+    });
     await attachShot(page, testInfo, 'idempotent-second-run');
     await page.getByTestId('ai-import-done').click();
 
@@ -548,9 +581,10 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     expect(await listRequirements(page, id)).toHaveLength(3);
   });
 
-  /* §5.6: отмена кнопкой «Остановить» → cancelled, закрытие без confirm. */
+  /* §5.6 + §2.18.1 (T5): «Остановить» открывает mini-confirm; «Продолжить
+     анализ» возвращает к прогрессу, «Остановить» реально отменяет job. */
 
-  test('отмена: «Остановить» переводит job в cancelled; модалка закрывается без подтверждения', async ({
+  test('отмена: mini-confirm остановки — «Продолжить анализ» возвращает к прогрессу, «Остановить» отменяет; закрытие без подтверждения', async ({
     page,
   }, testInfo) => {
     await createProject(page, uniqueName('AiImp-Cancel'));
@@ -559,17 +593,17 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await page.reload();
     await expect(page.getByTestId('main-page')).toBeVisible();
 
-    // 3 doc files × 1.5 s per extraction call → a comfortable running window.
+    // 3 doc files × 2 s per extraction call → a comfortable running window.
     const zip = makeZip(testInfo, 'docs.zip', {
       'auth.md': DOCS['auth.md']!,
       'reports.md': DOCS['reports.md']!,
       'ops.md': DOCS['ops.md']!,
     });
-    stub.setExtractionDelay(1500);
+    stub.setExtractionDelay(2000);
     try {
       await openAiImport(page);
       await chooseFile(page, zip);
-      await startAnalysis(page);
+      const jobId = await startAnalysis(page);
 
       // Running view: stage + progress + stop button.
       const stop = page.getByTestId('ai-import-stop');
@@ -577,13 +611,41 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
       await expect(page.getByTestId('ai-import-stage')).toBeVisible();
       await attachShot(page, testInfo, 'running');
 
-      // Stop → the job cancels on the next chunk boundary.
+      // «Остановить» is NOT instant: a mini-confirm opens first.
       await stop.click();
+      const stopConfirm = page.getByTestId('ai-import-stop-confirm');
+      await expect(stopConfirm).toBeVisible();
+      await expect(stopConfirm).toContainText('Остановить анализ?');
+      await attachShot(page, testInfo, 'stop-mini-confirm');
+
+      // «Продолжить анализ» → back to the live progress, the job keeps running.
+      await page.getByTestId('ai-import-stop-confirm-cancel').click();
+      await expect(stopConfirm).toHaveCount(0);
+      await expect(page.getByTestId('ai-import-stop')).toBeVisible();
+      await expect(page.getByTestId('ai-import-stage')).toBeVisible();
+      const st = await page.request.get(`/api/ai-import/${encodeURIComponent(jobId)}`);
+      expect(((await st.json()) as { status?: string }).status).toBe('running');
+
+      // Second stop → confirm: the job cancels on the next chunk boundary.
+      await stop.click();
+      await expect(stopConfirm).toBeVisible();
+      await page.getByTestId('ai-import-stop-confirm-confirm').click();
       await expect(page.getByTestId('ai-import-cancelled')).toBeVisible(JOB_TIMEOUT);
       await expect(page.getByTestId('ai-import-log')).toContainText(
         'Автоматизация остановлена пользователем',
       );
-      await expect(page.getByTestId('ai-import-cancelled-close')).toBeVisible();
+
+      // T5: honest cancelled panel — stage + what was already created.
+      const cancelledSummary = page.getByTestId('ai-import-cancelled-summary');
+      await expect(cancelledSummary).toBeVisible();
+      await expect(cancelledSummary).toContainText('Анализ прерван на этапе');
+      await expect(cancelledSummary).toContainText('Успели создать:');
+      await expect(cancelledSummary).toContainText('они уже сохранены в проекте');
+
+      // Footer: «Готово» + «Повторить анализ»; the old cancelled-close is gone.
+      await expect(page.getByTestId('ai-import-done')).toBeVisible();
+      await expect(page.getByTestId('ai-import-retry')).toBeVisible();
+      await expect(page.getByTestId('ai-import-cancelled-close')).toHaveCount(0);
       await attachShot(page, testInfo, 'cancelled');
 
       // After cancellation the X closes silently — no ConfirmDialog.
@@ -743,7 +805,13 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
 
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
-    await expect(success).toContainText('Создано: 0 ФТ и 1 НФТ');
+    await expectAiImportSummary(page, {
+      functions: 0,
+      nfrs: 1,
+      treeLinks: 0,
+      relatesLinks: 0,
+      skipped: 0,
+    });
     await attachShot(page, testInfo, 'targz-success');
 
     await page.getByTestId('ai-import-done').click();
@@ -790,8 +858,13 @@ test.describe('Task 13 · AI-импорт: структура, поля, рет�
 
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
-      await expect(success).toContainText('Создано: 3 ФТ и 2 НФТ');
-      await expect(success).toContainText('связей: 3');
+      await expectAiImportSummary(page, {
+        functions: 3,
+        nfrs: 2,
+        treeLinks: 3,
+        relatesLinks: 0,
+        skipped: 0,
+      });
       await attachShot(page, testInfo, 'structure-success');
 
       // Контракт structure-вызова (Task 14): system «архитектор дерева
@@ -928,7 +1001,13 @@ test.describe('Task 13 · AI-импорт: структура, поля, рет�
 
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
-      await expect(success).toContainText('Создано: 0 ФТ и 1 НФТ');
+      await expectAiImportSummary(page, {
+        functions: 0,
+        nfrs: 1,
+        treeLinks: 0,
+        relatesLinks: 0,
+        skipped: 0,
+      });
 
       // Warn о неудачной попытке есть, «фрагмент пропущен» — нет.
       const log = page.getByTestId('ai-import-log');
@@ -1000,8 +1079,13 @@ test.describe('Task 13 · AI-импорт: структура, поля, рет�
       // Job succeeded несмотря на провал структуризации; связей нет.
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
-      await expect(success).toContainText('Создано: 2 ФТ и 1 НФТ');
-      await expect(success).toContainText('связей: 0');
+      await expectAiImportSummary(page, {
+        functions: 2,
+        nfrs: 1,
+        treeLinks: 0,
+        relatesLinks: 0,
+        skipped: 0,
+      });
 
       const log = page.getByTestId('ai-import-log');
       await expect(log).toContainText(
@@ -1051,8 +1135,13 @@ test.describe('Task 14 · AI-импорт: валидность дерева', (
 
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
-    await expect(success).toContainText('Создано: 2 ФТ и 1 НФТ');
-    await expect(success).toContainText('связей: 1');
+    await expectAiImportSummary(page, {
+      functions: 2,
+      nfrs: 1,
+      treeLinks: 1,
+      relatesLinks: 0,
+      skipped: 0,
+    });
 
     const log = page.getByTestId('ai-import-log');
     // B9: стартовый лог объёма — модель проекта, число файлов и фрагментов.
@@ -1087,8 +1176,13 @@ test.describe('Task 14 · AI-импорт: валидность дерева', (
       // Импорт успешен, счётчики без постороннего узла (2 ФТ, 1 связь).
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
-      await expect(success).toContainText('Создано: 2 ФТ и 0 НФТ');
-      await expect(success).toContainText('связей: 1');
+      await expectAiImportSummary(page, {
+        functions: 2,
+        nfrs: 0,
+        treeLinks: 1,
+        relatesLinks: 0,
+        skipped: 0,
+      });
 
       // Warn покрытия B5 — точная строка батча 1/1.
       const log = page.getByTestId('ai-import-log');
@@ -1182,8 +1276,14 @@ test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
 
-      // Счётчик в модалке — отдельный span внутри success-блока.
-      await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 1');
+      // Счётчик в сводке-таблице — числовая ячейка «Найдено связей НФТ с ФТ».
+      await expectAiImportSummary(page, {
+        functions: 1,
+        nfrs: 1,
+        treeLinks: 0,
+        relatesLinks: 1,
+        skipped: 0,
+      });
 
       // Инфо-строка лога — дословно по контракту Task 15.
       await expect(page.getByTestId('ai-import-log')).toContainText(
@@ -1233,8 +1333,13 @@ test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
       // Job УСПЕШЕН, несмотря на оба отклонения; связей НФТ→ФТ нет.
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
-      await expect(success).toContainText('Создано: 1 ФТ и 1 НФТ');
-      await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 0');
+      await expectAiImportSummary(page, {
+        functions: 1,
+        nfrs: 1,
+        treeLinks: 0,
+        relatesLinks: 0,
+        skipped: 0,
+      });
 
       const log = page.getByTestId('ai-import-log');
       await expect(log).toContainText(
@@ -1277,7 +1382,7 @@ test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
       await chooseFile(page, zip);
       await startAnalysis(page);
       await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
-      await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 1');
+      await expect(page.getByTestId('ai-import-relates-links')).toHaveText('1');
       await page.getByTestId('ai-import-done').click();
       await expect(page.getByTestId('ai-import')).toHaveCount(0);
 
@@ -1287,8 +1392,13 @@ test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
       await startAnalysis(page);
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
-      await expect(success).toContainText('Пропущено как существующие: 2');
-      await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 0');
+      await expectAiImportSummary(page, {
+        functions: 0,
+        nfrs: 0,
+        treeLinks: 0,
+        relatesLinks: 0,
+        skipped: 2,
+      });
 
       // Done-сводка re-run — дословно (полнотекстовый контракт Task 15).
       await expect(page.getByTestId('ai-import-log')).toContainText(
@@ -1338,8 +1448,13 @@ test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
 
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
-      await expect(success).toContainText('Создано: 0 ФТ и 1 НФТ');
-      await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 1');
+      await expectAiImportSummary(page, {
+        functions: 0,
+        nfrs: 1,
+        treeLinks: 0,
+        relatesLinks: 1,
+        skipped: 0,
+      });
       await expect(page.getByTestId('ai-import-log')).toContainText(
         `Связано: НФТ «${REL_NFR}» → ФТ «${upperFt}» (RELATES_TO).`,
       );
@@ -1480,7 +1595,13 @@ test.describe('todo_16 · AI-импорт: обновление списка м�
 
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
-    await expect(success).toContainText('Создано: 2 ФТ и 0 НФТ');
+    await expectAiImportSummary(page, {
+      functions: 2,
+      nfrs: 0,
+      treeLinks: 1,
+      relatesLinks: 0,
+      skipped: 0,
+    });
 
     // Блок статуса relate-шага не рендерится, AI-hub relate-вызовов не было.
     await expect(page.getByTestId('ai-import-relate-status')).toHaveCount(0);
@@ -1523,10 +1644,17 @@ test.describe('todo_16 · AI-импорт: обновление списка м�
         JOB_TIMEOUT,
       );
 
-      // Импорт завершён; итог шага — «создано связей: 1».
+      // Импорт завершён; итог шага — «создано связей: 1». Сводка-таблица:
+      // relate-шаг НЕ входит в «Найдено связей НФТ с ФТ» (отдельный счётчик).
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
-      await expect(success).toContainText('Создано: 2 ФТ и 1 НФТ');
+      await expectAiImportSummary(page, {
+        functions: 2,
+        nfrs: 1,
+        treeLinks: 1,
+        relatesLinks: 0,
+        skipped: 0,
+      });
       await expect(relateStatus).toHaveText('Проставление связей ФТ↔НФТ: создано связей: 1');
 
       // Лог: созданная связь + отброшенная выдуманная пара.
@@ -1583,7 +1711,13 @@ test.describe('todo_16 · AI-импорт: обновление списка м�
       // Импорт НЕ падает: success-блок + статус пропуска relate-шага.
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
-      await expect(success).toContainText('Создано: 2 ФТ и 1 НФТ');
+      await expectAiImportSummary(page, {
+        functions: 2,
+        nfrs: 1,
+        treeLinks: 1,
+        relatesLinks: 0,
+        skipped: 0,
+      });
       await expect(page.getByTestId('ai-import-relate-status')).toHaveText(
         'Проставление связей ФТ↔НФТ: шаг пропущен из-за ошибки AI',
       );

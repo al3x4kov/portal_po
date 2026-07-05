@@ -112,13 +112,22 @@ describe('AiImportModal (Task 11)', () => {
     return screen.getByTestId('ai-import-model-select');
   }
 
-  it('without a file: start disabled with tooltip, model defaults to the project model', async () => {
-    renderModal();
+  it('without a file: start disabled with the reason, model defaults to the project model', async () => {
+    const user = userEvent.setup();
+    const { onClose } = renderModal();
     await waitForProjectModel();
     const start = screen.getByTestId('ai-import-start');
     expect(start).toBeDisabled();
+    expect(start).toHaveTextContent('Начать анализ');
     expect(start).toHaveAttribute('title', 'Загрузите архив документации');
+    // §3 (pattern 1): the disabled reason is also plain text left of the button.
+    expect(screen.getByTestId('ai-import-footer-hint')).toHaveTextContent(
+      'Загрузите архив документации',
+    );
     expect(screen.getByTestId('ai-import-drop')).toBeInTheDocument();
+    // «Отмена» in the setup footer closes without confirmation.
+    await user.click(screen.getByTestId('ai-import-cancel'));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('without an API key: select disabled with hint, start disabled with «Настройте AI Hub»', async () => {
@@ -152,6 +161,9 @@ describe('AiImportModal (Task 11)', () => {
     expect(fileName).toHaveTextContent('Б'); // formatted size
     expect(screen.getByTestId('ai-import-replace')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('ai-import-start')).not.toBeDisabled());
+    expect(screen.getByTestId('ai-import-footer-hint')).toHaveTextContent(
+      'Файл выбран — можно начинать',
+    );
   });
 
   it('start sends the file and the model override to the API', async () => {
@@ -188,7 +200,7 @@ describe('AiImportModal (Task 11)', () => {
     );
   });
 
-  it('running: renders stage, progress % and the log; stop cancels the job', async () => {
+  it('running: renders stage, progress % and the log; stop goes through a mini-confirm', async () => {
     getJob.mockResolvedValue(RUNNING_JOB);
     cancelJob.mockResolvedValue(CANCELLED_JOB);
     const user = userEvent.setup();
@@ -203,12 +215,38 @@ describe('AiImportModal (Task 11)', () => {
     expect(log).toHaveTextContent('Архив распакован: 23 файла (.md)');
     expect(log).toHaveTextContent('warn api.md (3/3) — чанк пропущен');
 
+    // §2.18.1: «Остановить» is NOT instant — the mini-confirm opens first.
     await user.click(screen.getByTestId('ai-import-stop'));
+    expect(cancelJob).not.toHaveBeenCalled();
+    const confirm = await screen.findByTestId('ai-import-stop-confirm');
+    expect(confirm).toHaveTextContent('Остановить анализ?');
+    expect(confirm).toHaveTextContent('Созданное останется');
+
+    await user.click(screen.getByTestId('ai-import-stop-confirm-confirm'));
     expect(cancelJob).toHaveBeenCalledWith('job-1');
-    // The cancelled view keeps the log and offers a fresh start.
+    // The cancelled view keeps the log; retry is available right away.
     expect(await screen.findByTestId('ai-import-cancelled')).toHaveTextContent('Остановлено');
     expect(screen.getByTestId('ai-import-log')).toBeInTheDocument();
-    expect(screen.getByTestId('ai-import-start')).not.toBeDisabled();
+    expect(screen.getByTestId('ai-import-retry')).toHaveTextContent('Повторить анализ');
+    expect(screen.getByTestId('ai-import-done')).toHaveTextContent('Готово');
+  });
+
+  it('stop mini-confirm: «Продолжить анализ» keeps the job running', async () => {
+    getJob.mockResolvedValue(RUNNING_JOB);
+    const user = userEvent.setup();
+    renderModal();
+    await screen.findByTestId('ai-import-model-select');
+    await startJob(user);
+
+    await user.click(screen.getByTestId('ai-import-stop'));
+    await screen.findByTestId('ai-import-stop-confirm');
+    await user.click(screen.getByTestId('ai-import-stop-confirm-cancel'));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('ai-import-stop-confirm')).not.toBeInTheDocument(),
+    );
+    expect(cancelJob).not.toHaveBeenCalled();
+    expect(screen.getByTestId('ai-import-stop')).toBeInTheDocument();
   });
 
   it('running on the structure stage: shows the tree-building label (Task 13)', async () => {
@@ -265,10 +303,10 @@ describe('AiImportModal (Task 11)', () => {
     const confirm = await screen.findByTestId('ai-import-confirm');
     expect(confirm).toHaveTextContent('Прекратить автоматизацию?');
     expect(confirm).toHaveTextContent('Анализ документации ещё выполняется');
-    // Stop-the-job confirmation shows a stop icon, not the delete trash can.
+    // Stop-the-job confirmation shows a Lucide stop icon (no emoji, no trash can).
     const icon = screen.getByTestId('ai-import-confirm-icon');
-    expect(icon).toHaveTextContent('⏹');
-    expect(icon).not.toHaveTextContent('🗑');
+    expect(icon.querySelector('svg')).not.toBeNull();
+    expect(icon).toHaveTextContent('');
 
     await user.click(screen.getByTestId('ai-import-confirm-cancel')); // «Продолжить анализ»
     await waitFor(() => expect(screen.queryByTestId('ai-import-confirm')).not.toBeInTheDocument());
@@ -316,7 +354,7 @@ describe('AiImportModal (Task 11)', () => {
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 
-  it('succeeded: shows totals, invalidates requirements, «Закрыть и перейти к проекту» closes', async () => {
+  it('succeeded: summary table with totals, invalidates requirements, «Готово» closes', async () => {
     getJob.mockResolvedValue(SUCCEEDED_JOB);
     const user = userEvent.setup();
     const { onClose, queryClient } = renderModal();
@@ -325,19 +363,38 @@ describe('AiImportModal (Task 11)', () => {
     await startJob(user);
 
     const success = await screen.findByTestId('ai-import-success');
-    expect(success).toHaveTextContent('Подгрузка завершена');
-    expect(success).toHaveTextContent('18 ФТ');
-    expect(success).toHaveTextContent('6 НФТ');
-    expect(success).toHaveTextContent('связей: 9');
-    // Task 15: NFR→FT RELATES_TO counter next to the links counter.
-    expect(screen.getByTestId('ai-import-relates-links')).toHaveTextContent('связей НФТ→ФТ: 2');
-    expect(success).toHaveTextContent('Пропущено как существующие: 3');
+    expect(success).toHaveTextContent('Анализ завершён');
+    // §2.18.3: the summary is a table of rows with big numbers.
+    const summary = screen.getByTestId('ai-import-summary');
+    const rows = summary.querySelectorAll('tr');
+    expect(rows).toHaveLength(5);
+    expect(rows[0]).toHaveTextContent('Создано функциональных требований');
+    expect(rows[0]).toHaveTextContent('18');
+    expect(rows[1]).toHaveTextContent('Создано нефункциональных требований');
+    expect(rows[1]).toHaveTextContent('6');
+    expect(rows[2]).toHaveTextContent('Создано связей в дереве');
+    expect(rows[2]).toHaveTextContent('9');
+    expect(rows[3]).toHaveTextContent('Найдено связей НФТ с ФТ');
+    // Task 15: NFR→FT RELATES_TO counter keeps its own testid.
+    expect(screen.getByTestId('ai-import-relates-links')).toHaveTextContent('2');
+    expect(rows[4]).toHaveTextContent('Пропущено');
+    expect(rows[4]).toHaveTextContent('уже существовали в проекте');
+    expect(rows[4]).toHaveTextContent('3');
+    // Task 13 A1: «Источник» stays EMPTY on import — the hint must point to the
+    // analysis log, not to the business field.
+    expect(success).toHaveTextContent(
+      'Из какого файла взято каждое требование — указано в журнале анализа.',
+    );
+    expect(success).not.toHaveTextContent('поле «Источник»');
 
     await waitFor(() =>
       expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.requirements('proj-1') }),
     );
 
-    await user.click(screen.getByTestId('ai-import-done'));
+    // §2.18.2: the success button is a plain «Готово» — no promised navigation.
+    const done = screen.getByTestId('ai-import-done');
+    expect(done).toHaveTextContent('Готово');
+    await user.click(done);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -523,10 +580,8 @@ describe('AiImportModal (Task 11)', () => {
       await waitForProjectModel();
       await startJob(user);
 
-      // The import itself is successful — the green summary is still there.
-      expect(await screen.findByTestId('ai-import-success')).toHaveTextContent(
-        'Подгрузка завершена',
-      );
+      // The import itself is successful — the success summary is still there.
+      expect(await screen.findByTestId('ai-import-success')).toHaveTextContent('Анализ завершён');
       expect(screen.getByTestId('ai-import-relate-status')).toHaveTextContent(
         'Проставление связей ФТ↔НФТ: шаг пропущен из-за ошибки AI',
       );
@@ -616,8 +671,13 @@ describe('AiImportModal (Task 11)', () => {
       await startJob(user);
 
       const summary = await screen.findByTestId('ai-import-cancelled-summary');
-      expect(summary).toHaveTextContent('Остановлено. Успели создать: 2 ФТ и 0 НФТ');
-      expect(summary).toHaveTextContent('связей: 0');
+      expect(summary).toHaveTextContent('Остановлено');
+      expect(summary).toHaveTextContent('Анализ прерван на этапе «Извлечение требований»');
+      expect(summary).toHaveTextContent('Успели создать: 2 ФТ, 0 НФТ и 0 связей');
+      expect(summary).toHaveTextContent('они уже сохранены в проекте');
+      expect(summary).toHaveTextContent(
+        'Повторный анализ пропустит уже созданные требования — дубликаты не появятся.',
+      );
       // The «Остановлено» badge on the file card is still there.
       expect(screen.getByTestId('ai-import-cancelled')).toHaveTextContent('Остановлено');
     });

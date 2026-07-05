@@ -9,9 +9,10 @@ import { useChatStore } from '../store/chat';
 const getConfig = vi.fn();
 const listModels = vi.fn();
 const chat = vi.fn();
+const getProject = vi.fn();
 
 vi.mock('../api/endpoints', () => ({
-  projectsApi: {},
+  projectsApi: { get: (...a: unknown[]) => getProject(...a) },
   requirementsApi: {},
   linksApi: {},
   aiApi: {
@@ -28,6 +29,12 @@ const CONFIGURED = {
 };
 const NOT_CONFIGURED = { baseURL: '', hasApiKey: false };
 const MODELS = { models: ['GigaChat-2-Pro', 'GigaChat-2-Max'] };
+const PROJECT_STUB = {
+  id: 'proj-1',
+  name: 'DPM',
+  mainPath: '/Projects/DPM',
+  createdAt: '2026-01-01T00:00:00.000Z',
+};
 
 function renderWidget(route = '/p/proj-1'): void {
   renderWithProviders(<ChatWidget />, { route });
@@ -43,6 +50,7 @@ describe('ChatWidget (Task 9)', () => {
     getConfig.mockReset().mockResolvedValue(CONFIGURED);
     listModels.mockReset().mockResolvedValue(MODELS);
     chat.mockReset();
+    getProject.mockReset().mockResolvedValue(PROJECT_STUB);
     useChatStore.setState({
       isOpen: false,
       fabPos: null,
@@ -171,7 +179,7 @@ describe('ChatWidget (Task 9)', () => {
     expect(screen.getByTestId('chat-empty')).toBeInTheDocument();
   });
 
-  it('shows a readable server error and keeps the history', async () => {
+  it('shows a readable send error with a «Повторить» button and keeps the history', async () => {
     chat.mockRejectedValue(new Error('AI Hub недоступен (502)'));
     const user = userEvent.setup();
     renderWidget();
@@ -180,14 +188,54 @@ describe('ChatWidget (Task 9)', () => {
     await user.type(screen.getByTestId('chat-input'), 'вопрос в никуда');
     await user.click(screen.getByTestId('chat-send'));
 
-    expect(await screen.findByTestId('chat-error')).toHaveTextContent('AI Hub недоступен (502)');
+    const error = await screen.findByTestId('chat-error');
+    expect(error).toHaveTextContent('Не удалось отправить');
+    expect(error).toHaveTextContent('AI Hub недоступен (502)');
     expect(screen.getByTestId('chat-msg-user')).toHaveTextContent('вопрос в никуда');
+    expect(screen.getByTestId('chat-retry')).toBeInTheDocument();
   });
 
-  it('without an API key: select disabled with hint, send disabled, no models call', async () => {
+  // §2.17.3: «Повторить» re-sends the failed request in one action.
+  it('«Повторить» re-sends the last question without retyping it', async () => {
+    chat
+      .mockRejectedValueOnce(new Error('AI Hub недоступен (502)'))
+      .mockResolvedValue({ message: { role: 'assistant', content: 'Со второй попытки' } });
+    const user = userEvent.setup();
+    renderWidget('/p/proj-1');
+    await openWidget(user);
+
+    await user.type(screen.getByTestId('chat-input'), 'повтори меня');
+    await user.click(screen.getByTestId('chat-send'));
+    await screen.findByTestId('chat-error');
+
+    await user.click(screen.getByTestId('chat-retry'));
+
+    expect(await screen.findByTestId('chat-msg-assistant')).toHaveTextContent('Со второй попытки');
+    expect(screen.queryByTestId('chat-error')).not.toBeInTheDocument();
+    // Both calls carried the SAME history ending with the user question.
+    expect(chat).toHaveBeenCalledTimes(2);
+    expect(chat).toHaveBeenNthCalledWith(2, {
+      projectId: 'proj-1',
+      messages: [{ role: 'user', content: 'повтори меня' }],
+    });
+    // The question was not duplicated in the feed.
+    expect(screen.getAllByTestId('chat-msg-user')).toHaveLength(1);
+  });
+
+  // §2.17.2: the chat context (current project) is always visible in the header.
+  it('shows the current project name in the chat header', async () => {
+    const user = userEvent.setup();
+    renderWidget('/p/proj-1');
+    await openWidget(user);
+    await waitFor(() =>
+      expect(screen.getByTestId('chat-project')).toHaveTextContent('Проект: DPM'),
+    );
+  });
+
+  it('without an API key: empty state «Настройте AI Hub» with a CTA, composer disabled', async () => {
     getConfig.mockResolvedValue(NOT_CONFIGURED);
     const user = userEvent.setup();
-    renderWidget();
+    renderWidget('/p/proj-1');
     await openWidget(user);
 
     const select = await screen.findByTestId('chat-model-select');
@@ -197,14 +245,21 @@ describe('ChatWidget (Task 9)', () => {
       'title',
       expect.stringContaining('Задайте API-ключ'),
     );
-    expect(screen.getByTestId('chat-empty')).toHaveTextContent(
-      'Для отправки сообщений настройте AI Hub',
+    // Empty state: icon + title + offer + CTA to the AI settings screen.
+    const empty = screen.getByTestId('chat-empty');
+    expect(empty).toHaveTextContent('Настройте AI Hub');
+    expect(empty).toHaveTextContent(
+      'Чтобы общаться с моделью о проекте, укажите ключ AI Hub и выберите модель.',
     );
+    expect(screen.getByTestId('chat-open-ai-settings')).toHaveTextContent('Открыть настройки AI');
 
-    await user.type(screen.getByTestId('chat-input'), 'текст есть, ключа нет');
+    // Composer is disabled with the reason in title (§3, pattern 1).
+    const input = screen.getByTestId('chat-input');
+    expect(input).toBeDisabled();
+    expect(input).toHaveAttribute('title', 'Настройте AI Hub, чтобы отправлять сообщения');
     const send = screen.getByTestId('chat-send');
     expect(send).toBeDisabled();
-    expect(send).toHaveAttribute('title', 'Настройте AI Hub');
+    expect(send).toHaveAttribute('title', 'Настройте AI Hub, чтобы отправлять сообщения');
     expect(listModels).not.toHaveBeenCalled();
   });
 

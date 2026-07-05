@@ -94,13 +94,14 @@ test.describe('Task 9 · плавающий AI-чат', () => {
 
   /* ── 2. Без ключа: серый селект + тултип + disabled send ──────────────── */
 
-  test('без API-ключа: селект модели disabled с тултипом, отправка disabled', async ({
+  test('без API-ключа: селект disabled, отправка disabled; empty-state с CTA «Открыть настройки AI»', async ({
     page,
   }, testInfo) => {
     // Clear the stored key BEFORE the app loads (ai-hub.spec.ts stored one).
     await resetAiConfig(page);
 
-    await page.goto('/');
+    // On a project screen — the empty-state CTA needs a project id (T5).
+    await createProject(page, uniqueName('Chat-NoKey'));
     await openWidget(page);
 
     // Model select is disabled and wrapped in the hint with a title tooltip.
@@ -109,13 +110,18 @@ test.describe('Task 9 · плавающий AI-чат', () => {
     await expect(hint).toBeVisible();
     await expect(hint).toHaveAttribute('title', /API-ключ/);
 
-    // Composer: send stays disabled even with text typed.
-    await page.getByTestId('chat-input').fill('Привет!');
+    // Composer: the input itself is disabled without a key (T5 empty state).
+    await expect(page.getByTestId('chat-input')).toBeDisabled();
     await expect(page.getByTestId('chat-send')).toBeDisabled();
 
-    // Empty state explains how to enable the feature.
-    await expect(page.getByTestId('chat-empty')).toContainText('настройте AI Hub');
+    // Empty state explains how to enable the feature and offers the CTA.
+    await expect(page.getByTestId('chat-empty')).toContainText('Настройте AI Hub');
     await attachShot(page, testInfo, 'widget-no-key');
+
+    // CTA leads straight to the AI settings screen of the current project.
+    await page.getByTestId('chat-open-ai-settings').click();
+    await expect(page.getByTestId('ai-page')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Подключение AI' })).toBeVisible();
   });
 
   /* ── 3. Drag FAB: перемещение не открывает виджет ─────────────────────── */
@@ -176,7 +182,8 @@ test.describe('Task 9 · плавающий AI-чат', () => {
   test('с ключом: отправка и ответ ассистента; X сохраняет переписку; новый чат очищает', async ({
     page,
   }, testInfo) => {
-    await createProject(page, uniqueName('Chat-Talk'));
+    const projectName = uniqueName('Chat-Talk');
+    await createProject(page, projectName);
     const id = projectIdFromUrl(page);
     await configureAi(page, id, 'GigaChat-2-Pro');
 
@@ -186,6 +193,9 @@ test.describe('Task 9 · плавающий AI-чат', () => {
     await expect(select).toBeEnabled();
     await expect(select).toHaveValue('GigaChat-2-Pro');
     await expect(page.getByTestId('chat-model-hint')).toHaveCount(0);
+
+    // §2.17.2 (T5): the chat context — current project — is in the header.
+    await expect(page.getByTestId('chat-project')).toHaveText(`Проект: ${projectName}`);
 
     // First exchange: user bubble, then assistant bubble with the stub reply.
     await sendMessage(page, 'Привет! Что такое критичность требования?');
@@ -310,14 +320,60 @@ test.describe('Task 9 · плавающий AI-чат', () => {
       await sendMessage(page, 'Второй вопрос.');
       const error = page.getByTestId('chat-error');
       await expect(error).toBeVisible();
-      // Readable and sanitized: non-empty text, the API key never leaks.
-      await expect(error).not.toHaveText('');
+      // Readable and sanitized: mandated prefix, the API key never leaks.
+      await expect(error).toContainText('Не удалось отправить:');
       await expect(error).not.toContainText('sk-e2e-chat-key');
 
       // History intact: both user bubbles and the first assistant reply.
       await expect(page.getByTestId('chat-msg-user')).toHaveCount(2);
       await expect(page.getByTestId('chat-msg-assistant')).toHaveCount(1);
       await attachShot(page, testInfo, 'widget-upstream-error');
+    } finally {
+      stub.setChatMode('ok');
+    }
+  });
+
+  /* ── 8. T5 (todo_17): «Повторить» после ошибки — без дублирования вопроса ── */
+
+  test('«Повторить» после ошибки: переотправка той же истории, вопрос не дублируется', async ({
+    page,
+  }, testInfo) => {
+    await createProject(page, uniqueName('Chat-Retry'));
+    const id = projectIdFromUrl(page);
+    await configureAi(page, id, 'GigaChat-2-Pro');
+    await openWidget(page);
+
+    const question = 'Вопрос, который сначала упадёт.';
+    stub.setChatMode('error');
+    try {
+      await sendMessage(page, question);
+
+      // Failed send: the question STAYS in the feed, error + retry offered.
+      const error = page.getByTestId('chat-error');
+      await expect(error).toBeVisible();
+      await expect(error).toContainText('Не удалось отправить:');
+      await expect(page.getByTestId('chat-msg-user')).toHaveCount(1);
+      await expect(page.getByTestId('chat-msg-assistant')).toHaveCount(0);
+      const retry = page.getByTestId('chat-retry');
+      await expect(retry).toBeVisible();
+      await attachShot(page, testInfo, 'widget-retry-offered');
+
+      // Upstream recovers → one click re-sends the SAME history.
+      stub.setChatMode('ok');
+      const callsBefore = stub.chatRequests.length;
+      await retry.click();
+      await expect(page.getByTestId('chat-msg-assistant')).toContainText(STUB_REPLY);
+
+      // No duplicated question in the feed, the error is gone.
+      await expect(page.getByTestId('chat-msg-user')).toHaveCount(1);
+      await expect(page.getByTestId('chat-error')).toHaveCount(0);
+      await attachShot(page, testInfo, 'widget-retry-succeeded');
+
+      // Upstream saw exactly ONE more call carrying the same single question.
+      expect(stub.chatRequests.length).toBe(callsBefore + 1);
+      const users = (stub.lastChatRequest()?.messages ?? []).filter((m) => m.role === 'user');
+      expect(users).toHaveLength(1);
+      expect(users[0]?.content).toBe(question);
     } finally {
       stub.setChatMode('ok');
     }

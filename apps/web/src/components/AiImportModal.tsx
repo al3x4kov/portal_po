@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, CircleStop, RefreshCw, TriangleAlert } from 'lucide-react';
 import type { AiImportJobView, AiImportRelateView, AiImportStage } from '@po/core';
 import { AI_IMPORT_MAX_ARCHIVE_BYTES } from '@po/core';
 import {
@@ -10,9 +11,11 @@ import {
 } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import { Modal } from './Modal';
+import { BusyButton } from './BusyButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ModelListNotice, ModelRefreshButton } from './ModelRefresh';
 import { AI_IMPORT_LOG_BG, AI_IMPORT_LOG_LEVEL_COLOR, AI_IMPORT_LOG_TEXT } from '../lib/logColors';
+import { plural } from '../lib/plural';
 
 /**
  * Task 11: «AI подгрузка ФТ и НФТ из документации» — upload a zip/tar.gz
@@ -34,10 +37,9 @@ export const AI_IMPORT_STAGE_LABELS: Record<AiImportStage, string> = {
 
 const MODEL_HINT = 'Задайте API-ключ на экране AI (меню проекта → AI), затем выберите модель.';
 
-/** B2 (todo_16): opt-in checkbox label for the AI relate step. */
-const INFER_LINKS_LABEL =
-  'Дополнительно проставить связи между ФТ и НФТ (возможны галлюцинации) — ' +
-  'без добавления новых ФТ/НФТ';
+/** §2.18.4: human wording of the opt-in AI relate step (no internal terms). */
+const INFER_LINKS_LABEL = 'Найти смысловые связи НФТ с ФТ (AI)';
+const INFER_LINKS_HINT = 'Возможны неточные связи; новые требования не добавляются';
 
 /** Name of the optional relate step shown in the progress/result view. */
 const RELATE_STEP_LABEL = 'Проставление связей ФТ↔НФТ';
@@ -99,6 +101,8 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   // B2: optional AI relate step (ФТ↔НФТ links), off by default.
   const [inferLinks, setInferLinks] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // §2.18.1: «Остановить» is guarded by its own mini-confirm (not instant).
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -184,7 +188,8 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
 
   /** X / overlay / Escape: confirm while running, close silently otherwise. */
   const requestClose = (): void => {
-    if (confirmOpen) return; // Escape is already being handled by the ConfirmDialog.
+    // Escape is already being handled by an open ConfirmDialog.
+    if (confirmOpen || stopConfirmOpen) return;
     if (running) setConfirmOpen(true);
     else onClose();
   };
@@ -201,41 +206,69 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
     : !modelReady
       ? 'Настройте AI Hub'
       : undefined;
+  /* §3 (pattern 1): the disabled reason is also readable text left of the button. */
+  const setupHint = !file
+    ? 'Загрузите архив документации'
+    : !modelReady
+      ? 'Настройте AI Hub'
+      : 'Файл выбран — можно начинать';
 
   const startButton = (
-    <button
-      type="button"
+    <BusyButton
       className="btn btn-primary text-sm"
+      busy={startMut.isPending}
+      busyLabel="Запускаем…"
       data-testid="ai-import-start"
       disabled={startDisabled}
       title={startTitle}
       onClick={doStart}
     >
-      {startMut.isPending ? 'Запуск…' : 'Запустить анализ'}
-    </button>
+      Начать анализ
+    </BusyButton>
   );
 
   const footer =
     phase === 'setup' ? (
-      startButton
+      <>
+        <p className="hint mr-auto self-center" data-testid="ai-import-footer-hint">
+          {setupHint}
+        </p>
+        <button
+          type="button"
+          className="btn btn-secondary text-sm"
+          data-testid="ai-import-cancel"
+          onClick={onClose}
+        >
+          Отмена
+        </button>
+        {startButton}
+      </>
     ) : phase === 'running' ? (
-      <button
-        type="button"
-        className="btn btn-danger text-sm"
-        data-testid="ai-import-stop"
-        disabled={cancelMut.isPending || !jobId}
-        onClick={stopJob}
-      >
-        Остановить
-      </button>
+      <>
+        <p className="hint mr-auto self-center">
+          Уже созданные требования сохраняются на диск сразу
+        </p>
+        <button
+          type="button"
+          className="btn btn-secondary text-sm"
+          style={{ color: 'var(--color-danger-fg)' }}
+          data-testid="ai-import-stop"
+          disabled={cancelMut.isPending || !jobId}
+          onClick={() => setStopConfirmOpen(true)}
+        >
+          <CircleStop className="icon-sm" aria-hidden="true" />
+          Остановить
+        </button>
+      </>
     ) : phase === 'succeeded' ? (
+      /* §2.18.2: plain «Готово» — no promised navigation. */
       <button
         type="button"
         className="btn btn-primary text-sm"
         data-testid="ai-import-done"
         onClick={onClose}
       >
-        Закрыть и перейти к проекту
+        Готово
       </button>
     ) : phase === 'failed' ? (
       <>
@@ -257,17 +290,25 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
         </button>
       </>
     ) : (
-      /* cancelled: keep the log, allow a fresh run of the same archive. */
+      /* cancelled: honest panel + a retry that is available right away. */
       <>
         <button
           type="button"
           className="btn btn-secondary text-sm"
-          data-testid="ai-import-cancelled-close"
+          data-testid="ai-import-retry"
+          onClick={retry}
+        >
+          <RefreshCw size={16} aria-hidden="true" />
+          Повторить анализ
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary text-sm"
+          data-testid="ai-import-done"
           onClick={onClose}
         >
-          Закрыть
+          Готово
         </button>
-        {startButton}
       </>
     );
 
@@ -328,7 +369,7 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
 
   return (
     <Modal
-      title="AI подгрузка ФТ и НФТ из документации"
+      title="AI-импорт документации"
       testid="ai-import"
       widthClass="max-w-[640px]"
       onClose={requestClose}
@@ -365,7 +406,7 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                 pickFile(e.dataTransfer.files?.[0]);
               }}
             >
-              Перетащите архив документации сюда или{' '}
+              Перетащите архив с документацией сюда или{' '}
               <button
                 type="button"
                 className="font-semibold"
@@ -376,7 +417,7 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                 выберите файл
               </button>
               <br />
-              <span className="text-xs">zip или tar.gz, до 50 МБ (.md/.txt внутри)</span>
+              <span className="text-xs">.zip или .tar.gz, до 50 МБ (.md/.txt внутри)</span>
             </div>
           )}
 
@@ -434,16 +475,19 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
           {/* A3: inline notice — selection reset after refresh / refresh failure. */}
           <ModelListNotice testid="ai-models-notice-import" notice={modelsRefresh.notice} />
 
-          {/* B2: opt-in AI relate step (RELATES_TO between existing ФТ/НФТ only). */}
-          <label className="flex cursor-pointer items-start gap-2 text-sm">
+          {/* B2 + §2.18.4: opt-in AI relate step, human wording + honest hint. */}
+          <label className="flex cursor-pointer items-start gap-2.5 text-sm">
             <input
               type="checkbox"
-              className="mt-0.5 shrink-0 accent-[var(--color-primary)]"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-primary)]"
               data-testid="ai-import-infer-links"
               checked={inferLinks}
               onChange={(e) => setInferLinks(e.target.checked)}
             />
-            <span>{INFER_LINKS_LABEL}</span>
+            <span>
+              {INFER_LINKS_LABEL}
+              <span className="hint mt-0.5 block">{INFER_LINKS_HINT}</span>
+            </span>
           </label>
 
           {startError ? (
@@ -462,39 +506,100 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
           {fileCard}
 
           {phase === 'succeeded' ? (
-            <div
-              className="rounded-lg border px-4 py-3"
-              style={{
-                borderColor: 'var(--color-success)',
-                background: 'var(--color-success-bg)',
-              }}
-              data-testid="ai-import-success"
-            >
-              <div
-                className="mb-1 flex items-center gap-2 text-sm font-bold"
-                style={{ color: 'var(--color-success-fg)' }}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
+            /* §2.18.3: summary as a TABLE with big numbers, not a one-line list. */
+            <div data-testid="ai-import-success">
+              <div className="mb-4 flex items-center gap-3">
+                <span
+                  className="grid h-10 w-10 flex-none place-items-center rounded-full"
+                  style={{
+                    background: 'var(--color-success-bg)',
+                    color: 'var(--color-success-fg)',
+                  }}
                   aria-hidden="true"
                 >
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
-                Подгрузка завершена
-              </div>
-              <p className="text-sm">
-                Создано: <b>{result?.createdFunctions ?? 0} ФТ</b> и{' '}
-                <b>{result?.createdNfrs ?? 0} НФТ</b>, связей: <b>{result?.links ?? 0}</b>,{' '}
-                <span data-testid="ai-import-relates-links">
-                  связей НФТ→ФТ: <b>{result?.relatesLinks ?? 0}</b>
+                  <Check className="icon" strokeWidth={2.5} />
                 </span>
-                . Пропущено как существующие: {result?.skippedExisting ?? 0}. Источник каждого
-                требования указан в поле «Источник».
+                <div>
+                  <h4 className="font-semibold">Анализ завершён</h4>
+                  {file ? <p className="hint">{file.name}</p> : null}
+                </div>
+              </div>
+              <table
+                className="w-full overflow-hidden rounded-lg border text-sm"
+                style={{ borderColor: 'var(--color-border)' }}
+                data-testid="ai-import-summary"
+              >
+                <caption className="sr-only">Итоги анализа документации</caption>
+                <tbody>
+                  <tr className="border-b" style={{ borderColor: 'var(--color-border)' }}>
+                    <th scope="row" className="px-4 py-3 text-left font-medium">
+                      Создано функциональных требований
+                    </th>
+                    <td
+                      className="px-4 py-3 text-right text-2xl font-bold tabular-nums"
+                      style={{ color: 'var(--color-primary)' }}
+                    >
+                      {result?.createdFunctions ?? 0}
+                    </td>
+                  </tr>
+                  <tr
+                    className="border-b"
+                    style={{
+                      borderColor: 'var(--color-border)',
+                      background: 'var(--color-surface-2)',
+                    }}
+                  >
+                    <th scope="row" className="px-4 py-3 text-left font-medium">
+                      Создано нефункциональных требований
+                    </th>
+                    <td className="px-4 py-3 text-right text-2xl font-bold tabular-nums">
+                      {result?.createdNfrs ?? 0}
+                    </td>
+                  </tr>
+                  <tr className="border-b" style={{ borderColor: 'var(--color-border)' }}>
+                    <th scope="row" className="px-4 py-3 text-left font-medium">
+                      Создано связей в дереве
+                    </th>
+                    <td className="px-4 py-3 text-right text-2xl font-bold tabular-nums">
+                      {result?.links ?? 0}
+                    </td>
+                  </tr>
+                  <tr
+                    className="border-b"
+                    style={{
+                      borderColor: 'var(--color-border)',
+                      background: 'var(--color-surface-2)',
+                    }}
+                  >
+                    <th scope="row" className="px-4 py-3 text-left font-medium">
+                      Найдено связей НФТ с ФТ
+                    </th>
+                    <td
+                      className="px-4 py-3 text-right text-2xl font-bold tabular-nums"
+                      style={{ color: 'var(--color-success-fg)' }}
+                      data-testid="ai-import-relates-links"
+                    >
+                      {result?.relatesLinks ?? 0}
+                    </td>
+                  </tr>
+                  <tr>
+                    <th scope="row" className="px-4 py-3 text-left font-medium">
+                      Пропущено
+                      <span className="hint block font-normal">уже существовали в проекте</span>
+                    </th>
+                    <td
+                      className="px-4 py-3 text-right text-2xl font-bold tabular-nums"
+                      style={{ color: 'var(--color-text-3)' }}
+                    >
+                      {result?.skippedExisting ?? 0}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              {/* Task 13 A1: «Источник» — бизнес-поле и при импорте остаётся пустым;
+                  провенанс (файл/раздел) виден только в журнале анализа. */}
+              <p className="hint mt-3">
+                Из какого файла взято каждое требование — указано в журнале анализа.
               </p>
             </div>
           ) : null}
@@ -531,20 +636,33 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
             </div>
           ) : null}
 
-          {/* Ф7: partial-result summary after a manual stop (mirrors the success panel). */}
+          {/* Ф7: honest panel after a manual stop — what was created stays on disk. */}
           {phase === 'cancelled' && result ? (
-            <div
-              className="rounded-lg border px-4 py-3"
-              style={{
-                borderColor: 'var(--color-warning-fg)',
-                background: 'var(--color-warning-bg)',
-              }}
-              data-testid="ai-import-cancelled-summary"
-            >
-              <p className="text-sm" style={{ color: 'var(--color-warning-fg)' }}>
-                Остановлено. Успели создать: <b>{result.createdFunctions} ФТ</b> и{' '}
-                <b>{result.createdNfrs} НФТ</b>, связей: <b>{result.links}</b>, связей НФТ→ФТ:{' '}
-                <b>{result.relatesLinks}</b>. Пропущено как существующие: {result.skippedExisting}.
+            <div data-testid="ai-import-cancelled-summary">
+              <div
+                className="flex items-start gap-3 rounded-lg p-4"
+                style={{ background: 'var(--color-warning-bg)' }}
+              >
+                <CircleStop
+                  className="icon mt-0.5 flex-none"
+                  style={{ color: 'var(--color-warning-fg)' }}
+                  aria-hidden="true"
+                />
+                <div style={{ color: 'var(--color-warning-fg)' }}>
+                  <h4 className="text-sm font-semibold">Остановлено</h4>
+                  <p className="mt-1 text-sm">
+                    Анализ прерван на этапе «{currentStepLabel}». Успели создать:{' '}
+                    <b>{result.createdFunctions} ФТ</b>, <b>{result.createdNfrs} НФТ</b> и{' '}
+                    <b>
+                      {result.links + result.relatesLinks}{' '}
+                      {plural(result.links + result.relatesLinks, 'связь', 'связи', 'связей')}
+                    </b>{' '}
+                    — они уже сохранены в проекте.
+                  </p>
+                </div>
+              </div>
+              <p className="hint mt-3">
+                Повторный анализ пропустит уже созданные требования — дубликаты не появятся.
               </p>
             </div>
           ) : null}
@@ -554,7 +672,16 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               className="mb-1 flex items-center justify-between text-xs"
               style={{ color: 'var(--color-text-3)' }}
             >
-              <span data-testid="ai-import-stage">Этап: {currentStepLabel}</span>
+              <span className="flex items-center gap-2" data-testid="ai-import-stage">
+                {phase === 'running' ? (
+                  <span
+                    className="spinner"
+                    style={{ color: 'var(--color-primary)' }}
+                    aria-hidden="true"
+                  />
+                ) : null}
+                Этап: {currentStepLabel}
+              </span>
               <b data-testid="ai-import-progress-pct">{Math.round(progress)}%</b>
             </div>
             <div
@@ -591,40 +718,81 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
 
           {/* Ф8: warn/error counter for the log; hidden when there is nothing to flag. */}
           {warnCount > 0 ? (
-            <div
-              className="text-xs font-semibold"
-              style={{ color: 'var(--color-warning-fg)' }}
-              data-testid="ai-import-warn-count"
-            >
-              Предупреждений: {warnCount}
+            <div>
+              <span
+                className="badge"
+                style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning-fg)' }}
+                data-testid="ai-import-warn-count"
+              >
+                <TriangleAlert size={14} aria-hidden="true" />
+                Предупреждений: {warnCount}
+              </span>
             </div>
           ) : null}
 
+          {/* Live log with a header (ai-import-modal mockup, state Б). */}
           <div
-            ref={logRef}
-            className="overflow-y-auto rounded-lg p-2.5 font-mono text-xs leading-relaxed"
-            style={{ background: AI_IMPORT_LOG_BG, color: AI_IMPORT_LOG_TEXT, height: 170 }}
-            data-testid="ai-import-log"
-            aria-label="Лог автоматизации"
+            className="overflow-hidden rounded-lg border"
+            style={{ borderColor: 'var(--color-border)' }}
           >
-            {(job?.log ?? []).map((entry, i) => (
-              <div key={i}>
-                <span style={{ color: AI_IMPORT_LOG_LEVEL_COLOR[entry.level] }}>
-                  {formatTs(entry.ts)}
-                  {entry.level !== 'info' ? ` ${entry.level}` : ''}
-                </span>{' '}
-                {entry.message}
-              </div>
-            ))}
+            <div
+              className="flex items-center justify-between border-b px-3 py-2"
+              style={{
+                borderColor: 'var(--color-border)',
+                background: 'var(--color-surface-2)',
+              }}
+            >
+              <p className="text-xs font-semibold" style={{ color: 'var(--color-text-2)' }}>
+                Журнал анализа
+              </p>
+              {phase === 'running' ? <p className="hint">обновляется автоматически</p> : null}
+            </div>
+            <div
+              ref={logRef}
+              className="overflow-y-auto p-2.5 font-mono text-xs leading-relaxed"
+              style={{ background: AI_IMPORT_LOG_BG, color: AI_IMPORT_LOG_TEXT, height: 170 }}
+              data-testid="ai-import-log"
+              aria-label="Журнал анализа документации"
+            >
+              {(job?.log ?? []).map((entry, i) => (
+                <div key={i}>
+                  <span style={{ color: AI_IMPORT_LOG_LEVEL_COLOR[entry.level] }}>
+                    {formatTs(entry.ts)}
+                    {entry.level !== 'info' ? ` ${entry.level}` : ''}
+                  </span>{' '}
+                  {entry.message}
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}
+
+      {/* §2.18.1: «Остановить» is not instant — mini-confirm, symmetric to closing. */}
+      {stopConfirmOpen ? (
+        <ConfirmDialog
+          testid="ai-import-stop-confirm"
+          danger
+          icon={<CircleStop className="icon-sm" aria-hidden="true" />}
+          title="Остановить анализ?"
+          message="Созданное останется: уже сохранённые требования и связи не будут удалены."
+          confirmLabel="Остановить"
+          busyLabel="Останавливаем…"
+          cancelLabel="Продолжить анализ"
+          busy={cancelMut.isPending}
+          onCancel={() => setStopConfirmOpen(false)}
+          onConfirm={() => {
+            stopJob();
+            setStopConfirmOpen(false);
+          }}
+        />
+      ) : null}
 
       {confirmOpen ? (
         <ConfirmDialog
           testid="ai-import-confirm"
           danger
-          icon="⏹"
+          icon={<CircleStop className="icon-sm" aria-hidden="true" />}
           title="Прекратить автоматизацию?"
           message={CONFIRM_MESSAGE}
           confirmLabel="Остановить и закрыть"

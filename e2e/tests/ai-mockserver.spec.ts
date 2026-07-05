@@ -1,6 +1,7 @@
 import AdmZip from 'adm-zip';
 import { expect, request as pwRequest, test, type Page, type TestInfo } from '@playwright/test';
 import { createProject, projectIdFromUrl, rowByName, uniqueName } from './helpers/app.js';
+import { expectAiImportSummary } from './helpers/ai-import.js';
 import {
   addExpectation,
   bodyAsString,
@@ -145,7 +146,7 @@ function note(testInfo: TestInfo, type: string, description: string): void {
 test.describe('AI против реального MockServer', () => {
   /* a) Экран AI: модели из MockServer + Bearer-ключ доходит до апстрима. */
 
-  test('экран AI: «Сохранить и загрузить модели» → 3 модели MockServer; апстрим получил ровно Bearer mock-key', async ({
+  test('экран AI: «Обновить список» сохраняет ключ и грузит 3 модели MockServer; апстрим получил ровно Bearer mock-key', async ({
     page,
   }, testInfo) => {
     await createProject(page, uniqueName('MS-Models'));
@@ -155,16 +156,23 @@ test.describe('AI против реального MockServer', () => {
     await expect(page.getByTestId('ai-page')).toBeVisible();
     await page.getByTestId('ai-baseurl-input').fill(MOCKSERVER_OPENAI_BASE);
     await page.getByTestId('ai-key-input').fill(MOCK_KEY);
-    await page.getByTestId('ai-load-models').click();
+    // T5 (todo_17): «Обновить список» с непустым ключом сохраняет конфиг,
+    // затем грузит модели (бывший flow «Сохранить и загрузить модели»).
+    await page.getByTestId('ai-models-refresh').click();
 
-    // Успех + селект ровно с тремя моделями MockServer.
-    await expect(page.getByTestId('ai-status').locator('[data-state="success"]')).toBeVisible();
+    // Успех под кнопкой «Сохранить» + селект ровно с тремя моделями MockServer.
+    const status = page.getByTestId('ai-status');
+    await expect(status.locator('[data-state="success"]')).toBeVisible();
+    await expect(status).toContainText('Подключение успешно');
     const select = page.getByTestId('ai-model-select');
     await expect(select).toBeVisible();
-    // Плейсхолдер + ровно 3 модели MockServer (отсортированы сервером).
-    await expect(select.locator('option')).toHaveText(['— выберите модель —', ...MOCK_MODELS]);
+    // Ровно 3 модели MockServer (отсортированы сервером); первая авто-выбрана,
+    // поэтому плейсхолдера «— выберите модель —» нет.
+    await expect(select.locator('option')).toHaveText(MOCK_MODELS);
+    await expect(select).toHaveValue(MOCK_MODELS[0]!);
     await select.selectOption(MOCK_MODEL);
     await page.getByTestId('ai-save').click();
+    await expect(status.locator('[data-state="success"]')).toContainText('Настройки сохранены');
     await expect(page.getByTestId('ai-key-saved')).toBeVisible();
     await attachShot(page, testInfo, 'ms-models-loaded');
 
@@ -334,16 +342,22 @@ test.describe('AI против реального MockServer', () => {
     // warn-строкой в логе работы (бэкенд-фикс).
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible({ timeout: 30_000 });
-    await expect(success).toContainText('Создано: 1 ФТ и 1 НФТ');
-    await expect(success).toContainText('Пропущено как существующие: 0');
+    // T5 (todo_17): итоги — сводка-таблица (5 строк) вместо однострочного текста.
+    await expectAiImportSummary(page, {
+      functions: 1,
+      nfrs: 1,
+      treeLinks: 0,
+      relatesLinks: 1,
+      skipped: 0,
+    });
     // Бэкенд-фикс minor-дефекта: in-run дубли теперь явно видны warn-строкой
     // в логе работы (счётчики контракта не менялись — skipped остаётся 0).
     const log = page.getByTestId('ai-import-log');
     await expect(log).toContainText('Дубликатов в извлечении пропущено: 2');
     // Task 13 B2: стадия структуризации прошла через настоящий MockServer.
     await expect(log).toContainText('Построение древовидной структуры ФТ/НФТ через AI hub…');
-    // Task 15: связь НФТ→ФТ из relatedFunctions — счётчик модалки и инфо-лог.
-    await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 1');
+    // Task 15: связь НФТ→ФТ из relatedFunctions — инфо-лог (счётчик уже
+    // проверен в сводке-таблице выше).
     await expect(log).toContainText(
       `Связано: НФТ «${IMP_NFR}» → ФТ «${IMP_FUNCTION}» (RELATES_TO).`,
     );
@@ -454,6 +468,17 @@ test.describe('AI против реального MockServer', () => {
       await expect(page.getByTestId('chat-msg-user')).toHaveCount(2);
       await expect(page.getByTestId('chat-msg-assistant')).toHaveCount(1);
       await attachShot(page, testInfo, 'ms-fault-500');
+
+      // T5 (todo_17): «Повторить» после устранения аварии (снимаем
+      // fault-expectation) переотправляет ту же историю БЕЗ дублирования
+      // вопроса — конец-в-конец через настоящий MockServer.
+      await expect(error).toContainText('Не удалось отправить:');
+      await clearExpectation('e2e-fault-500');
+      await page.getByTestId('chat-retry').click();
+      await expect(page.getByTestId('chat-msg-assistant')).toHaveCount(2, { timeout: 20_000 });
+      await expect(page.getByTestId('chat-msg-user')).toHaveCount(2); // не продублирован
+      await expect(page.getByTestId('chat-error')).toHaveCount(0);
+      await attachShot(page, testInfo, 'ms-fault-500-retried');
     } finally {
       await clearExpectation('e2e-fault-500');
     }

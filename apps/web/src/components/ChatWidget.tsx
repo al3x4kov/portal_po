@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { matchPath, useLocation } from 'react-router-dom';
+import { matchPath, useLocation, useNavigate } from 'react-router-dom';
+import { FolderOpen, RefreshCw, Sparkles, TriangleAlert } from 'lucide-react';
 import { AI_CHAT_HISTORY_LIMIT, type AiChatMessage, type AiChatRequest } from '@po/core';
-import { useAiChat, useAiConfig, useAiModelsRefresh } from '../api/hooks';
+import { useAiChat, useAiConfig, useAiModelsRefresh, useProject } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import { ModelListNotice, ModelRefreshButton } from './ModelRefresh';
 import { useChatStore, type ChatPosition } from '../store/chat';
@@ -315,6 +316,7 @@ const ICON_BTN_CLASS =
   'flex h-7 w-7 flex-none items-center justify-center rounded-md transition-colors hover:bg-[var(--color-surface-2)]';
 
 function ChatPanel({ projectId }: { projectId: string | undefined }): React.ReactElement {
+  const navigate = useNavigate();
   const widgetPos = useChatStore((s) => s.widgetPos);
   const setWidgetPos = useChatStore((s) => s.setWidgetPos);
   const modelOverride = useChatStore((s) => s.modelOverride);
@@ -332,6 +334,9 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
   const configQuery = useAiConfig(projectId);
   const config = configQuery.data;
   const configured = Boolean(config?.hasApiKey);
+  // §2.17.2: the project the chat talks about is always visible in the header.
+  const projectQuery = useProject(projectId);
+  const projectName = projectQuery.data?.name ?? projectId;
 
   const chatMut = useAiChat();
   const pending = chatMut.isPending;
@@ -382,26 +387,37 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
     resizeInput();
   }, []);
 
-  const send = (): void => {
-    const content = draft.trim();
-    if (!canSend || content.length === 0) return;
-    const userMessage: AiChatMessage = { role: 'user', content };
-    // Trailing-N history INCLUDING the new message (server limit, §6.4).
-    const history = [...messages, userMessage].slice(-AI_CHAT_HISTORY_LIMIT);
-    const request: AiChatRequest = { messages: history };
+  /** Fires one chat turn for the given history (trailing-N server limit, §6.4). */
+  const dispatch = (history: AiChatMessage[]): void => {
+    const request: AiChatRequest = { messages: history.slice(-AI_CHAT_HISTORY_LIMIT) };
     if (projectId) request.projectId = projectId;
     if (modelOverride) request.model = modelOverride;
-
-    appendMessage(userMessage);
     setError(null);
-    setDraft('');
-    const el = inputRef.current;
-    if (el) el.style.height = 'auto';
-
     chatMut.mutate(request, {
       onSuccess: (res) => appendMessage(res.message),
       onError: (err) => setError(errorMessage(err)),
     });
+  };
+
+  const send = (): void => {
+    const content = draft.trim();
+    if (!canSend || content.length === 0) return;
+    const userMessage: AiChatMessage = { role: 'user', content };
+
+    appendMessage(userMessage);
+    setDraft('');
+    const el = inputRef.current;
+    if (el) el.style.height = 'auto';
+
+    dispatch([...messages, userMessage]);
+  };
+
+  // §2.17.3: after a failed send the last question stays in the feed — the
+  // «Повторить» button re-sends the exact same history in one action.
+  const canRetry = messages.length > 0 && messages[messages.length - 1].role === 'user';
+  const retry = (): void => {
+    if (pending || !canRetry || !modelReady) return;
+    dispatch(messages);
   };
 
   return (
@@ -432,76 +448,89 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
         }
       }}
     >
-      {/* Header: drag handle + model select + new chat + close */}
+      {/* Header: drag handle + model select + new chat + close + project caption */}
       <div
-        className="flex touch-none items-center gap-2 px-3 py-2"
+        className="touch-none px-3 pb-2 pt-2"
         style={{ borderBottom: '1px solid var(--color-border)', cursor: 'move' }}
         onPointerDown={drag.onPointerDown}
         onPointerMove={drag.onPointerMove}
         onPointerUp={drag.onPointerUp}
       >
-        {configured ? (
-          <div className="flex min-w-0 flex-1 items-center gap-1">
-            <select
-              className="input min-w-0 flex-1 cursor-pointer py-1 text-[13px]"
-              title="Модель для этого чата"
-              aria-label="Модель для этого чата"
-              data-testid="chat-model-select"
-              value={selectedModel}
-              onChange={(e) => {
-                modelsRefresh.clearNotice();
-                setModelOverride(e.target.value);
-              }}
-            >
-              {selectedModel.length === 0 ? <option value="">— выберите модель —</option> : null}
-              {modelOptions.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            <ModelRefreshButton
-              testid="ai-models-refresh-chat"
-              className={ICON_BTN_CLASS}
-              style={{ color: 'var(--color-text-3)' }}
-              refreshing={modelsRefresh.isFetching}
-              onClick={() => void modelsRefresh.refresh()}
-            />
-          </div>
-        ) : (
-          <div className="min-w-0 flex-1" title={MODEL_HINT} data-testid="chat-model-hint">
-            <select
-              className="input cursor-not-allowed py-1 text-[13px] opacity-50"
-              aria-label="Модель для этого чата"
-              disabled
-              data-testid="chat-model-select"
-            >
-              <option>Модель не настроена</option>
-            </select>
-          </div>
-        )}
-        <button
-          type="button"
-          className={ICON_BTN_CLASS}
-          style={{ color: 'var(--color-text-3)' }}
-          title="Новый чат (очистить переписку)"
-          aria-label="Новый чат"
-          data-testid="chat-new"
-          onClick={newChat}
-        >
-          <PlusIcon />
-        </button>
-        <button
-          type="button"
-          className={ICON_BTN_CLASS}
-          style={{ color: 'var(--color-text-3)' }}
-          title="Свернуть (переписка сохранится)"
-          aria-label="Закрыть чат"
-          data-testid="chat-close"
-          onClick={close}
-        >
-          <CloseIcon />
-        </button>
+        <div className="flex items-center gap-2">
+          {configured ? (
+            <div className="flex min-w-0 flex-1 items-center gap-1">
+              <select
+                className="input min-w-0 flex-1 cursor-pointer py-1 text-[13px]"
+                title="Модель для этого чата"
+                aria-label="Модель для этого чата"
+                data-testid="chat-model-select"
+                value={selectedModel}
+                onChange={(e) => {
+                  modelsRefresh.clearNotice();
+                  setModelOverride(e.target.value);
+                }}
+              >
+                {selectedModel.length === 0 ? <option value="">— выберите модель —</option> : null}
+                {modelOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <ModelRefreshButton
+                testid="ai-models-refresh-chat"
+                className={ICON_BTN_CLASS}
+                style={{ color: 'var(--color-text-3)' }}
+                refreshing={modelsRefresh.isFetching}
+                onClick={() => void modelsRefresh.refresh()}
+              />
+            </div>
+          ) : (
+            <div className="min-w-0 flex-1" title={MODEL_HINT} data-testid="chat-model-hint">
+              <select
+                className="input cursor-not-allowed py-1 text-[13px] opacity-50"
+                aria-label="Модель для этого чата"
+                disabled
+                data-testid="chat-model-select"
+              >
+                <option>Модель не настроена</option>
+              </select>
+            </div>
+          )}
+          <button
+            type="button"
+            className={ICON_BTN_CLASS}
+            style={{ color: 'var(--color-text-3)' }}
+            title="Новый чат (очистить переписку)"
+            aria-label="Новый чат"
+            data-testid="chat-new"
+            onClick={newChat}
+          >
+            <PlusIcon />
+          </button>
+          <button
+            type="button"
+            className={ICON_BTN_CLASS}
+            style={{ color: 'var(--color-text-3)' }}
+            title="Свернуть (переписка сохранится)"
+            aria-label="Закрыть чат"
+            data-testid="chat-close"
+            onClick={close}
+          >
+            <CloseIcon />
+          </button>
+        </div>
+        {/* §2.17.2: chat context — the current project is always visible. */}
+        {projectId ? (
+          <p
+            className="mt-1.5 flex items-center gap-1.5 text-xs"
+            style={{ color: 'var(--color-text-3)' }}
+            data-testid="chat-project"
+          >
+            <FolderOpen size={14} aria-hidden="true" />
+            Проект: {projectName}
+          </p>
+        ) : null}
       </div>
 
       {/* A3: inline notice — selection reset after refresh / refresh failure. */}
@@ -519,37 +548,103 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
         aria-live="polite"
       >
         {messages.length === 0 && !pending ? (
-          <div
-            className="flex h-full items-center justify-center px-6 text-center text-sm"
-            style={{ color: 'var(--color-text-3)' }}
-            data-testid="chat-empty"
-          >
-            {configured
-              ? 'Спросите ассистента…'
-              : 'Спросите ассистента… Для отправки сообщений настройте AI Hub.'}
-          </div>
+          configured ? (
+            <div
+              className="flex h-full items-center justify-center px-6 text-center text-sm"
+              style={{ color: 'var(--color-text-3)' }}
+              data-testid="chat-empty"
+            >
+              Спросите ассистента…
+            </div>
+          ) : (
+            /* Empty state «Настройте AI Hub» (§3, pattern 6): icon + title + CTA. */
+            <div
+              className="flex h-full items-center justify-center px-6 text-center"
+              data-testid="chat-empty"
+            >
+              <div>
+                <Sparkles
+                  size={36}
+                  strokeWidth={1.5}
+                  className="mx-auto mb-3"
+                  style={{ color: 'var(--color-text-3)' }}
+                  aria-hidden="true"
+                />
+                <h3 className="mb-1 font-semibold">Настройте AI Hub</h3>
+                <p className="mb-4 text-sm" style={{ color: 'var(--color-text-2)' }}>
+                  Чтобы общаться с моделью о проекте, укажите ключ AI Hub и выберите модель.
+                </p>
+                {projectId ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm mx-auto"
+                    data-testid="chat-open-ai-settings"
+                    onClick={() => navigate(`/p/${projectId}/ai`)}
+                  >
+                    Открыть настройки AI
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )
         ) : (
-          messages.map((m, i) => <Bubble key={i} message={m} />)
+          <>
+            {/* §2.17.4: explicit hint about the trailing-N history limit. */}
+            {messages.length > AI_CHAT_HISTORY_LIMIT ? (
+              <p
+                className="text-center text-[11px]"
+                style={{ color: 'var(--color-text-3)' }}
+                data-testid="chat-history-hint"
+              >
+                Модель учитывает только последние {AI_CHAT_HISTORY_LIMIT} сообщений — старые не
+                отправляются
+              </p>
+            ) : null}
+            {messages.map((m, i) => (
+              <Bubble key={i} message={m} />
+            ))}
+          </>
         )}
         {pending ? (
           <div className="flex items-start gap-2" data-testid="chat-typing">
             <BotAvatar />
             <div
-              className="max-w-[78%] rounded-xl px-3 py-2 text-[13px] leading-relaxed"
+              className="inline-flex max-w-[78%] items-center gap-2 rounded-xl px-3 py-2 text-[13px] leading-relaxed"
               style={{ ...BOT_BUBBLE_STYLE, color: 'var(--color-text-3)' }}
+              aria-label="Модель печатает"
             >
+              <span className="inline-flex items-end gap-1" aria-hidden="true">
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+              </span>
               печатает…
             </div>
           </div>
         ) : null}
         {error ? (
-          <div
-            className="rounded-lg p-2 text-xs"
-            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
-            role="alert"
-            data-testid="chat-error"
-          >
-            {error}
+          /* §2.17.3: readable error + one-action «Повторить». */
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <p
+              className="flex items-center gap-1 text-xs"
+              style={{ color: 'var(--color-danger-fg)' }}
+              role="alert"
+              data-testid="chat-error"
+            >
+              <TriangleAlert size={14} className="flex-none" aria-hidden="true" />
+              Не удалось отправить: {error}
+            </p>
+            {canRetry ? (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                data-testid="chat-retry"
+                onClick={retry}
+              >
+                <RefreshCw size={14} aria-hidden="true" />
+                Повторить
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -567,6 +662,8 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
           placeholder="Сообщение… (Enter — отправить)"
           aria-label="Сообщение ассистенту"
           data-testid="chat-input"
+          disabled={!configured}
+          title={!configured ? 'Настройте AI Hub, чтобы отправлять сообщения' : undefined}
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value);
@@ -584,7 +681,7 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
           className="btn btn-primary px-3 py-2 text-sm"
           data-testid="chat-send"
           disabled={!canSend}
-          title={!modelReady ? 'Настройте AI Hub' : undefined}
+          title={!modelReady ? 'Настройте AI Hub, чтобы отправлять сообщения' : undefined}
           onClick={send}
         >
           Отправить
