@@ -322,6 +322,87 @@ describe('TreeTable (T-1102, FR-7)', () => {
     expect(desc).toHaveAttribute('aria-label', 'Открыть описание');
   });
 
+  describe('A2: priority "Требование" column with truncated long names', () => {
+    // ~100-character realistic requirement name (102 chars).
+    const LONG_NAME =
+      'Оплата банковской картой с поддержкой 3-D Secure, возвратов, частичных возвратов и холдирования средств';
+
+    function renderLongNameTree(): void {
+      const parent = makeReq({
+        slug: 'p1',
+        name: 'Платежи',
+        links: [{ type: 'PARENT_OF', targetSlug: 'long1' }],
+      });
+      const child = makeReq({
+        slug: 'long1',
+        name: LONG_NAME,
+        links: [{ type: 'CHILD_OF', targetSlug: 'p1' }],
+      });
+      const rows = computeVisibleRows({
+        forest: buildForest([parent, child]),
+        search: '',
+        collapsed: false,
+        expanded: new Set(),
+        criticalityFilter: NO_CRIT,
+      }).rows;
+      renderWithProviders(
+        <TreeTable
+          title="Функциональные требования"
+          addLabel="+ Функция"
+          testidPrefix="function"
+          count={2}
+          rows={rows}
+          nameBySlug={new Map()}
+          onAdd={vi.fn()}
+          onEdit={vi.fn()}
+          onLink={vi.fn()}
+          onDelete={vi.fn()}
+          onDescExpand={vi.fn()}
+          onExpandNode={vi.fn()}
+        />,
+      );
+    }
+
+    it('truncates a ~100-char name to one line and exposes the full name via title', () => {
+      renderLongNameTree();
+      const name = screen.getByTestId('req-name-long1');
+      // Single-line ellipsis: Tailwind `truncate` = overflow-hidden + text-ellipsis
+      // + whitespace-nowrap; `min-w-0` lets the flex item actually shrink.
+      expect(name.className).toContain('truncate');
+      expect(name.className).toContain('min-w-0');
+      // Full name is still available: rendered text + title tooltip.
+      expect(name).toHaveTextContent(LONG_NAME);
+      expect(name).toHaveAttribute('title', expect.stringContaining(LONG_NAME));
+    });
+
+    it('keeps the hierarchical indent (tree guides) next to a truncated child name', () => {
+      renderLongNameTree();
+      const row = screen.getByTestId('tree-row-long1');
+      const guides = row.querySelectorAll('.tree-guide');
+      expect(guides.length).toBeGreaterThan(0);
+      // The name lives in the same flex line as the guides (one row height).
+      const nameCell = screen.getByTestId('req-name-long1').closest('td') as HTMLElement;
+      expect(nameCell.querySelector('.tree-guide')).not.toBeNull();
+    });
+
+    it('gives the "Требование" column a priority flexible width in a fixed-layout table', () => {
+      renderLongNameTree();
+      const table = screen.getByTestId('table-function');
+      // Fixed layout + w-full: column widths come from thead, page never scrolls.
+      expect(table.className).toContain('table-fixed');
+      expect(table.className).toContain('w-full');
+      const ths = Array.from(table.querySelectorAll('thead th'));
+      const nameTh = ths.find((th) => th.textContent?.trim() === 'Требование')!;
+      const linksTh = ths.find((th) => th.textContent?.trim() === 'Связи')!;
+      // Priority column is percentage-based (flexible) and larger than «Связи».
+      const nameWidth = /w-\[(\d+)%\]/.exec(nameTh.className);
+      const linksWidth = /w-\[(\d+)%\]/.exec(linksTh.className);
+      expect(nameWidth).not.toBeNull();
+      expect(linksWidth).not.toBeNull();
+      expect(Number(nameWidth![1])).toBeGreaterThan(Number(linksWidth![1]));
+    });
+  });
+
   it('T4: does not show "+ НФТ" on NFR rows', () => {
     const nfr = makeReq({ slug: 'n1', name: 'Доступность', type: 'NFR' });
     const rows = computeVisibleRows({

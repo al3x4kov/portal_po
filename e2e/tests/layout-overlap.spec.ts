@@ -189,6 +189,49 @@ test.describe('T-1601 · E16 раскладка: видимость и отсу�
     await checkLinkChips(page, fx.n2);
   });
 
+  /* todo_16 A2 · колонка «Требование»: длинное имя усечено, не ломает строку. */
+  test('имя ФТ ~100 символов: строка одной высоты, имя усечено, полное имя в title, без h-скролла', async ({
+    page,
+  }) => {
+    const tag = uniqueName('longname');
+    const shortName = `${tag}-short`;
+    // ~100 символов; латиница без пробелов — worst case для усечения.
+    const longName = `${tag}-${'x'.repeat(100 - tag.length - 1)}`;
+    expect(longName.length).toBe(100);
+
+    await createProject(page, uniqueName('longname-proj'));
+    await addRequirement(page, { kind: 'function', name: shortName, criticality: 'MEDIUM' });
+    await addRequirement(page, { kind: 'function', name: longName, criticality: 'HIGH' });
+
+    // Строка с длинным именем той же высоты, что и с коротким (нет разрастания).
+    const shortBox = await box(rowByName(page, shortName));
+    const longBox = await box(rowByName(page, longName));
+    expect(
+      Math.abs(longBox.height - shortBox.height),
+      'строка с длинным именем выше строки с коротким',
+    ).toBeLessThanOrEqual(TOL);
+
+    // Имя усечено с многоточием, полный текст доступен через title.
+    const slug = await slugOf(page, longName);
+    const nameEl = page.getByTestId(`req-name-${slug}`);
+    await expect(nameEl).toHaveClass(/truncate/);
+    await expect(nameEl).toHaveAttribute('title', new RegExp(longName));
+    const truncated = await nameEl.evaluate((el) => el.scrollWidth > el.clientWidth);
+    expect(truncated, 'длинное имя должно реально усекаться').toBe(true);
+
+    // Имя не выходит за пределы карточки секции ФТ.
+    const cardBox = await box(page.getByTestId('section-function'));
+    const nameBox = await box(nameEl);
+    expect(nameBox.x + nameBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width + TOL);
+
+    // Страница без горизонтального скролла.
+    const noHScroll = await page.evaluate(() => {
+      const el = document.scrollingElement ?? document.documentElement;
+      return el.scrollWidth <= el.clientWidth + 1;
+    });
+    expect(noHScroll, 'страница скроллится вбок при длинном имени требования').toBe(true);
+  });
+
   test('нет горизонтального выхода страницы за экран на 1280 и 1680', async ({ page }) => {
     await buildFixture(page);
 

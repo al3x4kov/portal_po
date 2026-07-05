@@ -436,11 +436,13 @@ export function TreeTable({
                 className="text-left text-xs uppercase tracking-wide"
                 style={{ color: 'var(--color-text-3)' }}
               >
-                <th className="w-[26%] px-4 py-2 font-semibold">Требование</th>
+                {/* A2: «Требование» is the priority (flexible) column — long names
+                    truncate with an ellipsis and expose the full text via title. */}
+                <th className="w-[34%] px-4 py-2 font-semibold">Требование</th>
                 <th className="w-[130px] px-4 py-2 font-semibold">Критичность</th>
                 <th className="w-[140px] px-4 py-2 font-semibold">Реализация</th>
                 <th className="w-[130px] px-4 py-2 font-semibold">Источник</th>
-                <th className="w-[20%] px-4 py-2 font-semibold">Связи</th>
+                <th className="w-[15%] px-4 py-2 font-semibold">Связи</th>
                 <th className="px-4 py-2 font-semibold">Описание</th>
                 <th className="w-[140px] px-4 py-2" />
               </tr>
