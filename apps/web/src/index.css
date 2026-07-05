@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens — single source of truth mirrored from uiux/tokens.css. */
+/* Design tokens v2 — single source of truth mirrored from new_design/tokens.css. */
 :root {
   --color-primary: #4f46e5;
   --color-primary-hover: #4338ca;
@@ -44,6 +44,8 @@
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Inter, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  /* Минимальный кегль текста в UI — 11px (чипы/метки/оси). */
+  --text-min: 11px;
 
   --radius-sm: 6px;
   --radius: 10px;
@@ -51,6 +53,10 @@
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
   --shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
   --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.16);
+
+  /* Layout-константы вместо «магических» чисел */
+  --header-height: 56px;
+  --toast-offset: 88px; /* тосты НАД FAB чата */
 
   /* Sidebar (T-502) — always dark, same in light and dark themes */
   --sidebar-width: 56px;
@@ -99,6 +105,11 @@ html.dark {
     background: var(--color-bg);
     color: var(--color-text);
     font-family: var(--font-sans);
+  }
+  /* Единый видимый фокус (WCAG 2.4.7) — outline 2px primary. */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
 }
 
@@ -203,6 +214,20 @@ html.dark {
   .btn-danger:not(:disabled):hover {
     filter: brightness(0.93);
   }
+  .btn-sm {
+    @apply px-2.5 py-1.5 text-[13px];
+  }
+
+  /* Busy-кнопка: спиннер + герундий («Сохраняем…»). */
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    flex: none;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    animation: spin 0.7s linear infinite;
+  }
 
   .input {
     @apply w-full rounded-sm border px-3 py-2.5 text-sm;
@@ -219,13 +244,78 @@ html.dark {
     @apply mb-1.5 block text-[13px] font-semibold;
     color: var(--color-text-2);
   }
+  .hint {
+    @apply text-xs;
+    color: var(--color-text-3);
+  }
   .badge {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-xs font-semibold;
+  }
+  /* Чип связи/метки — минимальный кегль 11px (--text-min). */
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-[2px] font-semibold;
+    font-size: var(--text-min);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-2);
+    color: var(--color-text-2);
   }
   .card {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
+  }
+  .surface {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+  }
+}
+
+@layer utilities {
+  .t2 {
+    color: var(--color-text-2);
+  }
+  .t3 {
+    color: var(--color-text-3);
+  }
+  .mono {
+    font-family: var(--font-mono);
+  }
+  /* Иконки: только Lucide 18/20px stroke-2; icon-sm = 16px для row-actions. */
+  .icon {
+    width: 18px;
+    height: 18px;
+    flex: none;
+  }
+  .icon-sm {
+    width: 16px;
+    height: 16px;
+    flex: none;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Row-actions: видимы всегда (приглушены), акцент по hover/focus-within;
+   на touch-устройствах — полная видимость всегда. */
+.row-actions {
+  color: var(--color-text-3);
+  opacity: 0.65;
+  transition: opacity 0.12s;
+}
+tr:hover .row-actions,
+tr:focus-within .row-actions,
+.row:hover .row-actions,
+.row:focus-within .row-actions {
+  opacity: 1;
+  color: var(--color-text-2);
+}
+@media (pointer: coarse) {
+  .row-actions {
+    opacity: 1;
   }
 }

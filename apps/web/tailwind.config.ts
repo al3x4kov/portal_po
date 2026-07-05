@@ -28,20 +28,47 @@ const config: Config = {
           2: 'var(--color-text-2)',
           3: 'var(--color-text-3)',
         },
-        success: { DEFAULT: 'var(--color-success)', bg: 'var(--color-success-bg)' },
-        warning: { DEFAULT: 'var(--color-warning)', bg: 'var(--color-warning-bg)' },
-        danger: { DEFAULT: 'var(--color-danger)', bg: 'var(--color-danger-bg)' },
-        info: { DEFAULT: 'var(--color-info)', bg: 'var(--color-info-bg)' },
+        success: {
+          DEFAULT: 'var(--color-success)',
+          bg: 'var(--color-success-bg)',
+          fg: 'var(--color-success-fg)',
+        },
+        warning: {
+          DEFAULT: 'var(--color-warning)',
+          bg: 'var(--color-warning-bg)',
+          fg: 'var(--color-warning-fg)',
+        },
+        danger: {
+          DEFAULT: 'var(--color-danger)',
+          bg: 'var(--color-danger-bg)',
+          fg: 'var(--color-danger-fg)',
+        },
+        info: {
+          DEFAULT: 'var(--color-info)',
+          bg: 'var(--color-info-bg)',
+          fg: 'var(--color-info-fg)',
+        },
         crit: {
           low: 'var(--crit-low)',
           medium: 'var(--crit-medium)',
           high: 'var(--crit-high)',
           critical: 'var(--crit-critical)',
+          blocker: 'var(--crit-blocker)',
         },
       },
       fontFamily: {
         sans: 'var(--font-sans)',
         mono: 'var(--font-mono)',
+      },
+      fontSize: {
+        /* text-min → минимальный кегль UI (11px, --text-min). */
+        min: ['var(--text-min)', { lineHeight: '1.35' }],
+      },
+      spacing: {
+        /* Layout-константы: h-header, w-sidebar, bottom-toast-offset. */
+        header: 'var(--header-height)',
+        sidebar: 'var(--sidebar-width)',
+        'toast-offset': 'var(--toast-offset)',
       },
       borderRadius: {
         sm: 'var(--radius-sm)',

@@ -19,6 +19,7 @@ apps/web/public/doom/**
 .claude/**
 demo-out/**
 extract-out/**
+new_design/**
 architect-out/**
 design-out/**
 graphify-out/**
