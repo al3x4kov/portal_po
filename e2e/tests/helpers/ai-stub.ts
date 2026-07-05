@@ -37,17 +37,27 @@ import { createServer, type Server } from 'node:http';
  * Extras for task 13 (structure stage — tree via AI hub):
  * - structure calls are detected by THEIR distinct system prompt («Ты —
  *   архитектор дерева требований…», buildStructureMessages); the stub parses
- *   the `FUNCTION\t<name>` / `NFR\t<name>` lines of the user message and
- *   ECHOES one node per requirement — a STRICT JSON array of
- *   `{type, name, parentName}` where `parentName` comes from the active
- *   parents map (`opts.structureParents` / `setStructureParents`) and is
- *   `null` for everything else, so ANY archive gets a valid structure answer;
+ *   the BATCH lines of the user message and ECHOES one node per batch item —
+ *   a STRICT JSON array of `{type, name, parentName}` where `parentName`
+ *   comes from the active parents map (`opts.structureParents` /
+ *   `setStructureParents`) and is `null` for everything else, so ANY archive
+ *   gets a valid structure answer;
  * - structure requests are captured in `structureRequests`;
  * - `setStructureDelay(ms)` delays structure replies only (stage-visibility
  *   scenario needs the 800 ms poller to catch the `structure` stage);
  * - `failNextExtractionJson(n)` / `failNextStructureJson(n)` make the next
  *   `n` matching replies a NON-JSON sentence (HTTP 200) — the JSON-retry
  *   scenarios of task 13 A3/B2.
+ *
+ * Task 14 (tree validity) format change: the structure user message now has
+ * THREE sections (buildStructureMessages) — the archive map, the FULL list of
+ * allowed parents (`TYPE\t<имя>` lines after «Полный список требований
+ * (допустимые родители):») and the batch itself (`TYPE\t<имя>\t<источник>`
+ * lines after «Батч (N шт., …):»). The stub echoes ONLY the batch section
+ * (`structureBatchOf`); tests can additionally parse the parents section via
+ * the exported `structureParentsListOf`. `setStructureExtraNodes` appends
+ * arbitrary FOREIGN nodes to every structure answer — the coverage-report
+ * scenario of task 14 B5 («посторонних узлов проигнорировано»).
  */
 
 /** Captured `/chat/completions` request body (openai SDK JSON payload). */
@@ -93,6 +103,11 @@ export interface AiStub {
   readonly structureRequests: AiChatCompletionCapture[];
   /** Task 13: parents map for structure answers; `null` restores the default. */
   setStructureParents(map: Record<string, string> | null): void;
+  /**
+   * Task 14 B5: extra nodes APPENDED to every structure answer (foreign nodes
+   * the pipeline must ignore with a warn); `null`/`[]` disables.
+   */
+  setStructureExtraNodes(nodes: Array<Record<string, unknown>> | null): void;
   /** Task 13: delay (ms) applied to every structure reply; 0 disables. */
   setStructureDelay(ms: number): void;
   /** Task 13 A3: the next `n` extraction replies are NON-JSON text (HTTP 200). */
@@ -123,18 +138,60 @@ function extractionFileName(body: AiChatCompletionCapture | undefined): string |
   return match?.[1] ?? null;
 }
 
+/** Section marker of the batch itself («Батч (N шт., …):», task 14 B4). */
+const STRUCTURE_BATCH_MARKER = 'Батч (';
+
+/** Section marker of the full allowed-parents list (task 14 B3). */
+const STRUCTURE_PARENTS_MARKER = 'Полный список требований (допустимые родители):';
+
+/** One batch line of the structure user message: type, name and provenance. */
+export interface StructureBatchItem {
+  type: string;
+  name: string;
+  /** Extraction provenance «файл § раздел» (task 14 B4). */
+  source: string;
+}
+
 /**
- * Parse the structure user message («…формат: тип и имя через табуляцию» +
- * `FUNCTION\t<name>` / `NFR\t<name>` lines) into the batch items, preserving
- * order — the echo answer must contain exactly one node per item.
+ * Parse the BATCH section of the structure user message: `TYPE\t<имя>\t<источник>`
+ * lines strictly AFTER the «Батч (N шт., …):» marker, preserving order — the
+ * echo answer must contain exactly one node per item. Lines of the other
+ * sections (archive map, full parents list) never leak in.
  */
-function structureItemsOf(
+export function structureBatchOf(body: AiChatCompletionCapture | undefined): StructureBatchItem[] {
+  const user = body?.messages?.find((m) => m.role === 'user')?.content ?? '';
+  const items: StructureBatchItem[] = [];
+  let inBatch = false;
+  for (const line of user.split('\n')) {
+    if (!inBatch) {
+      if (line.startsWith(STRUCTURE_BATCH_MARKER)) inBatch = true;
+      continue;
+    }
+    const match = /^(FUNCTION|NFR)\t([^\t]+)\t(.+)$/.exec(line);
+    if (match) items.push({ type: match[1]!, name: match[2]!, source: match[3]! });
+  }
+  return items;
+}
+
+/**
+ * Parse the FULL allowed-parents section (task 14 B3): two-field
+ * `TYPE\t<имя>` lines after «Полный список требований (допустимые родители):»
+ * up to the next blank line. The optional «…и ещё N требований» tail is not a
+ * `TYPE\t` line and is skipped naturally.
+ */
+export function structureParentsListOf(
   body: AiChatCompletionCapture | undefined,
 ): Array<{ type: string; name: string }> {
   const user = body?.messages?.find((m) => m.role === 'user')?.content ?? '';
   const items: Array<{ type: string; name: string }> = [];
+  let inList = false;
   for (const line of user.split('\n')) {
-    const match = /^(FUNCTION|NFR)\t(.+)$/.exec(line);
+    if (!inList) {
+      if (line === STRUCTURE_PARENTS_MARKER) inList = true;
+      continue;
+    }
+    if (line === '') break; // blank line ends the section (batch follows)
+    const match = /^(FUNCTION|NFR)\t([^\t]+)$/.exec(line);
     if (match) items.push({ type: match[1]!, name: match[2]! });
   }
   return items;
@@ -146,6 +203,7 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
   let extractionDelayMs = 0;
   let structureDelayMs = 0;
   let structureParents: Record<string, string> = opts.structureParents ?? {};
+  let structureExtraNodes: Array<Record<string, unknown>> = [];
   let nonJsonExtractionLeft = 0;
   let nonJsonStructureLeft = 0;
   const chatRequests: AiChatCompletionCapture[] = [];
@@ -209,15 +267,18 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
               opts.extractionItemsByFile?.[extractionFileName(body) ?? ''] ?? [],
             );
           } else if (isStructure) {
-            // Echo every batch item back; parents come from the active map,
-            // everything else is an explicit root (parentName: null).
-            content = JSON.stringify(
-              structureItemsOf(body).map((item) => ({
+            // Echo every BATCH item back (task 14: `TYPE\tимя\tисточник` lines
+            // after the «Батч (…)» marker); parents come from the active map,
+            // everything else is an explicit root (parentName: null). Foreign
+            // extra nodes (task 14 B5) are appended verbatim.
+            content = JSON.stringify([
+              ...structureBatchOf(body).map((item) => ({
                 type: item.type,
                 name: item.name,
                 parentName: structureParents[item.name] ?? null,
               })),
-            );
+              ...structureExtraNodes,
+            ]);
           } else {
             content = opts.reply;
           }
@@ -265,6 +326,9 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
     structureRequests,
     setStructureParents(map) {
       structureParents = map ?? opts.structureParents ?? {};
+    },
+    setStructureExtraNodes(nodes) {
+      structureExtraNodes = nodes ?? [];
     },
     setStructureDelay(ms) {
       structureDelayMs = ms;

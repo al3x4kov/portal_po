@@ -274,6 +274,8 @@ import {
   AI_IMPORT_MAX_TOKENS,
   AI_IMPORT_STAGES,
   AI_IMPORT_STATUSES,
+  AI_IMPORT_STRUCTURE_BATCH,
+  AI_IMPORT_STRUCTURE_MAX_TOKENS,
   AI_IMPORT_TEMPERATURE,
   aiExtractedRequirementSchema,
   aiImportJobViewSchema,
@@ -291,6 +293,15 @@ describe('T11 AI import contract constants', () => {
     expect(AI_IMPORT_CHUNK_CHARS).toBe(12_000);
     expect(AI_IMPORT_MAX_ARCHIVE_BYTES).toBe(50 * 1024 * 1024);
     expect(AI_IMPORT_MAX_DOC_FILES).toBe(500);
+  });
+
+  it('T14 B1: structure stage gets its own token budget and a smaller batch', () => {
+    // A 100-node batch serialises to ~3000–5000 tokens (Cyrillic JSON), which
+    // the shared 2000-token budget always truncated → flat trees. 50 nodes fit
+    // comfortably into 4000 tokens.
+    expect(AI_IMPORT_STRUCTURE_MAX_TOKENS).toBe(4000);
+    expect(AI_IMPORT_STRUCTURE_BATCH).toBe(50);
+    expect(AI_IMPORT_STRUCTURE_MAX_TOKENS).toBeGreaterThan(AI_IMPORT_MAX_TOKENS);
   });
 
   it('exposes the stage and status unions (Task 13: structure between analyze and aggregate)', () => {

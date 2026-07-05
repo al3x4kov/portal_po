@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AI_IMPORT_PARENTS_CHARS,
   AI_IMPORT_TREE_CHARS,
   buildArchiveMap,
   buildExtractionMessages,
+  buildParentsList,
   buildStructureMessages,
   chunkText,
+  extractJsonArray,
   parseExtractionResponse,
   parseStructureResponse,
+  type StructureItem,
 } from '../src/services/aiImportPrompt.js';
 
 const record = {
@@ -198,15 +202,15 @@ describe('T11 parseExtractionResponse', () => {
   });
 });
 
-describe('T13 buildStructureMessages', () => {
-  const items = [
-    { type: 'FUNCTION', name: 'Аутентификация' },
-    { type: 'FUNCTION', name: 'Вход по паролю' },
-    { type: 'NFR', name: 'Время отклика' },
-  ] as const;
+describe('T13/T14 buildStructureMessages', () => {
+  const items: StructureItem[] = [
+    { type: 'FUNCTION', name: 'Аутентификация', source: 'auth.md § Обзор' },
+    { type: 'FUNCTION', name: 'Вход по паролю', source: 'auth.md § Вход' },
+    { type: 'NFR', name: 'Время отклика', source: 'perf.md § SLA' },
+  ];
 
   it('starts with a RU system prompt demanding a strict JSON tree answer', () => {
-    const messages = buildStructureMessages([...items], 'auth.md');
+    const messages = buildStructureMessages([...items], 'auth.md', [...items]);
     expect(messages).toHaveLength(2);
     expect(messages[0]?.role).toBe('system');
     const sys = messages[0]?.content ?? '';
@@ -226,22 +230,82 @@ describe('T13 buildStructureMessages', () => {
     // Golden rule: only the given names, no invention.
     expect(sys).toMatch(/ТОЛЬКО/);
     expect(sys).toMatch(/не выдумывай|ничего не выдумывай|не домысливай/i);
+    // T14 B3/B4: parents come from the full list, nodes only for the batch,
+    // grouping follows the provenance (file § section).
+    expect(sys).toMatch(/Полный список требований/i);
+    expect(sys).toContain('Батч');
+    expect(sys).toMatch(/группируй/i);
+    expect(sys).toMatch(/источник/i);
   });
 
-  it('puts the archive map and every requirement (type + name) into the user message', () => {
+  it('T14 B4: batch lines carry provenance — TYPE\\tname\\tsource', () => {
     const map = buildArchiveMap(['docs/api/auth.md', 'docs/nfr/perf.md']);
-    const messages = buildStructureMessages([...items], map);
+    const messages = buildStructureMessages([...items], map, [...items]);
     const user = messages[1]?.content ?? '';
     expect(messages[1]?.role).toBe('user');
     expect(user).toContain('Структура архива (файлы документации):\n' + map);
+    expect(user).toContain('Батч (3 шт., формат: тип, имя и источник через табуляцию):');
     for (const item of items) {
-      expect(user).toContain(item.name);
-      expect(user).toContain(item.type);
+      expect(user).toContain(`${item.type}\t${item.name}\t${item.source}`);
     }
+  });
+
+  it('T14 B3: every batch message carries the FULL list of allowed parents', () => {
+    const all: StructureItem[] = [
+      ...items,
+      { type: 'FUNCTION', name: 'Регистрация', source: 'reg.md § Обзор' },
+    ];
+    const batch = [items[1]!];
+    const user = buildStructureMessages(batch, 'auth.md', all)[1]?.content ?? '';
+    expect(user).toContain('Полный список требований (допустимые родители):');
+    // Names outside the batch are still present (as allowed parents, TYPE\tname).
+    expect(user).toContain('FUNCTION\tРегистрация\n');
+    expect(user).toContain('NFR\tВремя отклика\n');
+    // The full-list section comes BEFORE the batch section.
+    expect(user.indexOf('Полный список требований')).toBeLessThan(user.indexOf('Батч ('));
+  });
+
+  it('T14 B3: the full parents list is truncated within the char budget', () => {
+    const many: StructureItem[] = Array.from({ length: 500 }, (_, i) => ({
+      type: 'FUNCTION',
+      name: `Требование номер ${String(i).padStart(3, '0')} с достаточно длинным именем`,
+      source: `docs/file-${i}.md § Раздел`,
+    }));
+    const list = buildParentsList(many);
+    expect(list.length).toBeLessThanOrEqual(AI_IMPORT_PARENTS_CHARS);
+    expect(list).toMatch(/…и ещё \d+ требований$/);
+    // Everything fits → no tail.
+    const few = buildParentsList(many.slice(0, 3));
+    expect(few).not.toContain('…и ещё');
+    expect(few.split('\n')).toHaveLength(3);
   });
 });
 
-describe('T13 parseStructureResponse', () => {
+describe('T14 B2 extractJsonArray salvage of truncated answers', () => {
+  it('recovers an array cut mid-object (last complete } + closing ])', () => {
+    const full = JSON.stringify([
+      { type: 'FUNCTION', name: 'А', parentName: null },
+      { type: 'FUNCTION', name: 'Б', parentName: 'А' },
+    ]);
+    const truncated = full.slice(0, full.indexOf('"Б"') + 3); // cut inside object 2
+    const salvaged = extractJsonArray(truncated);
+    expect(salvaged).toEqual([{ type: 'FUNCTION', name: 'А', parentName: null }]);
+  });
+
+  it('recovers despite prose before and garbage after the truncated array', () => {
+    const salvaged = extractJsonArray('Вот дерево: [{"a":1},{"b":2},{"c":' /* обрыв */);
+    expect(salvaged).toEqual([{ a: 1 }, { b: 2 }]);
+  });
+
+  it('still returns null when nothing can be recovered', () => {
+    expect(extractJsonArray('Не могу построить дерево.')).toBeNull();
+    expect(extractJsonArray('{"не":"массив"}')).toBeNull();
+    expect(extractJsonArray('[{"обрыв":')).toBeNull();
+    expect(extractJsonArray('')).toBeNull();
+  });
+});
+
+describe('T13/T14 parseStructureResponse', () => {
   const nodes = [
     { type: 'FUNCTION', name: 'Аутентификация', parentName: null },
     { type: 'FUNCTION', name: 'Вход по паролю', parentName: 'Аутентификация' },
@@ -249,12 +313,12 @@ describe('T13 parseStructureResponse', () => {
 
   it('parses a bare JSON array of structure nodes', () => {
     const parsed = parseStructureResponse(JSON.stringify(nodes));
-    expect(parsed).toEqual(nodes);
+    expect(parsed).toEqual({ nodes, droppedInvalid: 0, total: 2 });
   });
 
   it('parses an array inside a ```json fence', () => {
     const content = 'Дерево:\n```json\n' + JSON.stringify(nodes) + '\n```';
-    expect(parseStructureResponse(content)).toEqual(nodes);
+    expect(parseStructureResponse(content)?.nodes).toEqual(nodes);
   });
 
   it('returns null for prose without a JSON array', () => {
@@ -262,15 +326,23 @@ describe('T13 parseStructureResponse', () => {
     expect(parseStructureResponse('')).toBeNull();
   });
 
-  it('returns null when ANY node is schema-invalid (whole answer is retried)', () => {
+  it('strict: returns null when ANY node is schema-invalid (whole answer is retried)', () => {
     const withInvalid = [...nodes, { type: 'FUNCTION', name: 'Без parentName' }];
     expect(parseStructureResponse(JSON.stringify(withInvalid))).toBeNull();
     const badType = [{ type: 'EPIC', name: 'X', parentName: null }];
     expect(parseStructureResponse(JSON.stringify(badType))).toBeNull();
   });
 
+  it('T14 B7 lenient: keeps valid nodes, counts dropped invalid ones', () => {
+    const withInvalid = [...nodes, { type: 'FUNCTION', name: 'Без parentName' }];
+    const parsed = parseStructureResponse(JSON.stringify(withInvalid), 'lenient');
+    expect(parsed).toEqual({ nodes, droppedInvalid: 1, total: 3 });
+    // Lenient still returns null when there is no array at all.
+    expect(parseStructureResponse('Проза.', 'lenient')).toBeNull();
+  });
+
   it('accepts an empty array', () => {
-    expect(parseStructureResponse('[]')).toEqual([]);
+    expect(parseStructureResponse('[]')).toEqual({ nodes: [], droppedInvalid: 0, total: 0 });
   });
 });
 

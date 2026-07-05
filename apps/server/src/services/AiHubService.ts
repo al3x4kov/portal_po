@@ -26,9 +26,13 @@ export interface AiClient {
   };
   chat: {
     completions: {
-      create(
-        params: AiChatCompletionParams,
-      ): Promise<{ choices: Array<{ message: { content: string | null } }> }>;
+      create(params: AiChatCompletionParams): Promise<{
+        choices: Array<{
+          message: { content: string | null };
+          /** OpenAI finish reason; `'length'` = answer truncated by max_tokens (Task 14 B2). */
+          finish_reason?: string | null;
+        }>;
+      }>;
     };
   };
 }

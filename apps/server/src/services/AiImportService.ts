@@ -4,6 +4,8 @@ import {
   AI_IMPORT_CHUNK_CHARS,
   AI_IMPORT_MAX_ARCHIVE_BYTES,
   AI_IMPORT_MAX_TOKENS,
+  AI_IMPORT_STRUCTURE_BATCH,
+  AI_IMPORT_STRUCTURE_MAX_TOKENS,
   AI_IMPORT_TEMPERATURE,
   DomainError,
   TARGET_QUARTERS,
@@ -31,6 +33,8 @@ import {
   chunkText,
   parseExtractionResponse,
   parseStructureResponse,
+  type ParsedExtraction,
+  type ParsedStructure,
   type StructureItem,
 } from './aiImportPrompt.js';
 
@@ -54,9 +58,6 @@ export const AI_IMPORT_DEFAULT_CRITICALITY = 'MEDIUM' as const;
 /** Attempts per AI call when the answer is not a valid JSON array (Task 13 A3/B2). */
 export const AI_IMPORT_JSON_ATTEMPTS = 3;
 
-/** Extracted records per structure-stage batch (Task 13 B2). */
-export const AI_IMPORT_STRUCTURE_BATCH = 100;
-
 /** Next calendar quarter after `nowIso` (default target for unimplemented). */
 export function nextQuarterOf(nowIso: string): {
   targetQuarter: TargetQuarter;
@@ -78,6 +79,41 @@ function sanitize(message: string, apiKey: string): string {
 /** Case-insensitive, trimmed identity of a requirement name within a type. */
 function nameKey(type: string, name: string): string {
   return `${type}:${name.trim().toLowerCase()}`;
+}
+
+/**
+ * Task 14 B6: deterministically break parent cycles in a child→parent map
+ * (keys are {@link nameKey} identities). Chains are walked in map insertion
+ * order; when a walk revisits a node of its own path, the parent edge of the
+ * LAST node on the path (the edge closing the cycle) is dropped, making that
+ * node a root. Pure: the input map is never mutated; the returned list holds
+ * the child keys whose parent edge must be removed, in detection order.
+ */
+export function breakParentCycles(parentByChild: ReadonlyMap<string, string>): string[] {
+  const parents = new Map(parentByChild);
+  const removed: string[] = [];
+  const safe = new Set<string>(); // nodes proven to terminate
+  for (const start of parents.keys()) {
+    if (safe.has(start)) continue;
+    const path: string[] = [];
+    const onPath = new Set<string>();
+    let cur = start;
+    for (;;) {
+      if (onPath.has(cur)) {
+        const closing = path[path.length - 1]!;
+        parents.delete(closing);
+        removed.push(closing);
+        break;
+      }
+      onPath.add(cur);
+      path.push(cur);
+      const next = parents.get(cur);
+      if (next === undefined || safe.has(next)) break;
+      cur = next;
+    }
+    for (const key of path) safe.add(key);
+  }
+  return removed;
 }
 
 /**
@@ -113,7 +149,7 @@ export interface AiImportServiceDeps {
   log?: OpLogger;
   /** Chunk size override for tests; production uses the core constant. */
   chunkChars?: number;
-  /** Structure batch size override for tests; production uses 100 (Task 13). */
+  /** Structure batch size override for tests; production uses the core constant (50). */
   structureBatch?: number;
 }
 
@@ -234,6 +270,45 @@ export class AiImportService {
     job.log.push({ ts: this.deps.now(), level, message });
   }
 
+  /**
+   * Task 14 B6: one-line tree summary after parent resolution and cycle
+   * breaking. Depth: a root is 1; a parent outside the aggregated set (an
+   * already-existing project requirement) counts as depth 1. Cycles are
+   * already broken, so the walk terminates.
+   */
+  private treeSummary(aggregated: AggregatedRecord[]): string {
+    const parentOf = new Map<string, string>();
+    for (const item of aggregated) {
+      if (item.parentKey) {
+        parentOf.set(nameKey(item.record.type, item.record.name), item.parentKey);
+      }
+    }
+    const depthOf = (key: string): number => {
+      let depth = 1;
+      for (let cur = parentOf.get(key); cur !== undefined; cur = parentOf.get(cur)) depth += 1;
+      return depth;
+    };
+    let fnRoots = 0;
+    let fnChildren = 0;
+    let nfrRoots = 0;
+    let nfrChildren = 0;
+    let maxDepth = 0;
+    for (const item of aggregated) {
+      const isChild = item.parentKey !== undefined;
+      if (item.record.type === 'FUNCTION') {
+        if (isChild) fnChildren += 1;
+        else fnRoots += 1;
+      } else if (isChild) nfrChildren += 1;
+      else nfrRoots += 1;
+      const depth = depthOf(nameKey(item.record.type, item.record.name));
+      if (depth > maxDepth) maxDepth = depth;
+    }
+    return (
+      `Дерево: ФТ — ${fnRoots} корней, ${fnChildren} с родителем; ` +
+      `НФТ — ${nfrRoots} корней, ${nfrChildren} с родителем; максимальная глубина ${maxDepth}.`
+    );
+  }
+
   private fail(job: AiImportJobState, message: string, hint: string): void {
     this.logLine(job, 'error', message);
     job.error = { message, hint };
@@ -260,6 +335,11 @@ export class AiImportService {
    * via `attemptWarn`; a pending cancel is honoured BETWEEN attempts (the job
    * is then already finished as cancelled). Upstream/network errors are never
    * retried — the caller decides what they mean for the job.
+   *
+   * Task 14: `maxTokens` is per-call (extraction 2000 vs structure 4000, B1);
+   * a `finish_reason === 'length'` answer logs `truncatedWarn` (B2); when
+   * `parseFinal` is given, it replaces `parse` on the LAST attempt (lenient
+   * salvage instead of losing the whole batch, B7).
    */
   private async chatWithJsonRetries<T>(args: {
     job: AiImportJobState;
@@ -267,8 +347,12 @@ export class AiImportService {
     client: AiClient;
     model: string;
     messages: AiChatMessage[];
+    maxTokens: number;
     parse: (content: string) => T | null;
+    /** Lenient parser for the last attempt (Task 14 B7); defaults to `parse`. */
+    parseFinal?: (content: string) => T | null;
     attemptWarn: (attempt: number) => string;
+    truncatedWarn: (attempt: number) => string;
   }): Promise<JsonCallOutcome<T>> {
     for (let attempt = 1; attempt <= AI_IMPORT_JSON_ATTEMPTS; attempt++) {
       let content: string;
@@ -277,13 +361,18 @@ export class AiImportService {
           model: args.model,
           messages: args.messages,
           temperature: AI_IMPORT_TEMPERATURE,
-          max_tokens: AI_IMPORT_MAX_TOKENS,
+          max_tokens: args.maxTokens,
         });
         content = res.choices?.[0]?.message?.content ?? '';
+        if (res.choices?.[0]?.finish_reason === 'length') {
+          this.logLine(args.job, 'warn', args.truncatedWarn(attempt));
+        }
       } catch (err) {
         return { kind: 'upstream', error: err as Error };
       }
-      const value = args.parse(content);
+      const parse =
+        attempt === AI_IMPORT_JSON_ATTEMPTS && args.parseFinal ? args.parseFinal : args.parse;
+      const value = parse(content);
       if (value !== null) return { kind: 'ok', value };
       this.logLine(args.job, 'warn', args.attemptWarn(attempt));
       if (attempt < AI_IMPORT_JSON_ATTEMPTS && this.cancelIfRequested(args.job, args.counters)) {
@@ -357,6 +446,12 @@ export class AiImportService {
         this.fail(job, 'Файлы документации пусты — извлекать нечего.', AI_IMPORT_HINT_NO_DOCS);
         return;
       }
+      // Task 14 B9: volume of the upcoming work, before the first AI call.
+      this.logLine(
+        job,
+        'info',
+        `Модель: ${model}. Файлов: ${files.length}, фрагментов: ${totalChunks}.`,
+      );
 
       const client: AiClient = this.deps.makeAiClient(apiKey, baseURL);
       const extracted: AiExtractedRequirement[] = [];
@@ -374,15 +469,31 @@ export class AiImportService {
           );
           // Task 13 A3: up to 3 attempts while the answer is not a JSON array;
           // upstream errors are NOT retried and fail the job as before.
-          const outcome = await this.chatWithJsonRetries({
+          // Task 14 B8: an array whose records are ALL invalid is a format
+          // failure too — retried like non-JSON. A truly empty [] is a valid
+          // «no requirements here» answer and is never retried.
+          const outcome = await this.chatWithJsonRetries<ParsedExtraction>({
             job,
             counters,
             client,
             model,
             messages,
-            parse: parseExtractionResponse,
+            maxTokens: AI_IMPORT_MAX_TOKENS,
+            parse: (content) => {
+              const parsed = parseExtractionResponse(content);
+              if (
+                parsed !== null &&
+                parsed.items.length === 0 &&
+                parsed.droppedNoSource + parsed.droppedInvalid > 0
+              ) {
+                return null;
+              }
+              return parsed;
+            },
             attemptWarn: (attempt) =>
               `Файл ${file} (фрагмент ${i + 1}/${chunks.length}): ответ модели не распознан как JSON-массив (попытка ${attempt} из ${AI_IMPORT_JSON_ATTEMPTS}).`,
+            truncatedWarn: (attempt) =>
+              `Файл ${file} (фрагмент ${i + 1}/${chunks.length}): ответ модели обрезан по лимиту токенов (попытка ${attempt} из ${AI_IMPORT_JSON_ATTEMPTS}).`,
           });
           if (outcome.kind === 'cancelled') return;
           if (outcome.kind === 'upstream') {
@@ -448,15 +559,21 @@ export class AiImportService {
       // failure here never fails the job (requirements matter more).
       job.stage = 'structure';
       if (this.cancelIfRequested(job, counters)) return;
-      this.logLine(job, 'info', 'Построение древовидной структуры ФТ/НФТ через AI hub…');
-      const structureParentByKey = new Map<string, string>();
+      // First answer per (type, name): null = explicit root, string = parent.
+      const structureParentByKey = new Map<string, string | null>();
       const seenKeys = new Set<string>();
       const structureItems: StructureItem[] = [];
       for (const record of extracted) {
         const key = nameKey(record.type, record.name);
         if (seenKeys.has(key)) continue;
         seenKeys.add(key);
-        structureItems.push({ type: record.type, name: record.name });
+        structureItems.push({ type: record.type, name: record.name, source: record.source });
+      }
+      if (structureItems.length === 0) {
+        // Task 14 B9: nothing extracted → no hub calls, no empty batch.
+        this.logLine(job, 'info', 'Структурировать нечего — требования не извлечены.');
+      } else {
+        this.logLine(job, 'info', 'Построение древовидной структуры ФТ/НФТ через AI hub…');
       }
       const batchSize = this.deps.structureBatch ?? AI_IMPORT_STRUCTURE_BATCH;
       const batches: StructureItem[][] = [];
@@ -465,22 +582,74 @@ export class AiImportService {
       }
       for (let b = 0; b < batches.length; b++) {
         if (b > 0 && this.cancelIfRequested(job, counters)) return;
-        const outcome = await this.chatWithJsonRetries({
+        const batchLabel = `Структуризация (батч ${b + 1}/${batches.length})`;
+        const outcome = await this.chatWithJsonRetries<ParsedStructure>({
           job,
           counters,
           client,
           model,
-          messages: buildStructureMessages(batches[b]!, archiveMap),
-          parse: parseStructureResponse,
+          messages: buildStructureMessages(batches[b]!, archiveMap, structureItems),
+          maxTokens: AI_IMPORT_STRUCTURE_MAX_TOKENS, // Task 14 B1
+          parse: (content) => parseStructureResponse(content),
+          // Task 14 B7: the LAST attempt keeps valid nodes instead of losing the batch.
+          parseFinal: (content) => parseStructureResponse(content, 'lenient'),
           attemptWarn: (attempt) =>
-            `Структуризация (батч ${b + 1}/${batches.length}): ответ модели не распознан как JSON-массив структуры (попытка ${attempt} из ${AI_IMPORT_JSON_ATTEMPTS}).`,
+            `${batchLabel}: ответ модели не распознан как JSON-массив структуры (попытка ${attempt} из ${AI_IMPORT_JSON_ATTEMPTS}).`,
+          truncatedWarn: (attempt) =>
+            `${batchLabel}: ответ модели обрезан по лимиту токенов (попытка ${attempt} из ${AI_IMPORT_JSON_ATTEMPTS}).`,
         });
         if (outcome.kind === 'cancelled') return;
         if (outcome.kind === 'ok') {
-          for (const node of outcome.value) {
-            if (node.parentName !== null && node.parentName.trim().length > 0) {
-              structureParentByKey.set(nameKey(node.type, node.name), node.parentName);
+          const { nodes, droppedInvalid, total } = outcome.value;
+          if (droppedInvalid > 0) {
+            this.logLine(
+              job,
+              'warn',
+              `${batchLabel}: принято ${total - droppedInvalid} из ${total} узлов, невалидных отброшено ${droppedInvalid}.`,
+            );
+          }
+          // Task 14 B5: coverage report for the batch answer.
+          const answered = new Set<string>();
+          let foreign = 0;
+          for (const node of nodes) {
+            const key = nameKey(node.type, node.name);
+            if (!seenKeys.has(key)) {
+              foreign += 1; // never becomes a parent mapping
+              continue;
             }
+            const parent =
+              node.parentName !== null && node.parentName.trim().length > 0
+                ? node.parentName
+                : null;
+            if (structureParentByKey.has(key)) {
+              if (structureParentByKey.get(key) !== parent) {
+                this.logLine(
+                  job,
+                  'warn',
+                  `${batchLabel}: конфликт узлов для «${node.name}» (${node.type}) — разные parentName, используется первый.`,
+                );
+              }
+            } else {
+              structureParentByKey.set(key, parent);
+            }
+            answered.add(key);
+          }
+          if (foreign > 0) {
+            this.logLine(
+              job,
+              'warn',
+              `${batchLabel}: посторонних узлов проигнорировано: ${foreign}.`,
+            );
+          }
+          const missing = batches[b]!.filter(
+            (item) => !answered.has(nameKey(item.type, item.name)),
+          ).length;
+          if (missing > 0) {
+            this.logLine(
+              job,
+              'warn',
+              `${batchLabel}: требований без узла в ответе: ${missing} (останутся корневыми).`,
+            );
           }
         } else {
           if (outcome.kind === 'upstream') {
@@ -488,7 +657,7 @@ export class AiImportService {
               job,
               'warn',
               sanitize(
-                `Структуризация (батч ${b + 1}/${batches.length}): ошибка обращения к AI Hub: ${outcome.error.message}.`,
+                `${batchLabel}: ошибка обращения к AI Hub: ${outcome.error.message}.`,
                 apiKey,
               ),
             );
@@ -530,28 +699,53 @@ export class AiImportService {
       const existingKeys = new Map<string, Requirement>();
       for (const req of existing) existingKeys.set(nameKey(req.type, req.name), req);
 
+      // Task 13 B2: the parent comes from the structure stage ONLY —
+      // extraction-time parentName is superseded (records not covered by a
+      // structure answer stay roots). Task 14 B6: resolve parents first
+      // (same-type only, with a dedicated warn for an other-type parent),
+      // then deterministically break cycles BEFORE anything is written.
+      const parentInfoByKey = new Map<string, { parentKey: string; parentName: string }>();
+      for (const record of byKey.values()) {
+        const key = nameKey(record.type, record.name);
+        const parentName = structureParentByKey.get(key);
+        if (!parentName) continue; // root (explicit null or not covered)
+        const parentKey = nameKey(record.type, parentName);
+        if (parentKey === key) continue; // self-parent
+        if (byKey.has(parentKey) || existingKeys.has(parentKey)) {
+          parentInfoByKey.set(key, { parentKey, parentName });
+          continue;
+        }
+        const otherType = record.type === 'FUNCTION' ? 'NFR' : 'FUNCTION';
+        const otherKey = nameKey(otherType, parentName);
+        if (byKey.has(otherKey) || existingKeys.has(otherKey)) {
+          this.logLine(
+            job,
+            'warn',
+            `«${record.name}»: родитель «${parentName}» имеет другой тип — иерархия допустима только внутри одного типа; пропущена.`,
+          );
+        } else {
+          this.logLine(
+            job,
+            'warn',
+            `«${record.name}»: родитель «${parentName}» не найден ни в извлечённом наборе, ни в проекте — иерархия пропущена.`,
+          );
+        }
+      }
+
+      const parentKeyByChild = new Map<string, string>();
+      for (const [key, info] of parentInfoByKey) parentKeyByChild.set(key, info.parentKey);
+      for (const childKey of breakParentCycles(parentKeyByChild)) {
+        const childName = byKey.get(childKey)?.name ?? childKey;
+        this.logLine(job, 'warn', `Цикл разорван: «${childName}» становится корневым.`);
+        parentInfoByKey.delete(childKey);
+      }
+
       const aggregated: AggregatedRecord[] = [];
       for (const record of byKey.values()) {
-        // Task 13 B2: the parent comes from the structure stage ONLY —
-        // extraction-time parentName is superseded (records not covered by a
-        // structure answer stay roots).
-        const parentName = structureParentByKey.get(nameKey(record.type, record.name));
-        let parentKey: string | undefined;
-        if (parentName) {
-          const key = nameKey(record.type, parentName);
-          if (byKey.has(key) || existingKeys.has(key)) {
-            parentKey = key;
-          } else {
-            this.logLine(
-              job,
-              'warn',
-              `«${record.name}»: родитель «${parentName}» не найден ни в извлечённом наборе, ни в проекте — иерархия пропущена.`,
-            );
-          }
-        }
-        if (parentKey === nameKey(record.type, record.name)) parentKey = undefined; // self-parent
-        aggregated.push({ record, parentKey, parentName });
+        const info = parentInfoByKey.get(nameKey(record.type, record.name));
+        aggregated.push({ record, parentKey: info?.parentKey, parentName: info?.parentName });
       }
+      if (aggregated.length > 0) this.logLine(job, 'info', this.treeSummary(aggregated));
       this.logLine(job, 'info', `К наполнению после агрегации: ${aggregated.length} требований.`);
       job.progress = 85;
 

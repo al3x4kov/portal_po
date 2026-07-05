@@ -6,12 +6,14 @@ import AdmZip from 'adm-zip';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AiConfigRepo } from '../src/repositories/AiConfigRepo.js';
 import { AiImportJobs } from '../src/services/AiImportJobs.js';
+import { AI_IMPORT_MAX_TOKENS, AI_IMPORT_STRUCTURE_MAX_TOKENS } from '@po/core';
 import {
   AI_IMPORT_HINT_CONFIGURE,
   AI_IMPORT_HINT_NO_DOCS,
   AI_IMPORT_HINT_UNPARSEABLE,
   AI_IMPORT_HINT_UPSTREAM,
   AiImportService,
+  breakParentCycles,
   nextQuarterOf,
 } from '../src/services/AiImportService.js';
 import type { AiClient } from '../src/services/AiHubService.js';
@@ -39,8 +41,11 @@ async function writeZip(files: Record<string, string | Buffer>): Promise<string>
   return file;
 }
 
+/** One scripted answer: plain content, thrown error, lazy content, or content + finish_reason. */
+type ScriptedAnswer = string | Error | (() => string) | { content: string; finishReason: string };
+
 /** An AiClient whose chat answers are scripted per call (in order). */
-function scriptedClient(answers: Array<string | Error | (() => string)>): AiClient {
+function scriptedClient(answers: ScriptedAnswer[]): AiClient {
   let call = 0;
   return {
     models: { list: vi.fn(async () => ({ data: [] })) },
@@ -50,6 +55,13 @@ function scriptedClient(answers: Array<string | Error | (() => string)>): AiClie
           const answer = answers[Math.min(call, answers.length - 1)];
           call += 1;
           if (answer instanceof Error) throw answer;
+          if (typeof answer === 'object' && answer !== null) {
+            return {
+              choices: [
+                { message: { content: answer.content }, finish_reason: answer.finishReason },
+              ],
+            };
+          }
           const content = typeof answer === 'function' ? answer() : (answer ?? '[]');
           return { choices: [{ message: { content } }] };
         }),
@@ -752,6 +764,356 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     const after = service.cancel(jobId); // idempotent no-op
     expect(after.status).toBe(done.status);
     expect(after.status).toBe('succeeded');
+  });
+
+  // ── Task 14: tree validity of the AI import ───────────────────────────────
+
+  it('T14 B1: structure calls use their own 4000-token budget; extraction keeps 2000', async () => {
+    const client = scriptedClient([
+      JSON.stringify([record()]),
+      structure([{ name: 'Вход по паролю' }]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'auth.md': 'Вход.' });
+
+    await runToEnd(service, archive);
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    const budgets = create.mock.calls.map((c) => (c[0] as { max_tokens: number }).max_tokens);
+    expect(budgets).toEqual([AI_IMPORT_MAX_TOKENS, AI_IMPORT_STRUCTURE_MAX_TOKENS]);
+  });
+
+  it('T14 B2: finish_reason=length → truncation warn, salvaged array still used', async () => {
+    const two = JSON.stringify([
+      record(),
+      record({ name: 'Обрезанное', source: 'auth.md § Хвост' }),
+    ]);
+    const truncated = two.slice(0, two.indexOf('Обрезанное')); // cut inside record 2
+    const client = scriptedClient([
+      { content: truncated, finishReason: 'length' },
+      structure([{ name: 'Вход по паролю' }]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'auth.md': 'Вход.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    // The salvage recovered the first (complete) record on the FIRST attempt.
+    expect(view.result?.createdFunctions).toBe(1);
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(
+      view.log.some((l) => l.level === 'warn' && l.message.includes('обрезан по лимиту токенов')),
+    ).toBe(true);
+  });
+
+  it('T14 B5: foreign structure nodes are ignored with a warn and never become parents', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'А', source: 'a.md § А' }),
+        record({ name: 'Б', source: 'a.md § Б' }),
+      ]),
+      structure([
+        { name: 'А' },
+        { name: 'Б', parentName: 'А' },
+        { name: 'Выдуманный узел', parentName: 'А' }, // not in the extracted set
+      ]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Дерево.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result).toEqual({
+      createdFunctions: 2,
+      createdNfrs: 0,
+      skippedExisting: 0,
+      links: 1,
+    });
+    expect(
+      view.log.some(
+        (l) => l.level === 'warn' && l.message.includes('посторонних узлов проигнорировано: 1'),
+      ),
+    ).toBe(true);
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    expect(requirements.map((r) => r.name).sort()).toEqual(['А', 'Б']);
+  });
+
+  it('T14 B5: batch items missing from the answer produce a coverage warn', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'А', source: 'a.md § А' }),
+        record({ name: 'Б', source: 'a.md § Б' }),
+      ]),
+      structure([{ name: 'А' }]), // Б is missing from the answer
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Дерево.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(
+      view.log.some(
+        (l) =>
+          l.level === 'warn' && l.message.includes('без узла в ответе: 1 (останутся корневыми)'),
+      ),
+    ).toBe(true);
+  });
+
+  it('T14 B5: conflicting parents for one (type, name) → first wins with a warn', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'А', source: 'a.md § А' }),
+        record({ name: 'Б', source: 'a.md § Б' }),
+        record({ name: 'В', source: 'a.md § В' }),
+      ]),
+      structure([
+        { name: 'А' },
+        { name: 'Б' },
+        { name: 'В', parentName: 'А' },
+        { name: 'В', parentName: 'Б' }, // conflict — the first one wins
+      ]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Дерево.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.links).toBe(1);
+    expect(
+      view.log.some((l) => l.level === 'warn' && l.message.includes('используется первый')),
+    ).toBe(true);
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    const child = requirements.find((r) => r.name === 'В');
+    const parentA = requirements.find((r) => r.name === 'А');
+    expect(child?.links).toEqual([{ type: 'CHILD_OF', targetSlug: parentA?.slug }]);
+  });
+
+  it('T14 B6: a parent cycle in the structure answer is broken before populate', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'А', source: 'a.md § А' }),
+        record({ name: 'Б', source: 'a.md § Б' }),
+      ]),
+      structure([
+        { name: 'А', parentName: 'Б' },
+        { name: 'Б', parentName: 'А' },
+      ]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Цикл.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    // Deterministic: walking from «А», the edge Б→А closes the cycle → «Б» roots.
+    expect(
+      view.log.some(
+        (l) => l.level === 'warn' && l.message.includes('Цикл разорван: «Б» становится корневым'),
+      ),
+    ).toBe(true);
+    // No CYCLE error reaches the link layer; the surviving edge is created.
+    expect(view.log.some((l) => l.message.includes('CYCLE'))).toBe(false);
+    expect(view.result?.links).toBe(1);
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    const a = requirements.find((r) => r.name === 'А');
+    const b = requirements.find((r) => r.name === 'Б');
+    expect(a?.links).toEqual([{ type: 'CHILD_OF', targetSlug: b?.slug }]);
+  });
+
+  it('T14 B6: a parent of the OTHER type gets a dedicated warn and is skipped', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Раздел', source: 'a.md § Р' }),
+        record({ type: 'NFR', name: 'Отклик', source: 'a.md § О' }),
+      ]),
+      structure([
+        { name: 'Раздел' },
+        { type: 'NFR', name: 'Отклик', parentName: 'Раздел' }, // FUNCTION parent for an NFR
+      ]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Типы.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.links).toBe(0);
+    expect(
+      view.log.some(
+        (l) =>
+          l.level === 'warn' &&
+          l.message.includes(
+            'родитель «Раздел» имеет другой тип — иерархия допустима только внутри одного типа; пропущена',
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it('T14 B6: logs the tree summary (roots/children per type + max depth)', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Аутентификация', source: 'auth.md § Обзор' }),
+        record(),
+        record({ type: 'NFR', name: 'Время отклика', source: 'perf.md § SLA' }),
+      ]),
+      structure([
+        { name: 'Аутентификация' },
+        { name: 'Вход по паролю', parentName: 'Аутентификация' },
+        { type: 'NFR', name: 'Время отклика' },
+      ]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'auth.md': 'Дерево.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(
+      view.log.some(
+        (l) =>
+          l.level === 'info' &&
+          l.message.includes(
+            'Дерево: ФТ — 1 корней, 1 с родителем; НФТ — 1 корней, 0 с родителем; максимальная глубина 2.',
+          ),
+      ),
+    ).toBe(true);
+  });
+
+  it('T14 B7: the 3rd structure attempt salvages valid nodes from a partially invalid answer', async () => {
+    const lastAnswer = JSON.stringify([
+      { type: 'FUNCTION', name: 'А', parentName: null },
+      { type: 'FUNCTION', name: 'Б', parentName: 'А' },
+      { type: 'FUNCTION', name: 'Сломанный' }, // no parentName → invalid node
+    ]);
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'А', source: 'a.md § А' }),
+        record({ name: 'Б', source: 'a.md § Б' }),
+      ]),
+      JSON.stringify([{ ерунда: true }]), // attempt 1: array, all nodes invalid → strict null
+      JSON.stringify([{ ерунда: true }]), // attempt 2: same
+      lastAnswer, // attempt 3: lenient accepts the 2 valid nodes
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Дерево.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.links).toBe(1);
+    expect(
+      view.log.some(
+        (l) =>
+          l.level === 'warn' && l.message.includes('принято 2 из 3 узлов, невалидных отброшено 1'),
+      ),
+    ).toBe(true);
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).toHaveBeenCalledTimes(4); // 1 extraction + 3 structure attempts
+  });
+
+  it('T14 B8: an extraction array whose records are ALL invalid is retried like non-JSON', async () => {
+    const client = scriptedClient([
+      JSON.stringify([{ type: 'FUNCTION', name: 'Без описания и источника' }]), // all invalid
+      JSON.stringify([record()]), // attempt 2 succeeds
+      structure([{ name: 'Вход по паролю' }]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'auth.md': 'Вход.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.createdFunctions).toBe(1);
+    expect(view.log.some((l) => l.level === 'warn' && l.message.includes('попытка 1 из 3'))).toBe(
+      true,
+    );
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).toHaveBeenCalledTimes(3);
+  });
+
+  it('T14 B9: logs model and volume before the first AI call; a truly empty [] is NOT retried', async () => {
+    const client = scriptedClient(['[]']);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Текст.', 'b.md': 'Ещё текст.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(
+      view.log.some(
+        (l) =>
+          l.level === 'info' &&
+          l.message.includes('Модель: Qwen-Coder-Next. Файлов: 2, фрагментов: 2.'),
+      ),
+    ).toBe(true);
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).toHaveBeenCalledTimes(2); // one per chunk, no retries, no structure call
+  });
+
+  it('T14 B9: zero extracted requirements → structure stage skipped without hub calls', async () => {
+    const client = scriptedClient(['[]']);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Текст.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(
+      view.log.some((l) => l.message.includes('Структурировать нечего — требования не извлечены')),
+    ).toBe(true);
+    expect(view.log.some((l) => l.message.includes('Построение древовидной структуры'))).toBe(
+      false,
+    );
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).toHaveBeenCalledTimes(1); // extraction only
+  });
+});
+
+describe('T14 B6 breakParentCycles (pure, deterministic)', () => {
+  it('breaks a 2-cycle at the node whose edge closes the cycle; input is not mutated', () => {
+    const parents = new Map([
+      ['FUNCTION:а', 'FUNCTION:б'],
+      ['FUNCTION:б', 'FUNCTION:а'],
+    ]);
+    expect(breakParentCycles(parents)).toEqual(['FUNCTION:б']);
+    expect(parents.size).toBe(2); // pure: the caller's map is untouched
+  });
+
+  it('breaks a longer cycle reached through a chain', () => {
+    const parents = new Map([
+      ['FUNCTION:x', 'FUNCTION:a'],
+      ['FUNCTION:a', 'FUNCTION:b'],
+      ['FUNCTION:b', 'FUNCTION:c'],
+      ['FUNCTION:c', 'FUNCTION:a'],
+    ]);
+    // Walk from x: x→a→b→c→a — the edge c→a closes the cycle.
+    expect(breakParentCycles(parents)).toEqual(['FUNCTION:c']);
+  });
+
+  it('removes a self-parent edge', () => {
+    expect(breakParentCycles(new Map([['NFR:x', 'NFR:x']]))).toEqual(['NFR:x']);
+  });
+
+  it('returns [] for an acyclic forest', () => {
+    const parents = new Map([
+      ['FUNCTION:b', 'FUNCTION:a'],
+      ['FUNCTION:c', 'FUNCTION:b'],
+      ['FUNCTION:d', 'FUNCTION:a'],
+    ]);
+    expect(breakParentCycles(parents)).toEqual([]);
+  });
+
+  it('breaks several independent cycles in insertion order', () => {
+    const parents = new Map([
+      ['FUNCTION:а', 'FUNCTION:б'],
+      ['FUNCTION:б', 'FUNCTION:а'],
+      ['NFR:x', 'NFR:y'],
+      ['NFR:y', 'NFR:x'],
+    ]);
+    expect(breakParentCycles(parents)).toEqual(['FUNCTION:б', 'NFR:y']);
   });
 });
 

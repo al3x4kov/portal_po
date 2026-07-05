@@ -122,6 +122,20 @@ export type AiChatResponse = z.infer<typeof aiChatResponseSchema>;
 export const AI_IMPORT_TEMPERATURE = 0.2;
 /** Token budget for one extraction call — PO decision §3.5. */
 export const AI_IMPORT_MAX_TOKENS = 2000;
+/**
+ * Token budget for one structure (tree-building) call — Task 14 B1. One answer
+ * node `{"type":"FUNCTION","name":"…","parentName":"…"}` with Cyrillic names is
+ * ~40–70 tokens, so a batch of {@link AI_IMPORT_STRUCTURE_BATCH} = 50 nodes
+ * needs ~2000–3500 tokens; 4000 leaves head-room. The previous shared budget of
+ * {@link AI_IMPORT_MAX_TOKENS} = 2000 truncated every large-batch answer, so
+ * the tree silently degraded to a flat list on big projects.
+ */
+export const AI_IMPORT_STRUCTURE_MAX_TOKENS = 4000;
+/**
+ * Extracted records per structure-stage batch (Task 13 B2, Task 14 B1:
+ * 100 → 50 so the JSON answer reliably fits the structure token budget).
+ */
+export const AI_IMPORT_STRUCTURE_BATCH = 50;
 /** Chunk size in characters — fits a small context window (Qwen-Coder-Next). */
 export const AI_IMPORT_CHUNK_CHARS = 12_000;
 /** Upload limit for the documentation archive — PO decision §3.4. */

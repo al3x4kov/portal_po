@@ -131,7 +131,9 @@ describe('ARC-T2 · AiImportService error branches (populate/link/unpack)', () =
     expect(requirements.map((r) => r.name)).toEqual(['Валидное']);
   });
 
-  it('an invalid CHILD_OF (mutual parents → cycle) is logged as warn, import does not fail', async () => {
+  it('mutual parents (cycle) are broken BEFORE populate with a warn, import does not fail', async () => {
+    // fixedClient answers the structure stage with the same JSON: the records
+    // carry type/name/parentName, so they parse as structure nodes А→Б, Б→А.
     const client = fixedClient(
       JSON.stringify([
         record({ name: 'А', parentName: 'Б', source: 'a.md § А' }),
@@ -143,16 +145,20 @@ describe('ARC-T2 · AiImportService error branches (populate/link/unpack)', () =
 
     const view = service.getView(jobId);
     expect(view.status).toBe('succeeded');
-    // Both requirements exist; only the first CHILD_OF was created, the second
-    // would close a cycle and is rejected by the shared core rules.
+    // Task 14 B6: the cycle is broken deterministically before populate —
+    // no CYCLE error ever reaches the link layer; the surviving edge is created.
     expect(view.result).toEqual({
       createdFunctions: 2,
       createdNfrs: 0,
       skippedExisting: 0,
       links: 1,
     });
-    const warn = view.log.find((l) => l.level === 'warn' && l.message.includes('не создана'));
-    expect(warn?.message).toContain('CYCLE');
+    expect(
+      view.log.some(
+        (l) => l.level === 'warn' && l.message.includes('Цикл разорван: «Б» становится корневым'),
+      ),
+    ).toBe(true);
+    expect(view.log.some((l) => l.message.includes('CYCLE'))).toBe(false);
 
     const { requirements } = await createRequirementService(ctx, PROJECT).list();
     expect(requirements).toHaveLength(2);

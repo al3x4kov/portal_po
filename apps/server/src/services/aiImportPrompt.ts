@@ -65,20 +65,34 @@ export const AI_IMPORT_TREE_CHARS = 1500;
  */
 export function buildArchiveMap(files: string[], maxChars: number = AI_IMPORT_TREE_CHARS): string {
   const sorted = [...files].sort((a, b) => a.localeCompare(b));
-  const full = sorted.join('\n');
+  return truncateLines(sorted, maxChars, (omitted) => `…и ещё ${omitted} файлов`);
+}
+
+/**
+ * Join `lines` with `\n` under a character budget: when the full text exceeds
+ * `maxChars`, cut at a line boundary and terminate with `tailOf(omitted)` so
+ * the model still knows the total scope. The tail line is accounted for inside
+ * the budget.
+ */
+function truncateLines(
+  lines: string[],
+  maxChars: number,
+  tailOf: (omitted: number) => string,
+): string {
+  const full = lines.join('\n');
   if (full.length <= maxChars) return full;
 
   const kept: string[] = [];
   let length = 0; // length of kept.join('\n')
-  for (let i = 0; i < sorted.length; i++) {
-    const line = sorted[i]!;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
     const candidate = kept.length === 0 ? line.length : length + 1 + line.length;
-    const tail = `…и ещё ${sorted.length - (i + 1)} файлов`;
+    const tail = tailOf(lines.length - (i + 1));
     if (candidate + 1 + tail.length > maxChars) break;
     kept.push(line);
     length = candidate;
   }
-  const tail = `…и ещё ${sorted.length - kept.length} файлов`;
+  const tail = tailOf(lines.length - kept.length);
   return kept.length === 0 ? tail : `${kept.join('\n')}\n${tail}`;
 }
 
@@ -109,47 +123,88 @@ export function buildExtractionMessages(
   ];
 }
 
-/** One requirement passed into the structure call: type + name only. */
+/** One requirement passed into the structure call: type + name + provenance. */
 export interface StructureItem {
   type: RequirementType;
   name: string;
+  /** Extraction-time provenance «файл § раздел» — the main tree-quality signal (Task 14 B4). */
+  source: string;
 }
 
 /**
- * System prompt (RU) for the structure (tree-building) call (Task 13 B2).
- * The model sees the FULL list of extracted requirements plus the archive map
- * and must return exactly one node per requirement, assembling a tree that
- * mirrors the documentation structure (root section groups with children,
- * reference: the Jenkins sample project). Hierarchy is only allowed within one
- * type — the CHILD_OF rule of the link graph. Roots carry an explicit null.
+ * Character budget for the full parents list included in EVERY structure batch
+ * (Task 14 B3). Without it a batch only sees its own ~50 names, so a parent
+ * living in another batch is impossible and the tree fragments. 4000 chars
+ * (~1000–2000 tokens) is a flat, affordable add-on per structure call.
+ */
+export const AI_IMPORT_PARENTS_CHARS = 4000;
+
+/**
+ * Compact full list of requirements («допустимые родители») for one structure
+ * batch: one `TYPE\tname` line per requirement, FUNCTION lines first, then
+ * NFR. Truncated at a line boundary within `maxChars` with a
+ * «…и ещё N требований» tail (Task 14 B3).
+ */
+export function buildParentsList(
+  items: StructureItem[],
+  maxChars: number = AI_IMPORT_PARENTS_CHARS,
+): string {
+  const lines = [
+    ...items.filter((i) => i.type === 'FUNCTION'),
+    ...items.filter((i) => i.type !== 'FUNCTION'),
+  ].map((i) => `${i.type}\t${i.name}`);
+  return truncateLines(lines, maxChars, (omitted) => `…и ещё ${omitted} требований`);
+}
+
+/**
+ * System prompt (RU) for the structure (tree-building) call (Task 13 B2,
+ * Task 14 B3/B4). Each batch call carries the archive map, the FULL list of
+ * requirements (allowed parents) and the batch itself with provenance
+ * («файл § раздел»). The model must return exactly one node per BATCH
+ * requirement, assembling a tree that mirrors the documentation structure
+ * (root section groups with children, reference: the Jenkins sample project).
+ * Hierarchy is only allowed within one type — the CHILD_OF rule of the link
+ * graph. Roots carry an explicit null.
  */
 const STRUCTURE_SYSTEM_PROMPT = [
   'Ты — архитектор дерева требований для портала управления требованиями Product Owner.',
-  'Тебе дают полный список уже извлечённых требований (тип и имя) и структуру архива',
-  'документации. Собери из них древовидную структуру, максимально похожую на структуру',
-  'документации: корневые группы-разделы и их дети под ними (например, требования одного',
-  'раздела или файла — под общим корневым требованием-разделом).',
+  'Тебе дают структуру архива документации, полный список уже извлечённых требований',
+  'и батч требований (тип, имя и источник «файл § раздел»).',
+  'Собери древовидную структуру, максимально похожую на структуру документации:',
+  'корневые группы-разделы и их дети под ними.',
+  'Группируй по файлам и разделам из поля источника: требования одного файла/раздела —',
+  'под общим корнем-разделом; структура дерева должна повторять структуру документации.',
   'Иерархия допустима ТОЛЬКО внутри одного типа: FUNCTION под FUNCTION, NFR под NFR.',
+  'parentName выбирай из секции «Полный список требований (допустимые родители)»;',
+  'узлы верни только для требований из секции «Батч».',
   'Используй ТОЛЬКО переданные имена требований: ничего не выдумывай, не переименовывай,',
   'не добавляй и не удаляй элементы.',
   'Ответ верни СТРОГО как JSON-массив объектов вида',
   '{"type":"FUNCTION"|"NFR","name":string,"parentName":string|null} —',
-  'ровно по одному элементу на КАЖДОЕ переданное требование.',
+  'ровно по одному элементу на КАЖДОЕ требование из секции «Батч».',
   'Для корневых элементов parentName обязан быть null; не опускай это поле.',
   'Без markdown, без преамбул и пояснений.',
 ].join(' ');
 
-/** Build the two-message conversation for one structure batch. */
+/**
+ * Build the two-message conversation for one structure batch. `allItems` is
+ * the FULL extracted set: every batch sees all allowed parents (Task 14 B3),
+ * while nodes are only expected for `items` (the batch itself).
+ */
 export function buildStructureMessages(
   items: StructureItem[],
   archiveMap: string,
+  allItems: StructureItem[],
 ): AiChatMessage[] {
   const user = [
     'Структура архива (файлы документации):',
     archiveMap,
     '',
-    `Требования (${items.length} шт., формат: тип и имя через табуляцию):`,
-    ...items.map((item) => `${item.type}\t${item.name}`),
+    'Полный список требований (допустимые родители):',
+    buildParentsList(allItems),
+    '',
+    `Батч (${items.length} шт., формат: тип, имя и источник через табуляцию):`,
+    ...items.map((item) => `${item.type}\t${item.name}\t${item.source}`),
   ].join('\n');
   return [
     { role: 'system', content: STRUCTURE_SYSTEM_PROMPT },
@@ -157,22 +212,47 @@ export function buildStructureMessages(
   ];
 }
 
+/** Outcome of parsing one structure answer (Task 14 B7). */
+export interface ParsedStructure {
+  /** Nodes that passed {@link aiStructureNodeSchema}. */
+  nodes: AiStructureNode[];
+  /** Nodes dropped by the lenient mode (always 0 in strict mode). */
+  droppedInvalid: number;
+  /** Total number of elements in the answer array. */
+  total: number;
+}
+
 /**
- * Parse one structure answer: locate the JSON array (bare, fenced or
- * embedded), then validate EVERY node against {@link aiStructureNodeSchema}.
- * Returns `null` when no array is found OR any node is invalid — an invalid
- * answer is retried as a whole, exactly like a non-JSON one (Task 13 B2).
+ * Parse one structure answer: locate the JSON array (bare, fenced, embedded or
+ * salvaged from a truncated answer), then validate every node against
+ * {@link aiStructureNodeSchema}.
+ *
+ * - `strict` (default): any invalid node invalidates the whole answer (`null`)
+ *   — it is retried exactly like a non-JSON one (Task 13 B2).
+ * - `lenient` (used on the LAST attempt, Task 14 B7): valid nodes are kept,
+ *   invalid ones are counted in `droppedInvalid` instead of losing the batch.
+ *
+ * Returns `null` when no JSON array can be located at all.
  */
-export function parseStructureResponse(content: string): AiStructureNode[] | null {
+export function parseStructureResponse(
+  content: string,
+  mode: 'strict' | 'lenient' = 'strict',
+): ParsedStructure | null {
   const array = extractJsonArray(content);
   if (array === null) return null;
   const nodes: AiStructureNode[] = [];
+  let droppedInvalid = 0;
   for (const node of array) {
     const parsed = aiStructureNodeSchema.safeParse(node);
-    if (!parsed.success) return null;
-    nodes.push(parsed.data);
+    if (parsed.success) {
+      nodes.push(parsed.data);
+    } else if (mode === 'strict') {
+      return null;
+    } else {
+      droppedInvalid += 1;
+    }
   }
-  return nodes;
+  return { nodes, droppedInvalid, total: array.length };
 }
 
 /** Outcome of parsing one model answer. */
@@ -185,8 +265,14 @@ export interface ParsedExtraction {
   droppedInvalid: number;
 }
 
-/** Try to locate a JSON array in the model answer (bare, fenced, or embedded). */
-function extractJsonArray(content: string): unknown[] | null {
+/**
+ * Try to locate a JSON array in the model answer (bare, fenced, or embedded).
+ * As the LAST resort (Task 14 B2) it salvages an array truncated mid-object —
+ * e.g. an answer cut by the token limit: text from the first `[` to the last
+ * COMPLETE `}` is closed with `]` and parsed, so every fully-written element
+ * survives. Returns `null` when nothing parses.
+ */
+export function extractJsonArray(content: string): unknown[] | null {
   const trimmed = content.trim();
   const candidates: string[] = [trimmed];
   const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed);
@@ -194,6 +280,12 @@ function extractJsonArray(content: string): unknown[] | null {
   const first = trimmed.indexOf('[');
   const last = trimmed.lastIndexOf(']');
   if (first >= 0 && last > first) candidates.push(trimmed.slice(first, last + 1));
+  // Task 14 B2: salvage a truncated array (kept last — only used when the
+  // straightforward candidates fail).
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (first >= 0 && lastBrace > first) {
+    candidates.push(`${trimmed.slice(first, lastBrace + 1)}]`);
+  }
   for (const candidate of candidates) {
     try {
       const value: unknown = JSON.parse(candidate);

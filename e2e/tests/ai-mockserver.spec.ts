@@ -351,11 +351,15 @@ test.describe('AI против реального MockServer', () => {
     );
     expect(extraction).toHaveLength(2);
     expect(structure).toHaveLength(1);
-    // Structure-вызов несёт карту архива и по строке FUNCTION\t / NFR\t на имя.
+    // Structure-вызов (Task 14): три секции — карта архива, полный список
+    // допустимых родителей (TYPE\tимя) и батч с провенансом (TYPE\tимя\tисточник
+    // из extraction-ответа мока «mock.md § …»).
     const structureUser = structure[0]?.messages?.find((m) => m.role === 'user')?.content ?? '';
-    expect(structureUser).toContain('Структура архива');
-    expect(structureUser).toContain(`FUNCTION\t${IMP_FUNCTION}`);
-    expect(structureUser).toContain(`NFR\t${IMP_NFR}`);
+    expect(structureUser).toContain('Структура архива (файлы документации):');
+    expect(structureUser).toContain('Полный список требований (допустимые родители):');
+    expect(structureUser).toContain('Батч (2 шт., формат: тип, имя и источник через табуляцию):');
+    expect(structureUser).toContain(`FUNCTION\t${IMP_FUNCTION}\tmock.md § Вход`);
+    expect(structureUser).toContain(`NFR\t${IMP_NFR}\tmock.md § Производительность`);
   });
 
   /* e1) 500 на completions: читабельная ошибка, история цела. */
