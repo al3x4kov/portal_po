@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Download, ExternalLink, Link as LinkIcon, Sparkles, type LucideIcon } from 'lucide-react';
 import { ServiceScreen, type ServiceKind } from './ServiceScreen';
 
 const ITEMS: ReadonlyArray<{
@@ -6,75 +7,75 @@ const ITEMS: ReadonlyArray<{
   label: string;
   hint: string;
   testid: string;
-  glyph: string;
+  icon: LucideIcon;
 }> = [
   {
     kind: 'ai',
     label: 'AI-ready API',
     hint: 'OpenSpec-контекст для ИИ-агентов.',
     testid: 'service-open-ai',
-    glyph: '✷',
+    icon: Sparkles,
   },
   {
     kind: 'rest',
     label: 'REST API',
     hint: 'HTTP/JSON поверх файлового хранилища.',
     testid: 'service-open-rest',
-    glyph: '⇄',
+    icon: ExternalLink,
   },
   {
     kind: 'mcp',
     label: 'MCP',
     hint: 'Инструменты для ИИ по Model Context Protocol.',
     testid: 'service-open-mcp',
-    glyph: '◆',
+    icon: LinkIcon,
   },
   {
     kind: 'skill',
     label: 'Skill',
-    hint: 'Скилл /extract для ИИ-агента: скачать с портала и настроить под GigaCode CLI.',
+    hint: 'Скилл /extract для ИИ-агента: скачать и настроить.',
     testid: 'service-open-skill',
-    glyph: '✦',
+    icon: Download,
   },
 ];
 
 /**
- * "Сервисные функции" section shown on the Start screen, below the primary
- * actions (E13, revised). Each card opens the corresponding ServiceScreen with
- * a description of what it is and how to use it.
+ * «Сервисные функции» on the Start screen: compact, visually secondary
+ * cards (surface-2 background, primary border on hover — §2.1-2 of the
+ * Norman review). A click opens the corresponding ServiceScreen.
  */
 export function ServicesSection(): React.ReactElement {
   const [service, setService] = useState<ServiceKind | null>(null);
 
   return (
-    <section className="mt-14" data-testid="services-section">
+    <section className="mt-10 pb-16" data-testid="services-section">
       <h2 className="text-lg font-bold">Сервисные функции</h2>
-      <p className="mt-1 text-sm" style={{ color: 'var(--color-text-2)' }}>
-        Программные интерфейсы для интеграций и ИИ-агентов.
-      </p>
+      <p className="t2 mt-1 text-sm">Программные интерфейсы для интеграций и ИИ-агентов.</p>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {ITEMS.map((item) => (
-          <button
-            key={item.kind}
-            type="button"
-            data-testid={item.testid}
-            onClick={() => setService(item.kind)}
-            className="card flex flex-col items-start gap-3 p-6 text-left transition-shadow hover:shadow"
-          >
-            <span
-              className="grid h-11 w-11 place-items-center rounded-lg text-xl"
-              style={{ background: 'var(--color-primary-soft)', color: 'var(--color-primary)' }}
-              aria-hidden="true"
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {ITEMS.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.kind}
+              type="button"
+              data-testid={item.testid}
+              onClick={() => setService(item.kind)}
+              className="flex items-start gap-3 rounded-lg border border-transparent p-4 text-left transition-colors hover:border-[var(--color-primary)]"
+              style={{ background: 'var(--color-surface-2)' }}
             >
-              {item.glyph}
-            </span>
-            <span className="text-lg font-bold">{item.label}</span>
-            <span className="text-sm" style={{ color: 'var(--color-text-2)' }}>
-              {item.hint}
-            </span>
-          </button>
-        ))}
+              <Icon
+                className="icon mt-0.5 flex-none"
+                style={{ color: 'var(--color-primary)' }}
+                aria-hidden="true"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">{item.label}</span>
+                <span className="t2 mt-0.5 block text-xs">{item.hint}</span>
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {service ? <ServiceScreen service={service} onClose={() => setService(null)} /> : null}

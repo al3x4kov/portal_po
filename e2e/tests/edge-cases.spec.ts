@@ -91,8 +91,9 @@ test.describe('T-702 edge cases', () => {
     const bad = await writeBrokenArchive(testInfo, 'broken.tar.gz');
     await page.goto('/');
     await page.getByTestId('start-import').click();
-    await page.getByTestId('import-name').fill(uniqueName('imp-bad'));
+    // T2 (todo_17): файл выбираем ПЕРВЫМ (выбор перезаписывает имя автоименем).
     await page.getByTestId('import-file').setInputFiles(bad);
+    await page.getByTestId('import-name').fill(uniqueName('imp-bad'));
     await page.getByTestId('import-submit').click();
     await expect(page.getByTestId('import-error')).toBeVisible();
     await expect(page.getByTestId('import-page')).toBeVisible();

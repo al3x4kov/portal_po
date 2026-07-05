@@ -300,6 +300,20 @@ html.dark {
   }
 }
 
+/* Индетерминированная прогресс-полоса (импорт архива, §2.3-3):
+   реальный прогресс fetch не отдаёт, полоска «бегает» по треку. */
+@keyframes progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(400%);
+  }
+}
+.progress-indeterminate {
+  animation: progress-slide 1.2s ease-in-out infinite;
+}
+
 /* Row-actions: видимы всегда (приглушены), акцент по hover/focus-within;
    на touch-устройствах — полная видимость всегда. */
 .row-actions {

@@ -266,8 +266,9 @@ test.describe('T-204 · zip — состав по выбору полей', () =
     // Отфильтрованный архив должен валидно импортироваться (createdAt/updatedAt на месте).
     await page.goto('/');
     await page.getByTestId('start-import').click();
-    await page.getByTestId('import-name').fill(uniqueName('zip-min-reimport'));
+    // T2 (todo_17): файл выбираем ПЕРВЫМ — выбор перезаписывает имя автоименем.
     await page.getByTestId('import-file').setInputFiles(archive);
+    await page.getByTestId('import-name').fill(uniqueName('zip-min-reimport'));
     await page.getByTestId('import-submit').click();
     await expect(page.getByTestId('main-page')).toBeVisible();
   });
@@ -316,8 +317,9 @@ test.describe('T-204 · tar.gz — состав по выбору полей', (
 
     await page.goto('/');
     await page.getByTestId('start-import').click();
-    await page.getByTestId('import-name').fill(uniqueName('tgz-min-reimport'));
+    // T2 (todo_17): файл выбираем ПЕРВЫМ — выбор перезаписывает имя автоименем.
     await page.getByTestId('import-file').setInputFiles(archive);
+    await page.getByTestId('import-name').fill(uniqueName('tgz-min-reimport'));
     await page.getByTestId('import-submit').click();
     await expect(page.getByTestId('main-page')).toBeVisible();
   });

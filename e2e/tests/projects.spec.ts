@@ -83,9 +83,9 @@ test.describe('todo_16 B1 · удаление проекта из списка �
     await page.getByTestId(`project-delete-${id}`).click();
     const dialog = page.getByTestId('project-delete-dialog');
     await expect(dialog).toBeVisible();
-    // Текст предупреждения содержит имя проекта и необратимость (spec B1).
-    await expect(page.getByTestId('project-delete-dialog-message')).toContainText(name);
-    await expect(page.getByTestId('project-delete-dialog-message')).toContainText('необратимо');
+    // T2 (todo_17): заголовок диалога содержит имя, текст — необратимость.
+    await expect(dialog).toContainText(`Удалить проект «${name}»?`);
+    await expect(page.getByTestId('project-delete-dialog-message')).toContainText('безвозвратно');
 
     await page.getByTestId('project-delete-dialog-cancel').click();
     await expect(dialog).toHaveCount(0);
@@ -117,6 +117,9 @@ test.describe('todo_16 B1 · удаление проекта из списка �
 
     await page.getByTestId(`project-delete-${gone.id}`).click();
     await expect(page.getByTestId('project-delete-dialog')).toBeVisible();
+    // T2 (todo_17): подтверждение 2-го уровня — ввод точного имени проекта.
+    await page.getByTestId('delete-confirm-input').fill(nameGone);
+    await expect(page.getByTestId('project-delete-dialog-confirm')).toBeEnabled();
     await page.getByTestId('project-delete-dialog-confirm').click();
 
     // Строка исчезла, диалог закрыт, соседний проект остался.
@@ -154,7 +157,8 @@ test.describe('todo_16 A1 · длинный путь на «Открыть су�
     expect(summary.mainPath.length).toBeGreaterThanOrEqual(100);
 
     await gotoOpenList(page);
-    await expect(page.getByTestId('open-container')).toBeVisible();
+    // T2 (todo_17): `open-container` удалён из разметки — якорь теперь open-page.
+    await expect(page.getByTestId('open-page')).toBeVisible();
 
     const pathEl = page.getByTestId(`open-project-path-${summary.id}`);
     await expect(pathEl).toBeVisible();

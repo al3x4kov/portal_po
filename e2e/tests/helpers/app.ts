@@ -285,8 +285,10 @@ export async function importArchive(
 ): Promise<void> {
   await page.goto('/');
   await page.getByTestId('start-import').click();
-  await page.getByTestId('import-name').fill(name);
+  // T2 (todo_17): picking a file prefills the name from the archive filename,
+  // so the file must be set FIRST and the explicit name typed afterwards.
   await page.getByTestId('import-file').setInputFiles(filePath);
+  await page.getByTestId('import-name').fill(name);
   await page.getByTestId('import-submit').click();
   if (opts.expectError) {
     await expect(page.getByTestId('import-error')).toBeVisible();

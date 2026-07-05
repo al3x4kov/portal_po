@@ -79,7 +79,9 @@ export function useImportProject() {
  * every cached query scoped to the deleted project is dropped, and the
  * project-scoped UI selection (expanded branches, search, filters, open
  * modal) is reset — the app has no other "selected project" state besides
- * the route, so this is the full cleanup. Success/error feedback via toast.
+ * the route, so this is the full cleanup. Success feedback via toast; errors
+ * are NOT toasted here — the caller shows them inside the confirm dialog
+ * (§2.4-4, todo_17 T2) so the failure is never swallowed by a vanishing toast.
  */
 export function useDeleteProject() {
   const qc = useQueryClient();
@@ -98,7 +100,6 @@ export function useDeleteProject() {
       ui.resetFilters();
       toast.show(`Проект «${name}» удалён`);
     },
-    onError: (err) => toast.show(errorMessage(err), 'error'),
   });
 }
 
