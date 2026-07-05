@@ -129,8 +129,18 @@ export const AI_IMPORT_MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
 /** Max number of documentation files inside one archive — PO decision §3.4. */
 export const AI_IMPORT_MAX_DOC_FILES = 500;
 
-/** Job stages in execution order (progress: 0–5–80–85–100). */
-export const AI_IMPORT_STAGES = ['unpack', 'analyze', 'aggregate', 'populate', 'done'] as const;
+/**
+ * Job stages in execution order. Progress ranges (Task 13): unpack 0–5,
+ * analyze 5–65, structure 65–80, aggregate 80–85, populate 85–100.
+ */
+export const AI_IMPORT_STAGES = [
+  'unpack',
+  'analyze',
+  'structure',
+  'aggregate',
+  'populate',
+  'done',
+] as const;
 export type AiImportStage = (typeof AI_IMPORT_STAGES)[number];
 
 /** Job lifecycle statuses. */
@@ -194,3 +204,19 @@ export const aiExtractedRequirementSchema = z.object({
   parentName: z.string().optional(),
 });
 export type AiExtractedRequirement = z.infer<typeof aiExtractedRequirementSchema>;
+
+/**
+ * One node of the structure-stage answer (Task 13 B2): the model receives the
+ * FULL list of extracted requirements (type + name) plus the archive map and
+ * returns exactly one node per requirement, assembling a tree that mirrors the
+ * documentation structure. `parentName` is REQUIRED and must be an explicit
+ * `null` for roots; hierarchy is only valid within one type (CHILD_OF rule).
+ * Unknown keys are stripped, an invalid node invalidates the whole answer
+ * (the caller retries the batch).
+ */
+export const aiStructureNodeSchema = z.object({
+  type: z.enum(REQUIREMENT_TYPES),
+  name: z.string().min(1).max(200),
+  parentName: z.string().nullable(),
+});
+export type AiStructureNode = z.infer<typeof aiStructureNodeSchema>;

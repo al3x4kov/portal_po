@@ -280,6 +280,7 @@ import {
   aiImportLogEntrySchema,
   aiImportResultSchema,
   aiImportStartResponseSchema,
+  aiStructureNodeSchema,
 } from './ai.js';
 import { requirementCreateShape } from './contracts.js';
 
@@ -292,9 +293,67 @@ describe('T11 AI import contract constants', () => {
     expect(AI_IMPORT_MAX_DOC_FILES).toBe(500);
   });
 
-  it('exposes the stage and status unions', () => {
-    expect(AI_IMPORT_STAGES).toEqual(['unpack', 'analyze', 'aggregate', 'populate', 'done']);
+  it('exposes the stage and status unions (Task 13: structure between analyze and aggregate)', () => {
+    expect(AI_IMPORT_STAGES).toEqual([
+      'unpack',
+      'analyze',
+      'structure',
+      'aggregate',
+      'populate',
+      'done',
+    ]);
     expect(AI_IMPORT_STATUSES).toEqual(['running', 'succeeded', 'failed', 'cancelled']);
+  });
+});
+
+describe('T13 aiStructureNodeSchema (structure-stage answer contract)', () => {
+  it('accepts a child node with a string parentName', () => {
+    const node = aiStructureNodeSchema.parse({
+      type: 'FUNCTION',
+      name: 'Вход по паролю',
+      parentName: 'Аутентификация',
+    });
+    expect(node.parentName).toBe('Аутентификация');
+  });
+
+  it('accepts a root node with an explicit null parentName', () => {
+    const node = aiStructureNodeSchema.parse({
+      type: 'NFR',
+      name: 'Время отклика',
+      parentName: null,
+    });
+    expect(node.parentName).toBeNull();
+  });
+
+  it('rejects a node without parentName (roots must say null explicitly)', () => {
+    expect(aiStructureNodeSchema.safeParse({ type: 'FUNCTION', name: 'X' }).success).toBe(false);
+  });
+
+  it('rejects an unknown type and an empty or overlong name', () => {
+    expect(
+      aiStructureNodeSchema.safeParse({ type: 'EPIC', name: 'X', parentName: null }).success,
+    ).toBe(false);
+    expect(
+      aiStructureNodeSchema.safeParse({ type: 'FUNCTION', name: '', parentName: null }).success,
+    ).toBe(false);
+    expect(
+      aiStructureNodeSchema.safeParse({
+        type: 'FUNCTION',
+        name: 'x'.repeat(201),
+        parentName: null,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('strips unknown keys (extraction-style extras are ignored, not fatal)', () => {
+    const node = aiStructureNodeSchema.parse({
+      type: 'FUNCTION',
+      name: 'Вход',
+      parentName: null,
+      description: 'лишнее',
+      source: 'a.md § 1',
+    });
+    expect(node).toEqual({ type: 'FUNCTION', name: 'Вход', parentName: null });
   });
 });
 

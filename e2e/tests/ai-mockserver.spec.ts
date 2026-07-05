@@ -52,6 +52,7 @@ const FAULT_IDS = [
   'e2e-drop',
   'e2e-bad-json',
   'e2e-empty-choices',
+  'e2e-structure',
 ] as const;
 
 /** Готовое OpenAI-совместимое тело ответа chat.completions. */
@@ -235,9 +236,10 @@ test.describe('AI против реального MockServer', () => {
     await attachShot(page, testInfo, 'ms-generation-preview');
   });
 
-  /* d) AI-импорт документации: extraction-мок → требования в дереве. */
+  /* d) AI-импорт документации: extraction+structure моки → требования в
+     дереве; «Источник» пуст, «Реализация» = «Реализовано» (Task 13). */
 
-  test('AI-импорт zip: успех, мок-требования в дереве, source из мока', async ({
+  test('AI-импорт zip: успех, мок-требования в дереве, «Источник» пуст, «Реализовано»', async ({
     page,
   }, testInfo) => {
     const id = await projectWithAi(page, 'MS-Imp');
@@ -255,6 +257,32 @@ test.describe('AI против реального MockServer', () => {
     const zipPath = testInfo.outputPath('ms-docs.zip');
     zip.writeZip(zipPath);
 
+    // Task 13 B2: пайплайн делает ДОПОЛНИТЕЛЬНЫЙ structure-вызов (system
+    // «архитектор дерева требований…»). Базовые expectations MockServer его
+    // не знают → без этого мока он упал бы в chat-ответ (не-JSON) и после
+    // 3 попыток остался бы плоским. Отвечаем строгим JSON-массивом: оба
+    // требования — корни (иерархия только внутри одного типа, а здесь 1 ФТ
+    // и 1 НФТ), parentName обязан быть явным null.
+    await addExpectation({
+      id: 'e2e-structure',
+      priority: 25,
+      httpRequest: {
+        method: 'POST',
+        path: COMPLETIONS_PATH,
+        body: { type: 'STRING', string: 'архитектор дерева требований', subString: true },
+      },
+      httpResponse: {
+        statusCode: 200,
+        headers: { 'Content-Type': ['application/json'] },
+        body: chatCompletionBody(
+          JSON.stringify([
+            { type: 'FUNCTION', name: IMP_FUNCTION, parentName: null },
+            { type: 'NFR', name: IMP_NFR, parentName: null },
+          ]),
+        ),
+      },
+    });
+
     await page.getByTestId('footer-ai-import').click();
     await expect(page.getByTestId('ai-import')).toBeVisible();
     await page.getByTestId('ai-import-file').setInputFiles(zipPath);
@@ -271,9 +299,10 @@ test.describe('AI против реального MockServer', () => {
     await expect(success).toContainText('Пропущено как существующие: 0');
     // Бэкенд-фикс minor-дефекта: in-run дубли теперь явно видны warn-строкой
     // в логе работы (счётчики контракта не менялись — skipped остаётся 0).
-    await expect(page.getByTestId('ai-import-log')).toContainText(
-      'Дубликатов в извлечении пропущено: 2',
-    );
+    const log = page.getByTestId('ai-import-log');
+    await expect(log).toContainText('Дубликатов в извлечении пропущено: 2');
+    // Task 13 B2: стадия структуризации прошла через настоящий MockServer.
+    await expect(log).toContainText('Построение древовидной структуры ФТ/НФТ через AI hub…');
     await attachShot(page, testInfo, 'ms-import-success');
 
     await page.getByTestId('ai-import-done').click();
@@ -281,24 +310,52 @@ test.describe('AI против реального MockServer', () => {
     await expect(rowByName(page, IMP_FUNCTION)).toBeVisible();
     await expect(rowByName(page, IMP_NFR)).toBeVisible();
 
-    // Провенанс «Источник» пришёл из мока MockServer.
+    // Task 13 A1/A2: «Источник» — бизнес-поле, при импорте остаётся пустым
+    // (провенанс мока «mock.md § …» живёт только в логе работы); всё созданное
+    // сразу «Реализовано», без квартала/года.
     const res = await page.request.get(`/api/projects/${encodeURIComponent(id)}/requirements`);
     expect(res.ok()).toBe(true);
     const { requirements } = (await res.json()) as {
-      requirements: Array<{ name: string; source?: string }>;
+      requirements: Array<{
+        name: string;
+        source?: string;
+        implemented?: boolean;
+        targetQuarter?: string;
+        targetYear?: number;
+      }>;
     };
     const byName = new Map(requirements.map((r) => [r.name, r]));
-    expect(byName.get(IMP_FUNCTION)?.source).toBe('mock.md § Вход');
-    expect(byName.get(IMP_NFR)?.source).toBe('mock.md § Производительность');
+    for (const name of [IMP_FUNCTION, IMP_NFR]) {
+      const req = byName.get(name);
+      expect(req?.source ?? '', `source of «${name}» must stay empty`).toBe('');
+      expect(req?.implemented, `«${name}» must be created implemented`).toBe(true);
+      expect(req?.targetQuarter).toBeUndefined();
+      expect(req?.targetYear).toBeUndefined();
+    }
 
-    // Экстрактор вызван по разу на файл (оба запроса несут runId в имени файла).
+    // Запросы к апстриму, несущие runId (имена файлов входят и в extraction-
+    // сообщение, и в карту архива structure-вызова): 2 extraction + 1 structure.
     const calls = await retrieveRequests({
       method: 'POST',
       path: COMPLETIONS_PATH,
       body: { type: 'STRING', string: runId, subString: true },
     });
-    expect(calls).toHaveLength(2);
-    for (const call of calls) expect(parseChatBody(call).model).toBe(MOCK_MODEL);
+    expect(calls).toHaveLength(3);
+    const bodies = calls.map(parseChatBody);
+    for (const body of bodies) expect(body.model).toBe(MOCK_MODEL);
+    const extraction = bodies.filter((b) =>
+      (b.messages?.[0]?.content ?? '').includes('экстрактор требований'),
+    );
+    const structure = bodies.filter((b) =>
+      (b.messages?.[0]?.content ?? '').includes('архитектор дерева требований'),
+    );
+    expect(extraction).toHaveLength(2);
+    expect(structure).toHaveLength(1);
+    // Structure-вызов несёт карту архива и по строке FUNCTION\t / NFR\t на имя.
+    const structureUser = structure[0]?.messages?.find((m) => m.role === 'user')?.content ?? '';
+    expect(structureUser).toContain('Структура архива');
+    expect(structureUser).toContain(`FUNCTION\t${IMP_FUNCTION}`);
+    expect(structureUser).toContain(`NFR\t${IMP_NFR}`);
   });
 
   /* e1) 500 на completions: читабельная ошибка, история цела. */

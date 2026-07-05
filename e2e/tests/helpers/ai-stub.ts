@@ -33,6 +33,21 @@ import { createServer, type Server } from 'node:http';
  *   (chat replies are never delayed — tasks 8/9/10 stay fast);
  * - the existing `setChatMode('error')` also 500s extraction calls (stage
  *   failure scenario).
+ *
+ * Extras for task 13 (structure stage — tree via AI hub):
+ * - structure calls are detected by THEIR distinct system prompt («Ты —
+ *   архитектор дерева требований…», buildStructureMessages); the stub parses
+ *   the `FUNCTION\t<name>` / `NFR\t<name>` lines of the user message and
+ *   ECHOES one node per requirement — a STRICT JSON array of
+ *   `{type, name, parentName}` where `parentName` comes from the active
+ *   parents map (`opts.structureParents` / `setStructureParents`) and is
+ *   `null` for everything else, so ANY archive gets a valid structure answer;
+ * - structure requests are captured in `structureRequests`;
+ * - `setStructureDelay(ms)` delays structure replies only (stage-visibility
+ *   scenario needs the 800 ms poller to catch the `structure` stage);
+ * - `failNextExtractionJson(n)` / `failNextStructureJson(n)` make the next
+ *   `n` matching replies a NON-JSON sentence (HTTP 200) — the JSON-retry
+ *   scenarios of task 13 A3/B2.
  */
 
 /** Captured `/chat/completions` request body (openai SDK JSON payload). */
@@ -54,6 +69,12 @@ export interface AiStubOptions {
    * (idempotency scenario relies on this).
    */
   extractionItemsByFile?: Record<string, unknown[]>;
+  /**
+   * Task 13: default `parentName` per requirement NAME for structure answers.
+   * Requirements not present in the map are answered with `parentName: null`
+   * (roots). Override per test with `setStructureParents`.
+   */
+  structureParents?: Record<string, string>;
 }
 
 export interface AiStub {
@@ -68,11 +89,27 @@ export interface AiStub {
   readonly extractionRequests: AiChatCompletionCapture[];
   /** Task 11: delay (ms) applied to every extraction reply; 0 disables. */
   setExtractionDelay(ms: number): void;
+  /** Task 13: only the structure-prompt `/chat/completions` bodies. */
+  readonly structureRequests: AiChatCompletionCapture[];
+  /** Task 13: parents map for structure answers; `null` restores the default. */
+  setStructureParents(map: Record<string, string> | null): void;
+  /** Task 13: delay (ms) applied to every structure reply; 0 disables. */
+  setStructureDelay(ms: number): void;
+  /** Task 13 A3: the next `n` extraction replies are NON-JSON text (HTTP 200). */
+  failNextExtractionJson(n: number): void;
+  /** Task 13 B2: the next `n` structure replies are NON-JSON text (HTTP 200). */
+  failNextStructureJson(n: number): void;
   close(): Promise<void>;
 }
 
 /** Marker of the import extraction system prompt (services/aiImportPrompt.ts). */
 const EXTRACTION_PROMPT_MARKER = 'экстрактор требований';
+
+/** Marker of the structure system prompt (buildStructureMessages, task 13 B2). */
+const STRUCTURE_PROMPT_MARKER = 'архитектор дерева требований';
+
+/** Deliberately NON-JSON model answer for the retry scenarios (task 13). */
+const NON_JSON_REPLY = 'Извините, сначала пришлю требования прозой, без JSON.';
 
 /**
  * Pull the doc file name out of «Файл: <name> (фрагмент i из n)…». The name is
@@ -86,12 +123,34 @@ function extractionFileName(body: AiChatCompletionCapture | undefined): string |
   return match?.[1] ?? null;
 }
 
+/**
+ * Parse the structure user message («…формат: тип и имя через табуляцию» +
+ * `FUNCTION\t<name>` / `NFR\t<name>` lines) into the batch items, preserving
+ * order — the echo answer must contain exactly one node per item.
+ */
+function structureItemsOf(
+  body: AiChatCompletionCapture | undefined,
+): Array<{ type: string; name: string }> {
+  const user = body?.messages?.find((m) => m.role === 'user')?.content ?? '';
+  const items: Array<{ type: string; name: string }> = [];
+  for (const line of user.split('\n')) {
+    const match = /^(FUNCTION|NFR)\t(.+)$/.exec(line);
+    if (match) items.push({ type: match[1]!, name: match[2]! });
+  }
+  return items;
+}
+
 /** Start the stub on an ephemeral 127.0.0.1 port. Call `close()` in afterAll. */
 export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
   let chatMode: 'ok' | 'error' = 'ok';
   let extractionDelayMs = 0;
+  let structureDelayMs = 0;
+  let structureParents: Record<string, string> = opts.structureParents ?? {};
+  let nonJsonExtractionLeft = 0;
+  let nonJsonStructureLeft = 0;
   const chatRequests: AiChatCompletionCapture[] = [];
   const extractionRequests: AiChatCompletionCapture[] = [];
+  const structureRequests: AiChatCompletionCapture[] = [];
 
   const server: Server = createServer((req, res) => {
     const url = req.url ?? '';
@@ -119,7 +178,22 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
         const system = body?.messages?.[0];
         const isExtraction =
           system?.role === 'system' && system.content.includes(EXTRACTION_PROMPT_MARKER);
+        const isStructure =
+          system?.role === 'system' && system.content.includes(STRUCTURE_PROMPT_MARKER);
         if (isExtraction && body) extractionRequests.push(body);
+        if (isStructure && body) structureRequests.push(body);
+
+        // Consume the non-JSON fault counters SYNCHRONOUSLY (before any delay)
+        // so concurrent polling never races the decrement.
+        let forceNonJson = false;
+        if (isExtraction && nonJsonExtractionLeft > 0) {
+          nonJsonExtractionLeft -= 1;
+          forceNonJson = true;
+        }
+        if (isStructure && nonJsonStructureLeft > 0) {
+          nonJsonStructureLeft -= 1;
+          forceNonJson = true;
+        }
 
         const respond = (): void => {
           if (chatMode === 'error') {
@@ -127,9 +201,26 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
             res.end(JSON.stringify({ error: { message: 'stub upstream failure' } }));
             return;
           }
-          const content = isExtraction
-            ? JSON.stringify(opts.extractionItemsByFile?.[extractionFileName(body) ?? ''] ?? [])
-            : opts.reply;
+          let content: string;
+          if (forceNonJson) {
+            content = NON_JSON_REPLY;
+          } else if (isExtraction) {
+            content = JSON.stringify(
+              opts.extractionItemsByFile?.[extractionFileName(body) ?? ''] ?? [],
+            );
+          } else if (isStructure) {
+            // Echo every batch item back; parents come from the active map,
+            // everything else is an explicit root (parentName: null).
+            content = JSON.stringify(
+              structureItemsOf(body).map((item) => ({
+                type: item.type,
+                name: item.name,
+                parentName: structureParents[item.name] ?? null,
+              })),
+            );
+          } else {
+            content = opts.reply;
+          }
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(
             JSON.stringify({
@@ -139,9 +230,11 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
             }),
           );
         };
-        // Only extraction replies are delayed (running/cancel scenarios need a
-        // window); chat replies stay instant so tasks 8/9/10 keep their pace.
+        // Only extraction/structure replies are delayed (running/cancel/stage
+        // scenarios need a window); chat replies stay instant so tasks 8/9/10
+        // keep their pace.
         if (isExtraction && extractionDelayMs > 0) setTimeout(respond, extractionDelayMs);
+        else if (isStructure && structureDelayMs > 0) setTimeout(respond, structureDelayMs);
         else respond();
         return;
       }
@@ -168,6 +261,19 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
     extractionRequests,
     setExtractionDelay(ms) {
       extractionDelayMs = ms;
+    },
+    structureRequests,
+    setStructureParents(map) {
+      structureParents = map ?? opts.structureParents ?? {};
+    },
+    setStructureDelay(ms) {
+      structureDelayMs = ms;
+    },
+    failNextExtractionJson(n) {
+      nonJsonExtractionLeft = n;
+    },
+    failNextStructureJson(n) {
+      nonJsonStructureLeft = n;
     },
     close() {
       return new Promise<void>((resolve) => server.close(() => resolve()));

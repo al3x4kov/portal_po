@@ -211,6 +211,35 @@ describe('AiImportModal (Task 11)', () => {
     expect(screen.getByTestId('ai-import-start')).not.toBeDisabled();
   });
 
+  it('running on the structure stage: shows the tree-building label (Task 13)', async () => {
+    getJob.mockResolvedValue({
+      ...RUNNING_JOB,
+      stage: 'structure',
+      progress: 70,
+      log: [
+        ...RUNNING_JOB.log,
+        {
+          ts: '2026-07-04T12:02:00.000Z',
+          level: 'info',
+          message: 'Построение древовидной структуры ФТ/НФТ через AI hub…',
+        },
+      ],
+    } satisfies AiImportJobView);
+    const user = userEvent.setup();
+    renderModal();
+    await screen.findByTestId('ai-import-model-select');
+    await startJob(user);
+
+    expect(screen.getByTestId('ai-import-stage')).toHaveTextContent(
+      'Этап: Построение древовидной структуры ФТ/НФТ',
+    );
+    expect(screen.getByTestId('ai-import-progress-pct')).toHaveTextContent('70%');
+    // The log under the progress bar keeps rendering as before.
+    expect(screen.getByTestId('ai-import-log')).toHaveTextContent(
+      'Построение древовидной структуры ФТ/НФТ через AI hub…',
+    );
+  });
+
   it('polling refreshes the job view until it succeeds', async () => {
     getJob.mockResolvedValueOnce(RUNNING_JOB).mockResolvedValue(SUCCEEDED_JOB);
     const user = userEvent.setup();

@@ -68,13 +68,29 @@ function record(over: Record<string, unknown> = {}): Record<string, unknown> {
   };
 }
 
+/** Structure-stage answer: [{type, name, parentName|null}] (Task 13 B2). */
+function structure(
+  nodes: Array<{ type?: string; name: string; parentName?: string | null }>,
+): string {
+  return JSON.stringify(
+    nodes.map((n) => ({
+      type: n.type ?? 'FUNCTION',
+      name: n.name,
+      parentName: n.parentName ?? null,
+    })),
+  );
+}
+
 describe('T11 AiImportService (unit, mock AI client)', () => {
   let root: string;
   let ctx: ServiceContext;
   let configRepo: AiConfigRepo;
   let jobs: AiImportJobs;
 
-  function makeService(client: AiClient, opts: { chunkChars?: number } = {}): AiImportService {
+  function makeService(
+    client: AiClient,
+    opts: { chunkChars?: number; structureBatch?: number } = {},
+  ): AiImportService {
     const projectRepo = createProjectRepo(ctx);
     return new AiImportService({
       now: fixedNow,
@@ -85,6 +101,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       makeLinkService: (pid) => createLinkService(ctx, pid),
       projectExists: (pid) => projectRepo.exists(pid),
       chunkChars: opts.chunkChars,
+      structureBatch: opts.structureBatch,
     });
   }
 
@@ -110,10 +127,11 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     await cleanup(root);
   });
 
-  it('happy path: two md files → requirements created with provenance and defaults', async () => {
+  it('happy path: two md files → requirements created, source empty, implemented forced (Task 13 A1/A2)', async () => {
     const client = scriptedClient([
       JSON.stringify([record()]),
       JSON.stringify([record({ type: 'NFR', name: 'Время отклика', source: 'perf.md § SLA' })]),
+      structure([{ name: 'Вход по паролю' }, { type: 'NFR', name: 'Время отклика' }]),
     ]);
     const service = makeService(client);
     const archive = await writeZip({
@@ -136,13 +154,15 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     const { requirements } = await createRequirementService(ctx, PROJECT).list();
     expect(requirements).toHaveLength(2);
     const fn = requirements.find((r) => r.type === 'FUNCTION');
-    // Provenance is written to the requirement `source` field (FR-19).
-    expect(fn?.source).toBe('auth.md § Вход');
-    // PO defaults §3.1: MEDIUM, implemented=false, next quarter from now().
+    // A1: `source` is a business field (who asked for the requirement) — the
+    // file provenance stays in the log only, the field is left empty.
+    expect(fn?.source).toBeUndefined();
+    // A2: everything imported is created as already implemented; no target
+    // quarter/year (rules.ts: those exist only when implemented=false).
     expect(fn?.criticality).toBe('MEDIUM');
-    expect(fn?.implemented).toBe(false);
-    expect(fn?.targetQuarter).toBe('Q3');
-    expect(fn?.targetYear).toBe(2026);
+    expect(fn?.implemented).toBe(true);
+    expect(fn?.targetQuarter).toBeUndefined();
+    expect(fn?.targetYear).toBeUndefined();
     // Defaults are logged as warnings, not written into the description.
     expect(view.log.some((l) => l.level === 'warn' && l.message.includes('умолчания'))).toBe(true);
     expect(fn?.description).toBe('Пользователь входит по email и паролю.');
@@ -155,6 +175,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       JSON.stringify([record({ name: 'Аутентификация', source: 'docs/api/auth.md § Вход' })]),
       '[]',
       '[]',
+      structure([{ name: 'Аутентификация' }]),
     ]);
     const service = makeService(client);
     const archive = await writeZip({
@@ -168,28 +189,36 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     expect(view.status).toBe('succeeded');
 
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
-    expect(create).toHaveBeenCalledTimes(3);
+    // 3 extraction calls + 1 structure call (Task 13 B2).
+    expect(create).toHaveBeenCalledTimes(4);
     type Call = { messages: Array<{ role: string; content: string }> };
     const userOf = (i: number): string =>
       (create.mock.calls[i]?.[0] as Call).messages.find((m) => m.role === 'user')?.content ?? '';
     const expectedMap = 'docs/api/auth.md\ndocs/nfr/perf.md\nreadme.md';
-    for (let i = 0; i < 3; i++) {
+    // The archive map goes into every call — extraction AND structure.
+    for (let i = 0; i < 4; i++) {
       expect(userOf(i)).toContain('Структура архива (файлы документации):\n' + expectedMap);
     }
     expect(userOf(0)).toContain('Файл: docs/api/auth.md (фрагмент 1 из 1)');
     expect(userOf(0)).toContain('Директория текущего файла: docs/api');
     expect(userOf(2)).toContain('Директория текущего файла: корень архива');
+    // The structure call lists the extracted requirements (type + name).
+    expect(userOf(3)).toContain('Аутентификация');
+    expect(userOf(3)).toContain('FUNCTION');
 
-    // The requirement was created and its source preserved.
+    // The requirement was created; provenance is NOT copied into `source` (A1).
     const { requirements } = await createRequirementService(ctx, PROJECT).list();
     const created = requirements.find((r) => r.name === 'Аутентификация');
     expect(created).toBeDefined();
-    expect(created?.source).toBe('docs/api/auth.md § Вход');
+    expect(created?.source).toBeUndefined();
   });
 
-  it('respects explicit criticality/implemented from the extraction (no defaults)', async () => {
+  it('respects explicit criticality but forces implemented=true even when the model says false (A2)', async () => {
     const client = scriptedClient([
-      JSON.stringify([record({ criticality: 'HIGH', implemented: true })]),
+      JSON.stringify([
+        record({ criticality: 'HIGH', implemented: false, targetQuarter: 'Q4', targetYear: 2027 }),
+      ]),
+      structure([{ name: 'Вход по паролю' }]),
     ]);
     const service = makeService(client);
     const archive = await writeZip({ 'auth.md': 'Вход по паролю.' });
@@ -197,6 +226,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     await runToEnd(service, archive);
     const { requirements } = await createRequirementService(ctx, PROJECT).list();
     expect(requirements[0]?.criticality).toBe('HIGH');
+    // A2: implemented is forced to true, so the model's quarter/year are dropped.
     expect(requirements[0]?.implemented).toBe(true);
     expect(requirements[0]?.targetQuarter).toBeUndefined();
     expect(requirements[0]?.targetYear).toBeUndefined();
@@ -218,6 +248,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     const client = scriptedClient([
       JSON.stringify([record(), record({ name: ' вход по паролю ' })]),
       JSON.stringify([record({ name: 'ВХОД ПО ПАРОЛЮ' })]),
+      structure([{ name: 'Вход по паролю' }]),
     ]);
     const service = makeService(client);
     const archive = await writeZip({ 'a.md': 'Вход.', 'b.md': 'Вход дубль.' });
@@ -235,7 +266,11 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       record(),
       record({ type: 'NFR', name: 'Время отклика', source: 'perf.md § SLA' }),
     ];
-    const client = scriptedClient([JSON.stringify(records), JSON.stringify(records)]);
+    const client = scriptedClient([
+      JSON.stringify(records),
+      JSON.stringify(records),
+      structure([{ name: 'Вход по паролю' }, { type: 'NFR', name: 'Время отклика' }]),
+    ]);
     const service = makeService(client);
     const archive = await writeZip({ 'a.md': 'Документ 1.', 'b.md': 'Документ 2.' });
 
@@ -267,7 +302,10 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     const file = path.join(root, PROJECT, 'openspec', 'specs', 'functions', `${existing.slug}.md`);
     const before = await fs.readFile(file, 'utf8');
 
-    const client = scriptedClient([JSON.stringify([record()])]);
+    const client = scriptedClient([
+      JSON.stringify([record()]),
+      structure([{ name: 'Вход по паролю' }]),
+    ]);
     const service = makeService(client);
     const archive = await writeZip({ 'auth.md': 'Вход.' });
     const jobId = await runToEnd(service, archive);
@@ -284,26 +322,67 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     expect(await fs.readFile(file, 'utf8')).toBe(before);
   });
 
-  it('creates CHILD_OF hierarchy when parentName resolves inside the extracted set', async () => {
+  it('creates CHILD_OF hierarchy from the structure-stage answer (B2)', async () => {
     const client = scriptedClient([
       JSON.stringify([
         record({ name: 'Аутентификация', source: 'auth.md § Аутентификация' }),
-        record({ parentName: 'Аутентификация' }),
+        record(),
+      ]),
+      structure([
+        { name: 'Аутентификация' },
+        { name: 'Вход по паролю', parentName: 'Аутентификация' },
       ]),
     ]);
     const service = makeService(client);
     const archive = await writeZip({ 'auth.md': 'Раздел.' });
 
     const jobId = await runToEnd(service, archive);
-    expect(service.getView(jobId).result?.links).toBe(1);
+    const view = service.getView(jobId);
+    expect(view.result?.links).toBe(1);
+    expect(
+      view.log.some((l) => l.message.includes('Построение древовидной структуры ФТ/НФТ')),
+    ).toBe(true);
     const { requirements } = await createRequirementService(ctx, PROJECT).list();
     const child = requirements.find((r) => r.name === 'Вход по паролю');
     expect(child?.links).toEqual([{ type: 'CHILD_OF', targetSlug: expect.any(String) }]);
   });
 
-  it('warns and keeps the requirement when the parent cannot be resolved', async () => {
+  it('B2: structure parentName OVERRIDES extraction parentName; missing in answer → root', async () => {
     const client = scriptedClient([
-      JSON.stringify([record({ parentName: 'Несуществующий раздел' })]),
+      JSON.stringify([
+        record({ name: 'Раздел А', source: 'a.md § А' }),
+        record({ name: 'Раздел Б', source: 'a.md § Б' }),
+        // extraction claims Б is the parent; structure will say А instead.
+        record({ name: 'Вход по паролю', parentName: 'Раздел Б' }),
+        // extraction claims a parent; the record is absent from the structure
+        // answer → it becomes a root.
+        record({ name: 'Сирота', parentName: 'Раздел А', source: 'a.md § С' }),
+      ]),
+      structure([
+        { name: 'Раздел А' },
+        { name: 'Раздел Б' },
+        { name: 'Вход по паролю', parentName: 'Раздел А' },
+      ]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Иерархия.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.links).toBe(1);
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    const child = requirements.find((r) => r.name === 'Вход по паролю');
+    const parentA = requirements.find((r) => r.name === 'Раздел А');
+    expect(child?.links).toEqual([{ type: 'CHILD_OF', targetSlug: parentA?.slug }]);
+    const orphan = requirements.find((r) => r.name === 'Сирота');
+    expect(orphan?.links).toEqual([]);
+  });
+
+  it('warns and keeps the requirement when the structure parent cannot be resolved', async () => {
+    const client = scriptedClient([
+      JSON.stringify([record()]),
+      structure([{ name: 'Вход по паролю', parentName: 'Несуществующий раздел' }]),
     ]);
     const service = makeService(client);
     const archive = await writeZip({ 'auth.md': 'Вход.' });
@@ -314,6 +393,152 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     expect(view.result?.createdFunctions).toBe(1);
     expect(view.result?.links).toBe(0);
     expect(view.log.some((l) => l.level === 'warn' && l.message.includes('не найден'))).toBe(true);
+  });
+
+  it('B2: batches the structure calls and merges parents across batches', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Раздел', source: 'a.md § Раздел' }),
+        record({ name: 'Вход', source: 'a.md § Вход' }),
+        record({ name: 'Выход', source: 'a.md § Выход' }),
+      ]),
+      structure([{ name: 'Раздел' }, { name: 'Вход', parentName: 'Раздел' }]),
+      structure([{ name: 'Выход', parentName: 'Раздел' }]),
+    ]);
+    const service = makeService(client, { structureBatch: 2 });
+    const archive = await writeZip({ 'a.md': 'Дерево.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.links).toBe(2);
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    // 1 extraction + 2 structure batches.
+    expect(create).toHaveBeenCalledTimes(3);
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    const parent = requirements.find((r) => r.name === 'Раздел');
+    for (const name of ['Вход', 'Выход']) {
+      const child = requirements.find((r) => r.name === name);
+      expect(child?.links).toEqual([{ type: 'CHILD_OF', targetSlug: parent?.slug }]);
+    }
+  });
+
+  it('B2: after 3 invalid structure answers the batch degrades to a flat list with a warn, job succeeds', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Аутентификация', source: 'auth.md § Аутентификация' }),
+        record({ parentName: 'Аутентификация' }),
+      ]),
+      'Не могу построить дерево.', // structure attempt 1
+      'Всё ещё проза.', // attempt 2
+      '{"не":"массив"}', // attempt 3
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'auth.md': 'Раздел.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    // The job is NOT failed: requirements matter more than the tree.
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.createdFunctions).toBe(2);
+    expect(view.result?.links).toBe(0);
+    expect(
+      view.log.some(
+        (l) =>
+          l.level === 'warn' &&
+          l.message.includes('Структура для батча не получена — записи останутся корневыми'),
+      ),
+    ).toBe(true);
+    // Every failed attempt is logged with its number.
+    expect(view.log.some((l) => l.message.includes('попытка 1 из 3'))).toBe(true);
+    expect(view.log.some((l) => l.message.includes('попытка 3 из 3'))).toBe(true);
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).toHaveBeenCalledTimes(4); // 1 extraction + 3 structure attempts
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    expect(requirements.every((r) => r.links.length === 0)).toBe(true);
+  });
+
+  it('B2: cancel is honoured between structure batches', async () => {
+    let jobId = '';
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'А', source: 'a.md § А' }),
+        record({ name: 'Б', source: 'a.md § Б' }),
+      ]),
+      () => {
+        // Cancel while the FIRST structure batch is in flight.
+        service.cancel(jobId);
+        return structure([{ name: 'А' }]);
+      },
+      structure([{ name: 'Б' }]),
+    ]);
+    const service = makeService(client, { structureBatch: 1 });
+    const archive = await writeZip({ 'a.md': 'Дерево.' });
+
+    ({ jobId } = await service.start(PROJECT, archive));
+    await service.waitForCompletion(jobId);
+
+    const view = service.getView(jobId);
+    expect(view.status).toBe('cancelled');
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).toHaveBeenCalledTimes(2); // extraction + first batch only
+  });
+
+  it('A3: a non-JSON extraction answer is retried and succeeds on the second attempt', async () => {
+    const client = scriptedClient([
+      'Не могу извлечь.', // attempt 1 → warn «попытка 1 из 3»
+      JSON.stringify([record()]), // attempt 2 → parsed
+      structure([{ name: 'Вход по паролю' }]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'auth.md': 'Вход.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.createdFunctions).toBe(1);
+    expect(view.log.some((l) => l.level === 'warn' && l.message.includes('попытка 1 из 3'))).toBe(
+      true,
+    );
+    // No «фрагмент пропущен» — the retry recovered the chunk.
+    expect(view.log.some((l) => l.message.includes('фрагмент пропущен'))).toBe(false);
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).toHaveBeenCalledTimes(3);
+  });
+
+  it('A3: upstream errors are NOT retried — the job fails immediately (current behaviour)', async () => {
+    const client = scriptedClient(['Проза без JSON.', new Error('hub down')]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'auth.md': 'Вход.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    // Attempt 1: non-JSON → retry; attempt 2: upstream error → fail, no attempt 3.
+    expect(view.status).toBe('failed');
+    expect(view.error?.hint).toBe(AI_IMPORT_HINT_UPSTREAM);
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it('A3: cancel between retry attempts stops the job', async () => {
+    let jobId = '';
+    const client = scriptedClient([
+      () => {
+        service.cancel(jobId);
+        return 'Проза без JSON.';
+      },
+      JSON.stringify([record()]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'auth.md': 'Вход.' });
+
+    ({ jobId } = await service.start(PROJECT, archive));
+    await service.waitForCompletion(jobId);
+
+    const view = service.getView(jobId);
+    expect(view.status).toBe('cancelled');
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).toHaveBeenCalledTimes(1); // no second attempt after cancel
   });
 
   it('cancels at a chunk boundary: cancelled status + partial result, no further calls', async () => {
@@ -386,19 +611,30 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     expect(JSON.stringify(view)).not.toContain(SECRET);
   });
 
-  it('continues after one unparseable chunk (warn) but fails when ALL chunks are unparseable', async () => {
-    // One valid + one prose chunk → succeeded with a warning.
-    const mixed = scriptedClient(['Не могу извлечь.', JSON.stringify([record()])]);
+  it('skips a chunk after 3 non-JSON attempts (warn) but fails when ALL chunks are unparseable', async () => {
+    // Chunk of a.md: 3 prose attempts → skipped; chunk of b.md parses → succeeded.
+    const mixed = scriptedClient([
+      'Не могу извлечь.',
+      'Всё ещё не могу.',
+      'Сдаюсь.',
+      JSON.stringify([record()]),
+      structure([{ name: 'Вход по паролю' }]),
+    ]);
     const service = makeService(mixed);
     const archive = await writeZip({ 'a.md': 'Вход.', 'b.md': 'Ещё вход.' });
     const jobId = await runToEnd(service, archive);
     const view = service.getView(jobId);
     expect(view.status).toBe('succeeded');
-    expect(view.log.some((l) => l.level === 'warn' && l.message.includes('не распознан'))).toBe(
+    expect(view.log.some((l) => l.level === 'warn' && l.message.includes('попытка 3 из 3'))).toBe(
       true,
     );
+    expect(
+      view.log.some((l) => l.level === 'warn' && l.message.includes('фрагмент пропущен')),
+    ).toBe(true);
+    const createMixed = mixed.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(createMixed).toHaveBeenCalledTimes(5); // 3 + 1 extraction, 1 structure
 
-    // All chunks unparseable → failed with the spec §4 hint.
+    // All chunks unparseable (after retries) → failed with the spec §4 hint.
     const jobs2 = new AiImportJobs(fixedNow);
     jobs = jobs2;
     const prose = scriptedClient(['Просто текст без JSON.']);
@@ -409,12 +645,17 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     expect(view2.status).toBe('failed');
     expect(view2.stage).toBe('analyze');
     expect(view2.error?.hint).toBe(AI_IMPORT_HINT_UNPARSEABLE);
+    const createProse = prose.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(createProse).toHaveBeenCalledTimes(3); // 3 attempts for the single chunk
   });
 
   it('drops a record without source (warn) and keeps the valid one', async () => {
     const noSource = record();
     delete (noSource as Record<string, unknown>).source;
-    const client = scriptedClient([JSON.stringify([record({ name: 'С источником' }), noSource])]);
+    const client = scriptedClient([
+      JSON.stringify([record({ name: 'С источником' }), noSource]),
+      structure([{ name: 'С источником' }]),
+    ]);
     const service = makeService(client);
     const archive = await writeZip({ 'auth.md': 'Вход.' });
 
@@ -435,7 +676,9 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     await tar.create({ gzip: true, cwd: srcDir, file: archive }, ['.']);
     await fs.rm(srcDir, { recursive: true, force: true });
 
-    const service = makeService(scriptedClient([JSON.stringify([record()])]));
+    const service = makeService(
+      scriptedClient([JSON.stringify([record()]), structure([{ name: 'Вход по паролю' }])]),
+    );
     const jobId = await runToEnd(service, archive);
     const view = service.getView(jobId);
     expect(view.status).toBe('succeeded');

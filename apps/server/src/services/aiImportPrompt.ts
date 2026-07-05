@@ -1,5 +1,11 @@
 import path from 'node:path';
-import { aiExtractedRequirementSchema, type AiExtractedRequirement } from '@po/core';
+import {
+  aiExtractedRequirementSchema,
+  aiStructureNodeSchema,
+  type AiExtractedRequirement,
+  type AiStructureNode,
+  type RequirementType,
+} from '@po/core';
 import type { AiChatMessage } from './aiPrompt.js';
 
 /** Position of a chunk inside its file (1-based), for the user message. */
@@ -101,6 +107,72 @@ export function buildExtractionMessages(
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: user },
   ];
+}
+
+/** One requirement passed into the structure call: type + name only. */
+export interface StructureItem {
+  type: RequirementType;
+  name: string;
+}
+
+/**
+ * System prompt (RU) for the structure (tree-building) call (Task 13 B2).
+ * The model sees the FULL list of extracted requirements plus the archive map
+ * and must return exactly one node per requirement, assembling a tree that
+ * mirrors the documentation structure (root section groups with children,
+ * reference: the Jenkins sample project). Hierarchy is only allowed within one
+ * type — the CHILD_OF rule of the link graph. Roots carry an explicit null.
+ */
+const STRUCTURE_SYSTEM_PROMPT = [
+  'Ты — архитектор дерева требований для портала управления требованиями Product Owner.',
+  'Тебе дают полный список уже извлечённых требований (тип и имя) и структуру архива',
+  'документации. Собери из них древовидную структуру, максимально похожую на структуру',
+  'документации: корневые группы-разделы и их дети под ними (например, требования одного',
+  'раздела или файла — под общим корневым требованием-разделом).',
+  'Иерархия допустима ТОЛЬКО внутри одного типа: FUNCTION под FUNCTION, NFR под NFR.',
+  'Используй ТОЛЬКО переданные имена требований: ничего не выдумывай, не переименовывай,',
+  'не добавляй и не удаляй элементы.',
+  'Ответ верни СТРОГО как JSON-массив объектов вида',
+  '{"type":"FUNCTION"|"NFR","name":string,"parentName":string|null} —',
+  'ровно по одному элементу на КАЖДОЕ переданное требование.',
+  'Для корневых элементов parentName обязан быть null; не опускай это поле.',
+  'Без markdown, без преамбул и пояснений.',
+].join(' ');
+
+/** Build the two-message conversation for one structure batch. */
+export function buildStructureMessages(
+  items: StructureItem[],
+  archiveMap: string,
+): AiChatMessage[] {
+  const user = [
+    'Структура архива (файлы документации):',
+    archiveMap,
+    '',
+    `Требования (${items.length} шт., формат: тип и имя через табуляцию):`,
+    ...items.map((item) => `${item.type}\t${item.name}`),
+  ].join('\n');
+  return [
+    { role: 'system', content: STRUCTURE_SYSTEM_PROMPT },
+    { role: 'user', content: user },
+  ];
+}
+
+/**
+ * Parse one structure answer: locate the JSON array (bare, fenced or
+ * embedded), then validate EVERY node against {@link aiStructureNodeSchema}.
+ * Returns `null` when no array is found OR any node is invalid — an invalid
+ * answer is retried as a whole, exactly like a non-JSON one (Task 13 B2).
+ */
+export function parseStructureResponse(content: string): AiStructureNode[] | null {
+  const array = extractJsonArray(content);
+  if (array === null) return null;
+  const nodes: AiStructureNode[] = [];
+  for (const node of array) {
+    const parsed = aiStructureNodeSchema.safeParse(node);
+    if (!parsed.success) return null;
+    nodes.push(parsed.data);
+  }
+  return nodes;
 }
 
 /** Outcome of parsing one model answer. */

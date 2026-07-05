@@ -22,12 +22,16 @@ import type { AiClient, AiClientFactory } from './AiHubService.js';
 import type { AiImportJobs, AiImportJobState } from './AiImportJobs.js';
 import type { OpLogger } from '../lib/logger.js';
 import { unpackDocsArchive, type UnpackedDocs } from '../lib/unpack.js';
+import type { AiChatMessage } from './aiPrompt.js';
 import { BadRequestError, NotFoundError } from '../lib/errors.js';
 import {
   buildArchiveMap,
   buildExtractionMessages,
+  buildStructureMessages,
   chunkText,
   parseExtractionResponse,
+  parseStructureResponse,
+  type StructureItem,
 } from './aiImportPrompt.js';
 
 /* Mandatory user-facing texts (spec §4): readable message + "what to do next". */
@@ -44,11 +48,14 @@ export const AI_IMPORT_HINT_UNPARSEABLE =
 export const AI_IMPORT_HINT_POPULATE =
   'Часть элементов не создана (см. лог). Исправьте данные в проекте и повторите — существующие не будут задублированы';
 
-/** Max length of the requirement `source` field (core requirementSchema). */
-const REQUIREMENT_SOURCE_MAX = 100;
-
 /** Defaults applied for gaps in the source (PO decision §3.1). */
 export const AI_IMPORT_DEFAULT_CRITICALITY = 'MEDIUM' as const;
+
+/** Attempts per AI call when the answer is not a valid JSON array (Task 13 A3/B2). */
+export const AI_IMPORT_JSON_ATTEMPTS = 3;
+
+/** Extracted records per structure-stage batch (Task 13 B2). */
+export const AI_IMPORT_STRUCTURE_BATCH = 100;
 
 /** Next calendar quarter after `nowIso` (default target for unimplemented). */
 export function nextQuarterOf(nowIso: string): {
@@ -106,13 +113,24 @@ export interface AiImportServiceDeps {
   log?: OpLogger;
   /** Chunk size override for tests; production uses the core constant. */
   chunkChars?: number;
+  /** Structure batch size override for tests; production uses 100 (Task 13). */
+  structureBatch?: number;
 }
 
 /** One aggregated record plus its resolved parent (by name, same type). */
 interface AggregatedRecord {
   record: AiExtractedRequirement;
   parentKey?: string;
+  /** Effective parent name (from the structure stage) — for log messages. */
+  parentName?: string;
 }
+
+/** Outcome of one AI call with JSON retries (Task 13 A3/B2). */
+type JsonCallOutcome<T> =
+  | { kind: 'ok'; value: T }
+  | { kind: 'unparsed' }
+  | { kind: 'cancelled' }
+  | { kind: 'upstream'; error: Error };
 
 /**
  * A record whose extracted CHILD_OF should be ensured after populate: either a
@@ -127,8 +145,9 @@ interface LinkCandidate {
 }
 
 /**
- * Use-case service for «AI подгрузка ФТ/НФТ из документации» (Task 11):
- * unpack → analyze (sequential chunked AI calls) → aggregate → populate.
+ * Use-case service for «AI подгрузка ФТ/НФТ из документации» (Task 11/13):
+ * unpack → analyze (sequential chunked AI calls) → structure (tree via the
+ * AI hub over the full extracted set) → aggregate → populate.
  * Runs as an in-memory job the client polls; creation goes through the
  * EXISTING RequirementService/LinkService so every core rule applies.
  */
@@ -235,6 +254,45 @@ export class AiImportService {
     return true;
   }
 
+  /**
+   * One AI call with up to {@link AI_IMPORT_JSON_ATTEMPTS} attempts while the
+   * answer cannot be parsed (Task 13 A3/B2). Every failed attempt is logged
+   * via `attemptWarn`; a pending cancel is honoured BETWEEN attempts (the job
+   * is then already finished as cancelled). Upstream/network errors are never
+   * retried — the caller decides what they mean for the job.
+   */
+  private async chatWithJsonRetries<T>(args: {
+    job: AiImportJobState;
+    counters: AiImportResult;
+    client: AiClient;
+    model: string;
+    messages: AiChatMessage[];
+    parse: (content: string) => T | null;
+    attemptWarn: (attempt: number) => string;
+  }): Promise<JsonCallOutcome<T>> {
+    for (let attempt = 1; attempt <= AI_IMPORT_JSON_ATTEMPTS; attempt++) {
+      let content: string;
+      try {
+        const res = await args.client.chat.completions.create({
+          model: args.model,
+          messages: args.messages,
+          temperature: AI_IMPORT_TEMPERATURE,
+          max_tokens: AI_IMPORT_MAX_TOKENS,
+        });
+        content = res.choices?.[0]?.message?.content ?? '';
+      } catch (err) {
+        return { kind: 'upstream', error: err as Error };
+      }
+      const value = args.parse(content);
+      if (value !== null) return { kind: 'ok', value };
+      this.logLine(args.job, 'warn', args.attemptWarn(attempt));
+      if (attempt < AI_IMPORT_JSON_ATTEMPTS && this.cancelIfRequested(args.job, args.counters)) {
+        return { kind: 'cancelled' };
+      }
+    }
+    return { kind: 'unparsed' };
+  }
+
   /** The asynchronous pipeline. Never throws for expected failures — it fails the job. */
   private async run(
     job: AiImportJobState,
@@ -284,7 +342,7 @@ export class AiImportService {
       const archiveMap = buildArchiveMap(files);
       job.progress = 5;
 
-      // ── analyze (5–80) ──────────────────────────────────────────────────
+      // ── analyze (5–65) ──────────────────────────────────────────────────
       job.stage = 'analyze';
       const chunkChars = this.deps.chunkChars ?? AI_IMPORT_CHUNK_CHARS;
       const chunksByFile: Array<{ file: string; chunks: string[] }> = [];
@@ -314,33 +372,37 @@ export class AiImportService {
             { index: i + 1, total: chunks.length },
             archiveMap,
           );
-          let content: string;
-          try {
-            const res = await client.chat.completions.create({
-              model,
-              messages,
-              temperature: AI_IMPORT_TEMPERATURE,
-              max_tokens: AI_IMPORT_MAX_TOKENS,
-            });
-            content = res.choices?.[0]?.message?.content ?? '';
-          } catch (err) {
+          // Task 13 A3: up to 3 attempts while the answer is not a JSON array;
+          // upstream errors are NOT retried and fail the job as before.
+          const outcome = await this.chatWithJsonRetries({
+            job,
+            counters,
+            client,
+            model,
+            messages,
+            parse: parseExtractionResponse,
+            attemptWarn: (attempt) =>
+              `Файл ${file} (фрагмент ${i + 1}/${chunks.length}): ответ модели не распознан как JSON-массив (попытка ${attempt} из ${AI_IMPORT_JSON_ATTEMPTS}).`,
+          });
+          if (outcome.kind === 'cancelled') return;
+          if (outcome.kind === 'upstream') {
             this.fail(
               job,
-              sanitize(`Ошибка обращения к AI Hub: ${(err as Error).message}`, apiKey),
+              sanitize(`Ошибка обращения к AI Hub: ${outcome.error.message}`, apiKey),
               AI_IMPORT_HINT_UPSTREAM,
             );
             return;
           }
 
           processedChunks += 1;
-          const parsed = parseExtractionResponse(content);
-          if (parsed === null) {
+          if (outcome.kind === 'unparsed') {
             this.logLine(
               job,
               'warn',
               `Файл ${file} (фрагмент ${i + 1}/${chunks.length}): ответ модели не распознан как JSON-массив — фрагмент пропущен.`,
             );
           } else {
+            const parsed = outcome.value;
             parsedChunks += 1;
             if (parsed.droppedNoSource > 0) {
               this.logLine(
@@ -365,7 +427,7 @@ export class AiImportService {
             );
             extracted.push(...parsed.items);
           }
-          job.progress = Math.min(80, 5 + Math.round((75 * processedChunks) / totalChunks));
+          job.progress = Math.min(65, 5 + Math.round((60 * processedChunks) / totalChunks));
         }
       }
       if (parsedChunks === 0) {
@@ -376,6 +438,70 @@ export class AiImportService {
         );
         return;
       }
+
+      // ── structure (65–80) ───────────────────────────────────────────────
+      // Task 13 B2: one more pass over the AI hub that sees the FULL set of
+      // extracted requirements and assembles the tree. Its parentName is
+      // authoritative: it OVERRIDES extraction-time parentName; records
+      // missing from the answer (or with parentName=null, or from a batch
+      // that failed 3 attempts) stay roots. The tree is best-effort — a
+      // failure here never fails the job (requirements matter more).
+      job.stage = 'structure';
+      if (this.cancelIfRequested(job, counters)) return;
+      this.logLine(job, 'info', 'Построение древовидной структуры ФТ/НФТ через AI hub…');
+      const structureParentByKey = new Map<string, string>();
+      const seenKeys = new Set<string>();
+      const structureItems: StructureItem[] = [];
+      for (const record of extracted) {
+        const key = nameKey(record.type, record.name);
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        structureItems.push({ type: record.type, name: record.name });
+      }
+      const batchSize = this.deps.structureBatch ?? AI_IMPORT_STRUCTURE_BATCH;
+      const batches: StructureItem[][] = [];
+      for (let i = 0; i < structureItems.length; i += batchSize) {
+        batches.push(structureItems.slice(i, i + batchSize));
+      }
+      for (let b = 0; b < batches.length; b++) {
+        if (b > 0 && this.cancelIfRequested(job, counters)) return;
+        const outcome = await this.chatWithJsonRetries({
+          job,
+          counters,
+          client,
+          model,
+          messages: buildStructureMessages(batches[b]!, archiveMap),
+          parse: parseStructureResponse,
+          attemptWarn: (attempt) =>
+            `Структуризация (батч ${b + 1}/${batches.length}): ответ модели не распознан как JSON-массив структуры (попытка ${attempt} из ${AI_IMPORT_JSON_ATTEMPTS}).`,
+        });
+        if (outcome.kind === 'cancelled') return;
+        if (outcome.kind === 'ok') {
+          for (const node of outcome.value) {
+            if (node.parentName !== null && node.parentName.trim().length > 0) {
+              structureParentByKey.set(nameKey(node.type, node.name), node.parentName);
+            }
+          }
+        } else {
+          if (outcome.kind === 'upstream') {
+            this.logLine(
+              job,
+              'warn',
+              sanitize(
+                `Структуризация (батч ${b + 1}/${batches.length}): ошибка обращения к AI Hub: ${outcome.error.message}.`,
+                apiKey,
+              ),
+            );
+          }
+          this.logLine(
+            job,
+            'warn',
+            'Структура для батча не получена — записи останутся корневыми.',
+          );
+        }
+        job.progress = Math.min(80, 65 + Math.round((15 * (b + 1)) / batches.length));
+      }
+      job.progress = 80;
 
       // ── aggregate (80–85) ───────────────────────────────────────────────
       job.stage = 'aggregate';
@@ -406,21 +532,25 @@ export class AiImportService {
 
       const aggregated: AggregatedRecord[] = [];
       for (const record of byKey.values()) {
+        // Task 13 B2: the parent comes from the structure stage ONLY —
+        // extraction-time parentName is superseded (records not covered by a
+        // structure answer stay roots).
+        const parentName = structureParentByKey.get(nameKey(record.type, record.name));
         let parentKey: string | undefined;
-        if (record.parentName) {
-          const key = nameKey(record.type, record.parentName);
+        if (parentName) {
+          const key = nameKey(record.type, parentName);
           if (byKey.has(key) || existingKeys.has(key)) {
             parentKey = key;
           } else {
             this.logLine(
               job,
               'warn',
-              `«${record.name}»: родитель «${record.parentName}» не найден ни в извлечённом наборе, ни в проекте — иерархия пропущена.`,
+              `«${record.name}»: родитель «${parentName}» не найден ни в извлечённом наборе, ни в проекте — иерархия пропущена.`,
             );
           }
         }
         if (parentKey === nameKey(record.type, record.name)) parentKey = undefined; // self-parent
-        aggregated.push({ record, parentKey });
+        aggregated.push({ record, parentKey, parentName });
       }
       this.logLine(job, 'info', `К наполнению после агрегации: ${aggregated.length} требований.`);
       job.progress = 85;
@@ -453,21 +583,8 @@ export class AiImportService {
         }
 
         const criticality = record.criticality ?? AI_IMPORT_DEFAULT_CRITICALITY;
-        const implemented = record.implemented ?? false;
         const defaults: string[] = [];
         if (!record.criticality) defaults.push(`критичность=${AI_IMPORT_DEFAULT_CRITICALITY}`);
-        if (record.implemented === undefined) defaults.push('статус=не реализовано');
-
-        let targetQuarter: TargetQuarter | undefined;
-        let targetYear: number | undefined;
-        if (!implemented) {
-          const next = nextQuarterOf(this.deps.now());
-          targetQuarter = record.targetQuarter ?? next.targetQuarter;
-          targetYear = record.targetYear ?? next.targetYear;
-          if (!record.targetQuarter || record.targetYear === undefined) {
-            defaults.push(`target=${targetQuarter} ${targetYear}`);
-          }
-        }
         if (defaults.length > 0) {
           this.logLine(
             job,
@@ -477,15 +594,17 @@ export class AiImportService {
         }
 
         try {
+          // Task 13 A1/A2: `source` stays EMPTY (it is a business field —
+          // the file provenance lives in the job log only) and everything
+          // imported is created as already implemented, so no target
+          // quarter/year (core rules.ts allows them only when
+          // implemented=false).
           const created = await requirementService.create({
             type: record.type,
             name: record.name,
             criticality,
             description: record.description,
-            implemented,
-            targetQuarter,
-            targetYear,
-            source: record.source.slice(0, REQUIREMENT_SOURCE_MAX),
+            implemented: true,
           });
           slugByKey.set(key, created.slug);
           if (item.parentKey) linkCandidates.push({ item });
@@ -524,7 +643,7 @@ export class AiImportService {
             this.logLine(
               job,
               'info',
-              `Достроена недостающая связь CHILD_OF: «${item.record.name}» → «${item.record.parentName}».`,
+              `Достроена недостающая связь CHILD_OF: «${item.record.name}» → «${item.parentName}».`,
             );
           }
         } catch (err) {
@@ -532,7 +651,7 @@ export class AiImportService {
             this.logLine(
               job,
               'warn',
-              `Связь CHILD_OF «${item.record.name}» → «${item.record.parentName}» не создана (${err.code}): ${err.message}`,
+              `Связь CHILD_OF «${item.record.name}» → «${item.parentName}» не создана (${err.code}): ${err.message}`,
             );
           } else {
             throw err;

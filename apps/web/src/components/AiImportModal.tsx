@@ -24,6 +24,7 @@ import { AI_IMPORT_LOG_BG, AI_IMPORT_LOG_LEVEL_COLOR, AI_IMPORT_LOG_TEXT } from 
 export const AI_IMPORT_STAGE_LABELS: Record<AiImportStage, string> = {
   unpack: 'Распаковка архива',
   analyze: 'Извлечение требований',
+  structure: 'Построение древовидной структуры ФТ/НФТ',
   aggregate: 'Агрегация',
   populate: 'Наполнение проекта',
   done: 'Готово',

@@ -3,8 +3,10 @@ import {
   AI_IMPORT_TREE_CHARS,
   buildArchiveMap,
   buildExtractionMessages,
+  buildStructureMessages,
   chunkText,
   parseExtractionResponse,
+  parseStructureResponse,
 } from '../src/services/aiImportPrompt.js';
 
 const record = {
@@ -193,6 +195,82 @@ describe('T11 parseExtractionResponse', () => {
     expect(parsed?.items).toHaveLength(1);
     expect(parsed?.droppedInvalid).toBe(2);
     expect(parsed?.droppedNoSource).toBe(0);
+  });
+});
+
+describe('T13 buildStructureMessages', () => {
+  const items = [
+    { type: 'FUNCTION', name: 'Аутентификация' },
+    { type: 'FUNCTION', name: 'Вход по паролю' },
+    { type: 'NFR', name: 'Время отклика' },
+  ] as const;
+
+  it('starts with a RU system prompt demanding a strict JSON tree answer', () => {
+    const messages = buildStructureMessages([...items], 'auth.md');
+    expect(messages).toHaveLength(2);
+    expect(messages[0]?.role).toBe('system');
+    const sys = messages[0]?.content ?? '';
+    // The tree must mirror the documentation structure: root groups + children.
+    expect(sys).toMatch(/дерев/i);
+    expect(sys).toMatch(/структур/i);
+    expect(sys).toMatch(/корнев/i);
+    // Hierarchy only within one type (CHILD_OF rule).
+    expect(sys).toContain('FUNCTION');
+    expect(sys).toContain('NFR');
+    expect(sys).toMatch(/одного типа/i);
+    // Strict output contract: one node per requirement, explicit null for roots.
+    expect(sys).toMatch(/JSON-массив/);
+    expect(sys).toContain('parentName');
+    expect(sys).toContain('null');
+    expect(sys).toMatch(/КАЖДОЕ/);
+    // Golden rule: only the given names, no invention.
+    expect(sys).toMatch(/ТОЛЬКО/);
+    expect(sys).toMatch(/не выдумывай|ничего не выдумывай|не домысливай/i);
+  });
+
+  it('puts the archive map and every requirement (type + name) into the user message', () => {
+    const map = buildArchiveMap(['docs/api/auth.md', 'docs/nfr/perf.md']);
+    const messages = buildStructureMessages([...items], map);
+    const user = messages[1]?.content ?? '';
+    expect(messages[1]?.role).toBe('user');
+    expect(user).toContain('Структура архива (файлы документации):\n' + map);
+    for (const item of items) {
+      expect(user).toContain(item.name);
+      expect(user).toContain(item.type);
+    }
+  });
+});
+
+describe('T13 parseStructureResponse', () => {
+  const nodes = [
+    { type: 'FUNCTION', name: 'Аутентификация', parentName: null },
+    { type: 'FUNCTION', name: 'Вход по паролю', parentName: 'Аутентификация' },
+  ];
+
+  it('parses a bare JSON array of structure nodes', () => {
+    const parsed = parseStructureResponse(JSON.stringify(nodes));
+    expect(parsed).toEqual(nodes);
+  });
+
+  it('parses an array inside a ```json fence', () => {
+    const content = 'Дерево:\n```json\n' + JSON.stringify(nodes) + '\n```';
+    expect(parseStructureResponse(content)).toEqual(nodes);
+  });
+
+  it('returns null for prose without a JSON array', () => {
+    expect(parseStructureResponse('Не могу построить дерево.')).toBeNull();
+    expect(parseStructureResponse('')).toBeNull();
+  });
+
+  it('returns null when ANY node is schema-invalid (whole answer is retried)', () => {
+    const withInvalid = [...nodes, { type: 'FUNCTION', name: 'Без parentName' }];
+    expect(parseStructureResponse(JSON.stringify(withInvalid))).toBeNull();
+    const badType = [{ type: 'EPIC', name: 'X', parentName: null }];
+    expect(parseStructureResponse(JSON.stringify(badType))).toBeNull();
+  });
+
+  it('accepts an empty array', () => {
+    expect(parseStructureResponse('[]')).toEqual([]);
   });
 });
 

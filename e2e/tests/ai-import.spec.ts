@@ -4,7 +4,15 @@ import AdmZip from 'adm-zip';
 import * as tar from 'tar';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { startAiStub, type AiStub } from './helpers/ai-stub.js';
-import { createProject, projectIdFromUrl, rowByName, uniqueName } from './helpers/app.js';
+import {
+  createProject,
+  expandNode,
+  openEdit,
+  projectIdFromUrl,
+  rowByName,
+  setTreeMode,
+  uniqueName,
+} from './helpers/app.js';
 
 /**
  * Task 11 · E2E for «AI подгрузка ФТ и НФТ из документации» (spec §5 matrix).
@@ -27,6 +35,14 @@ import { createProject, projectIdFromUrl, rowByName, uniqueName } from './helper
  * The running/cancel/confirm scenarios get their deterministic time window
  * from `stub.setExtractionDelay(ms)` (per-chunk upstream latency); happy-path
  * runs keep the delay at 0.
+ *
+ * Task 13 additions: the pipeline is unpack → analyze → structure → aggregate
+ * → populate. The stub answers the NEW structure calls (system prompt «Ты —
+ * архитектор дерева требований…») by echoing every `FUNCTION\t`/`NFR\t` item
+ * with a parent from its parents map — the tree comes ONLY from that answer.
+ * Imported requirements keep «Источник» EMPTY and are created implemented.
+ * The dedicated Task 13 describe block covers hierarchy, fields, JSON retries
+ * and the structure stage visibility.
  */
 
 const STUB_MODELS = ['Qwen-Coder-Next', 'GigaChat-2-Pro'];
@@ -92,6 +108,8 @@ const EXTRACTION_ITEMS: Record<string, unknown[]> = {
       name: REQ_RESET,
       description: 'Система позволяет восстановить пароль по email.',
       source: 'auth.md § Восстановление',
+      // Task 13 B2: extraction-time parentName is IGNORED by the pipeline —
+      // the tree comes ONLY from the structure stage (see structureParents).
       parentName: REQ_LOGIN,
     },
   ],
@@ -146,6 +164,11 @@ test.beforeAll(async () => {
     models: STUB_MODELS,
     reply: 'Стабовый ответ ассистента.',
     extractionItemsByFile: EXTRACTION_ITEMS,
+    // Task 13 B2: parents now come ONLY from the structure stage. The default
+    // map reproduces the pre-13 auth.md hierarchy (RESET under LOGIN) so the
+    // happy-path/idempotency counters («связей: 1») stay meaningful; tests
+    // that need a different tree override it via setStructureParents.
+    structureParents: { [REQ_RESET]: REQ_LOGIN },
   });
 });
 
@@ -221,17 +244,29 @@ async function startAnalysis(page: Page): Promise<string> {
   return body.jobId;
 }
 
+/** Requirement DTO subset the import tests assert on (fields + links). */
+interface ReqDto {
+  slug: string;
+  name: string;
+  type: string;
+  source?: string;
+  implemented?: boolean;
+  targetQuarter?: string;
+  targetYear?: number;
+  links: Array<{ type: string; targetSlug: string }>;
+}
+
 /** GET /api/projects/:id/requirements through the page's request context. */
-async function listRequirements(
-  page: Page,
-  projectId: string,
-): Promise<Array<{ name: string; type: string; source?: string }>> {
+async function listRequirements(page: Page, projectId: string): Promise<ReqDto[]> {
   const res = await page.request.get(`/api/projects/${encodeURIComponent(projectId)}/requirements`);
   if (!res.ok()) throw new Error(`GET requirements failed (${res.status()})`);
-  const body = (await res.json()) as {
-    requirements: Array<{ name: string; type: string; source?: string }>;
-  };
+  const body = (await res.json()) as { requirements: ReqDto[] };
   return body.requirements;
+}
+
+/** CHILD_OF target slugs of one requirement (empty array → root). */
+function childOfTargets(req: ReqDto | undefined): string[] {
+  return (req?.links ?? []).filter((l) => l.type === 'CHILD_OF').map((l) => l.targetSlug);
 }
 
 /** Attach a full-page screenshot to the test artifacts (no snapshot compare). */
@@ -299,9 +334,9 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await attachShot(page, testInfo, 'setup-no-key');
   });
 
-  /* §5.4: happy-path zip → 100%, лог, итоги, дерево, провенанс. */
+  /* §5.4: happy-path zip → 100%, лог, итоги, дерево; «Источник» пуст (Task 13). */
 
-  test('happy-path zip: прогресс до 100%, итоги, требования в дереве, провенанс в «Источник»', async ({
+  test('happy-path zip: прогресс до 100%, итоги, требования в дереве, «Источник» пуст', async ({
     page,
   }, testInfo) => {
     await createProject(page, uniqueName('AiImp-Happy'));
@@ -346,12 +381,18 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await expect(rowByName(page, REQ_RESET)).toBeVisible();
     await expect(rowByName(page, REQ_REPORT)).toBeVisible();
 
-    // Provenance (FR-19): the «Источник» field carries файл § раздел.
+    // Task 13 A1/A2: «Источник» is a BUSINESS field — imports leave it empty
+    // (provenance lives in the job log only); everything imported is created
+    // as already implemented, so no target quarter/year.
     const reqs = await listRequirements(page, id);
     const byName = new Map(reqs.map((r) => [r.name, r]));
-    expect(byName.get(REQ_LOGIN)?.source).toBe('auth.md § Вход');
-    expect(byName.get(REQ_RESET)?.source).toBe('auth.md § Восстановление');
-    expect(byName.get(REQ_REPORT)?.source).toBe('reports.md § Производительность');
+    for (const name of [REQ_LOGIN, REQ_RESET, REQ_REPORT]) {
+      const req = byName.get(name);
+      expect(req?.source ?? '', `source of «${name}» must stay empty`).toBe('');
+      expect(req?.implemented, `«${name}» must be created implemented`).toBe(true);
+      expect(req?.targetQuarter).toBeUndefined();
+      expect(req?.targetYear).toBeUndefined();
+    }
   });
 
   /* Task 13: архив с древовидной структурой директорий — относительные пути
@@ -394,12 +435,13 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await expect(rowByName(page, REQ_TREE_TOKEN)).toBeVisible();
     await expect(rowByName(page, REQ_TREE_LATENCY)).toBeVisible();
 
-    // Provenance keeps the FULL relative path of the nested source file.
+    // Task 13 A1: even for nested files the business field «Источник» stays
+    // empty — file provenance is job-log-only.
     const reqs = await listRequirements(page, id);
     const byName = new Map(reqs.map((r) => [r.name, r]));
-    expect(byName.get(REQ_TREE_TOKEN)?.source).toBe('docs/api/auth.md § Вход');
-    expect(byName.get(REQ_TREE_LATENCY)?.source).toBe('docs/nfr/perf.md § Отклик');
-    expect(byName.get(REQ_TREE_OVERVIEW)?.source).toBe('overview.md § Обзор');
+    for (const name of [REQ_TREE_TOKEN, REQ_TREE_LATENCY, REQ_TREE_OVERVIEW]) {
+      expect(byName.get(name)?.source ?? '', `source of «${name}» must stay empty`).toBe('');
+    }
 
     // The stub captured one extraction call per DOC file — the png caused none.
     const calls = stub.extractionRequests.slice(callsBefore);
@@ -676,7 +718,269 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await page.getByTestId('ai-import-done').click();
     await expect(rowByName(page, REQ_LOGS)).toBeVisible();
 
-    const reqs = await listRequirements(page, id);
-    expect(reqs.find((r) => r.name === REQ_LOGS)?.source).toBe('ops.md § Логи');
+    // Task 13 A1/A2: source empty, created as implemented (same as zip).
+    const logsReq = (await listRequirements(page, id)).find((r) => r.name === REQ_LOGS);
+    expect(logsReq?.source ?? '').toBe('');
+    expect(logsReq?.implemented).toBe(true);
+  });
+});
+
+/* ══ Task 13 · стадия structure (дерево через AI hub), поля, ретраи ═══════ */
+
+test.describe('Task 13 · AI-импорт: структура, поля, ретраи JSON', () => {
+  /** Fresh project with AI configured; returns the project id. */
+  async function projectWithAi(page: Page, prefix: string): Promise<string> {
+    await createProject(page, uniqueName(prefix));
+    const id = projectIdFromUrl(page);
+    await configureAi(page, id, 'Qwen-Coder-Next');
+    await page.reload();
+    await expect(page.getByTestId('main-page')).toBeVisible();
+    return id;
+  }
+
+  /* B4#1: structure-ответ строит дерево; родитель из structure ПЕРЕКРЫВАЕТ
+     extraction (RESET: extraction говорит LOGIN, structure — OVERVIEW). */
+
+  test('структуризация: дерево из structure-ответа AI hub — корни с детьми, родитель extraction перекрыт', async ({
+    page,
+  }, testInfo) => {
+    const id = await projectWithAi(page, 'AiImp-Struct');
+
+    // FUNCTION: OVERVIEW — корень, LOGIN и RESET — его дети (structure);
+    // NFR: REPORT — корень, LOGS — его ребёнок. Для RESET extraction-ответ
+    // содержит parentName=LOGIN — итоговым родителем обязан стать OVERVIEW.
+    stub.setStructureParents({
+      [REQ_LOGIN]: REQ_TREE_OVERVIEW,
+      [REQ_RESET]: REQ_TREE_OVERVIEW,
+      [REQ_LOGS]: REQ_REPORT,
+    });
+    try {
+      const zip = makeZip(testInfo, 'docs-struct.zip', {
+        'auth.md': DOCS['auth.md']!,
+        'overview.md': DOCS['overview.md']!,
+        'reports.md': DOCS['reports.md']!,
+        'ops.md': DOCS['ops.md']!,
+      });
+      const structureCallsBefore = stub.structureRequests.length;
+
+      await openAiImport(page);
+      await chooseFile(page, zip);
+      await startAnalysis(page);
+
+      const success = page.getByTestId('ai-import-success');
+      await expect(success).toBeVisible(JOB_TIMEOUT);
+      await expect(success).toContainText('Создано: 3 ФТ и 2 НФТ');
+      await expect(success).toContainText('связей: 3');
+      await attachShot(page, testInfo, 'structure-success');
+
+      // Контракт structure-вызова: system «архитектор дерева требований…»,
+      // user несёт карту архива и строки FUNCTION\t / NFR\t по каждому имени.
+      const structureCalls = stub.structureRequests.slice(structureCallsBefore);
+      expect(structureCalls).toHaveLength(1);
+      const call = structureCalls[0]!;
+      expect(call.messages?.[0]?.role).toBe('system');
+      expect(call.messages?.[0]?.content).toContain('архитектор дерева требований');
+      const user = call.messages?.find((m) => m.role === 'user')?.content ?? '';
+      expect(user).toContain('Структура архива');
+      for (const name of [REQ_LOGIN, REQ_RESET, REQ_TREE_OVERVIEW]) {
+        expect(user).toContain(`FUNCTION\t${name}`);
+      }
+      for (const name of [REQ_REPORT, REQ_LOGS]) expect(user).toContain(`NFR\t${name}`);
+
+      await page.getByTestId('ai-import-done').click();
+      await expect(page.getByTestId('ai-import')).toHaveCount(0);
+
+      // API: CHILD_OF ровно по structure-ответу; корни — без CHILD_OF.
+      const reqs = await listRequirements(page, id);
+      const byName = new Map(reqs.map((r) => [r.name, r]));
+      const slugOfName = (name: string): string => {
+        const slug = byName.get(name)?.slug;
+        expect(slug, `slug of «${name}»`).toBeTruthy();
+        return slug!;
+      };
+      expect(childOfTargets(byName.get(REQ_LOGIN))).toEqual([slugOfName(REQ_TREE_OVERVIEW)]);
+      expect(childOfTargets(byName.get(REQ_RESET))).toEqual([slugOfName(REQ_TREE_OVERVIEW)]);
+      expect(childOfTargets(byName.get(REQ_RESET))).not.toContain(slugOfName(REQ_LOGIN));
+      expect(childOfTargets(byName.get(REQ_LOGS))).toEqual([slugOfName(REQ_REPORT)]);
+      expect(childOfTargets(byName.get(REQ_TREE_OVERVIEW))).toEqual([]);
+      expect(childOfTargets(byName.get(REQ_REPORT))).toEqual([]);
+
+      // UI-дерево (НЕ два плоских списка): у корней с детьми удаление
+      // запрещено («Сначала удалите дочерние»), у листа LOGS — разрешено.
+      const overviewRow = rowByName(page, REQ_TREE_OVERVIEW);
+      await expect(overviewRow.locator('[data-testid^="delete-btn-"]')).toBeDisabled();
+      await expect(
+        rowByName(page, REQ_REPORT).locator('[data-testid^="delete-btn-"]'),
+      ).toBeDisabled();
+      await expect(rowByName(page, REQ_LOGS).locator('[data-testid^="delete-btn-"]')).toBeEnabled();
+
+      // Режим «Скрыть зависимости»: дети сворачиваются под корни, chip
+      // «N зависимостей» на корне раскрывает ветку обратно (паттерн S25).
+      await setTreeMode(page, 'collapse');
+      await expect(overviewRow).toBeVisible();
+      await expect(rowByName(page, REQ_REPORT)).toBeVisible();
+      await expect(rowByName(page, REQ_LOGIN)).toBeHidden();
+      await expect(rowByName(page, REQ_RESET)).toBeHidden();
+      await expect(rowByName(page, REQ_LOGS)).toBeHidden();
+      await expect(overviewRow.getByTestId('expand-node')).toBeVisible();
+      await attachShot(page, testInfo, 'structure-tree-collapsed');
+      await expandNode(page, REQ_TREE_OVERVIEW);
+      await expect(rowByName(page, REQ_LOGIN)).toBeVisible();
+      await expect(rowByName(page, REQ_RESET)).toBeVisible();
+    } finally {
+      stub.setStructureParents(null);
+    }
+  });
+
+  /* B4#2: у созданного требования «Источник» пуст, «Реализация» = «Реализовано»
+     — проверка и через API, и в модалке редактирования. */
+
+  test('поля импортированного требования: «Источник» пуст и «Реализация» = «Реализовано» (API + модалка)', async ({
+    page,
+  }, testInfo) => {
+    const id = await projectWithAi(page, 'AiImp-Fields');
+
+    const zip = makeZip(testInfo, 'docs-fields.zip', { 'ops.md': DOCS['ops.md']! });
+    await openAiImport(page);
+    await chooseFile(page, zip);
+    await startAnalysis(page);
+    await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
+    await page.getByTestId('ai-import-done').click();
+    await expect(page.getByTestId('ai-import')).toHaveCount(0);
+
+    // API: source пуст, implemented=true, квартал/год не назначены.
+    const req = (await listRequirements(page, id)).find((r) => r.name === REQ_LOGS);
+    expect(req, 'imported requirement must exist').toBeDefined();
+    expect(req?.source ?? '').toBe('');
+    expect(req?.implemented).toBe(true);
+    expect(req?.targetQuarter).toBeUndefined();
+    expect(req?.targetYear).toBeUndefined();
+
+    // UI: модалка редактирования показывает пустой «Источник» и активную
+    // кнопку «Реализовано» без блока квартала/года.
+    await openEdit(page, REQ_LOGS);
+    await expect(page.getByTestId('req-source')).toHaveValue('');
+    await expect(page.getByTestId('req-implemented-yes')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('req-target')).toHaveCount(0);
+    await attachShot(page, testInfo, 'imported-fields-modal');
+    await page.getByTestId('req-cancel').click();
+    await expect(page.getByTestId('requirement-modal')).toBeHidden();
+  });
+
+  /* B4#3: первый extraction-ответ не-JSON → повтор, warn «попытка 1 из 3»,
+     импорт успешен со 2-й попытки. */
+
+  test('ретрай extraction: не-JSON ответ → warn «попытка 1 из 3», со 2-й попытки импорт успешен', async ({
+    page,
+  }, testInfo) => {
+    const id = await projectWithAi(page, 'AiImp-Retry');
+
+    stub.failNextExtractionJson(1);
+    try {
+      const zip = makeZip(testInfo, 'docs-retry.zip', { 'reports.md': DOCS['reports.md']! });
+      const callsBefore = stub.extractionRequests.length;
+
+      await openAiImport(page);
+      await chooseFile(page, zip);
+      await startAnalysis(page);
+
+      const success = page.getByTestId('ai-import-success');
+      await expect(success).toBeVisible(JOB_TIMEOUT);
+      await expect(success).toContainText('Создано: 0 ФТ и 1 НФТ');
+
+      // Warn о неудачной попытке есть, «фрагмент пропущен» — нет.
+      const log = page.getByTestId('ai-import-log');
+      await expect(log).toContainText('ответ модели не распознан как JSON-массив (попытка 1 из 3)');
+      await expect(log).not.toContainText('фрагмент пропущен');
+      await attachShot(page, testInfo, 'retry-success');
+
+      // Стаб получил ровно 2 extraction-вызова: неудачный + успешный повтор.
+      expect(stub.extractionRequests.slice(callsBefore)).toHaveLength(2);
+
+      await page.getByTestId('ai-import-done').click();
+      await expect(rowByName(page, REQ_REPORT)).toBeVisible();
+      expect((await listRequirements(page, id)).map((r) => r.name)).toContain(REQ_REPORT);
+    } finally {
+      stub.failNextExtractionJson(0);
+    }
+  });
+
+  /* B4#4: стадия «Построение древовидной структуры ФТ/НФТ» видна в модалке
+     (задержка structure-ответа даёт поллеру окно) и остаётся в логе. */
+
+  test('стадия structure: «Этап: Построение древовидной структуры ФТ/НФТ» в модалке и строка в логе', async ({
+    page,
+  }, testInfo) => {
+    await projectWithAi(page, 'AiImp-Stage');
+
+    // 3 секунды на structure-ответ ≥ 3 опроса статуса (800 мс) — этап виден.
+    stub.setStructureDelay(3000);
+    try {
+      const zip = makeZip(testInfo, 'docs-stage.zip', { 'auth.md': DOCS['auth.md']! });
+      await openAiImport(page);
+      await chooseFile(page, zip);
+      await startAnalysis(page);
+
+      await expect(page.getByTestId('ai-import-stage')).toHaveText(
+        'Этап: Построение древовидной структуры ФТ/НФТ',
+        JOB_TIMEOUT,
+      );
+      await attachShot(page, testInfo, 'structure-stage-visible');
+
+      const success = page.getByTestId('ai-import-success');
+      await expect(success).toBeVisible(JOB_TIMEOUT);
+      await expect(page.getByTestId('ai-import-log')).toContainText(
+        'Построение древовидной структуры ФТ/НФТ через AI hub…',
+      );
+    } finally {
+      stub.setStructureDelay(0);
+    }
+  });
+
+  /* B4-бонус (spec B2): 3 не-JSON structure-ответа → warn «останутся
+     корневыми», job НЕ фейлится, требования созданы плоско. */
+
+  test('structure не получен за 3 попытки: warn «записи останутся корневыми», импорт продолжается плоско', async ({
+    page,
+  }, testInfo) => {
+    const id = await projectWithAi(page, 'AiImp-FlatFallback');
+
+    stub.failNextStructureJson(3);
+    try {
+      const zip = makeZip(testInfo, 'docs-flat.zip', {
+        'auth.md': DOCS['auth.md']!,
+        'reports.md': DOCS['reports.md']!,
+      });
+      await openAiImport(page);
+      await chooseFile(page, zip);
+      await startAnalysis(page);
+
+      // Job succeeded несмотря на провал структуризации; связей нет.
+      const success = page.getByTestId('ai-import-success');
+      await expect(success).toBeVisible(JOB_TIMEOUT);
+      await expect(success).toContainText('Создано: 2 ФТ и 1 НФТ');
+      await expect(success).toContainText('связей: 0');
+
+      const log = page.getByTestId('ai-import-log');
+      await expect(log).toContainText(
+        'ответ модели не распознан как JSON-массив структуры (попытка 3 из 3)',
+      );
+      await expect(log).toContainText(
+        'Структура для батча не получена — записи останутся корневыми.',
+      );
+      await attachShot(page, testInfo, 'structure-flat-fallback');
+
+      await page.getByTestId('ai-import-done').click();
+      // Все записи — корневые: ни одной CHILD_OF-связи.
+      const reqs = await listRequirements(page, id);
+      for (const name of [REQ_LOGIN, REQ_RESET, REQ_REPORT]) {
+        expect(
+          childOfTargets(reqs.find((r) => r.name === name)),
+          `«${name}» must stay a root`,
+        ).toEqual([]);
+      }
+    } finally {
+      stub.failNextStructureJson(0);
+    }
   });
 });

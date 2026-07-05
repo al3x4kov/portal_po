@@ -33,7 +33,7 @@ const PROJECT = 'Demo';
  * re-run of the same archive must complete the missing parts without dupes.
  */
 
-/** Extraction: parent section + child referencing it via parentName. */
+/** Extraction: parent section + child (hierarchy now comes from structure). */
 const EXTRACTION = JSON.stringify([
   {
     type: 'FUNCTION',
@@ -50,6 +50,12 @@ const EXTRACTION = JSON.stringify([
   },
 ]);
 
+/** Structure-stage answer (Task 13 B2): the tree the AI hub assembles. */
+const STRUCTURE = JSON.stringify([
+  { type: 'FUNCTION', name: 'Аутентификация', parentName: null },
+  { type: 'FUNCTION', name: 'Вход по паролю', parentName: 'Аутентификация' },
+]);
+
 async function writeZip(files: Record<string, string>): Promise<string> {
   const zip = new AdmZip();
   for (const [name, content] of Object.entries(files)) {
@@ -60,12 +66,17 @@ async function writeZip(files: Record<string, string>): Promise<string> {
   return file;
 }
 
-function fixedClient(content = EXTRACTION): AiClient {
+function fixedClient(answers: string[] = [EXTRACTION, STRUCTURE]): AiClient {
+  let call = 0;
   return {
     models: { list: vi.fn(async () => ({ data: [] })) },
     chat: {
       completions: {
-        create: vi.fn(async () => ({ choices: [{ message: { content } }] })),
+        create: vi.fn(async () => {
+          const content = answers[Math.min(call, answers.length - 1)] ?? '[]';
+          call += 1;
+          return { choices: [{ message: { content } }] };
+        }),
       },
     },
   };
