@@ -572,8 +572,16 @@ test.describe('GraphView', () => {
     const brokenNode = page.locator('[data-testid^="graph-node-broken-"]').first();
     await expect(brokenNode).toBeVisible({ timeout: ELK_TIMEOUT });
 
-    // Узел содержит текст об ошибке парсинга
-    await expect(brokenNode).toContainText('Ошибка парсинга');
+    // Редизайн (graph-view.html §2.20.1): узел помечен «Битый файл» + имя файла
+    await expect(brokenNode).toContainText('Битый файл');
+    await expect(brokenNode).toContainText('broken-test-req.md');
+
+    // Текст ошибки — в тултипе (graph-node-<slug>-tip), который появляется по hover
+    const tip = brokenNode.locator('[data-testid$="-tip"]');
+    await expect(tip).toBeHidden();
+    await brokenNode.hover();
+    await expect(tip).toBeVisible();
+    await expect(tip).toContainText('Файл не читается');
 
     // Очистка: удаляем битый файл
     await fsp.unlink(brokenFilePath).catch(() => {});
@@ -650,8 +658,8 @@ test.describe('GraphView', () => {
 
     // Badge типа «ФТ»
     await expect(node).toContainText('ФТ');
-    // Метка критичности (Critical)
-    await expect(node).toContainText('Critical');
+    // Метка критичности — русская (редизайн: CRITICALITY_LABEL)
+    await expect(node).toContainText('Критическая');
     // Символ «не реализовано» (⏱)
     await expect(node).toContainText('⏱');
   });

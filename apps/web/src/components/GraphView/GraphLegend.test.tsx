@@ -18,14 +18,17 @@ vi.mock('@xyflow/react', () => ({
 
 import { GraphLegend } from './GraphLegend';
 
-describe('GraphLegend (FR-G7.3, Task 12 · F-2.3)', () => {
-  it('renders all four link-type entries with Russian labels', () => {
+describe('GraphLegend (FR-G7.3, T6 · graph-view mockup §2.20.1)', () => {
+  it('renders node types, edge types and the broken-file state with Russian labels', () => {
     render(<GraphLegend />);
     expect(screen.getByTestId('graph-legend')).toBeInTheDocument();
-    expect(screen.getByText('Родитель')).toBeInTheDocument();
+    expect(screen.getByText('ФТ — функциональное')).toBeInTheDocument();
+    expect(screen.getByText('НФТ — нефункциональное')).toBeInTheDocument();
+    expect(screen.getByText('Иерархия (входит в)')).toBeInTheDocument();
     expect(screen.getByText('Зависит от')).toBeInTheDocument();
-    expect(screen.getByText('Блокировано')).toBeInTheDocument();
-    expect(screen.getByText('Связано')).toBeInTheDocument();
+    expect(screen.getByText('Блокируется')).toBeInTheDocument();
+    expect(screen.getByText('Смысловая связь')).toBeInTheDocument();
+    expect(screen.getByText('Битый файл')).toBeInTheDocument();
   });
 
   it('collapses and expands the entry list via the toggle', async () => {
@@ -38,10 +41,10 @@ describe('GraphLegend (FR-G7.3, Task 12 · F-2.3)', () => {
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(toggle).toHaveTextContent('▶');
-    expect(screen.queryByText('Родитель')).not.toBeInTheDocument();
+    expect(screen.queryByText('Иерархия (входит в)')).not.toBeInTheDocument();
 
     await user.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByText('Родитель')).toBeInTheDocument();
+    expect(screen.getByText('Иерархия (входит в)')).toBeInTheDocument();
   });
 });

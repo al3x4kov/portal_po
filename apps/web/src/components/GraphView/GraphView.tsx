@@ -12,6 +12,7 @@ import type { ComponentType } from 'react';
 import '@xyflow/react/dist/style.css';
 import type { Requirement } from '@po/core';
 import { useRequirements } from '../../api/hooks';
+import { plural } from '../../lib/plural';
 import { useUiStore } from '../../store/ui';
 import { transformRequirementsToGraph } from './graphTransform';
 import { applyELKLayout } from './elkLayout';
@@ -227,18 +228,7 @@ export function GraphView({ projectId }: GraphViewProps): React.ReactElement {
     );
   }
 
-  // Layout in progress
-  if (isLayingOut || !hasLayout) {
-    return (
-      <div
-        className="flex h-full flex-1 items-center justify-center"
-        style={{ color: 'var(--color-text-3)' }}
-        data-testid="graph-building"
-      >
-        <p>Строю граф…</p>
-      </div>
-    );
-  }
+  const totalGraphNodes = requirements.length + brokenNodes.length;
 
   return (
     <div
@@ -319,6 +309,36 @@ export function GraphView({ projectId }: GraphViewProps): React.ReactElement {
             <GraphLegend />
           </ReactFlow>
         </div>
+
+        {/* §2.20.2: пока ELK считает координаты, канва не выглядит пустой —
+            полупрозрачный оверлей со спиннером и статусом. */}
+        {isLayingOut || !hasLayout ? (
+          <div
+            className="absolute inset-0 z-10 grid place-items-center"
+            style={{ background: 'color-mix(in srgb, var(--color-bg) 55%, transparent)' }}
+            role="status"
+            aria-live="polite"
+            data-testid="graph-building"
+          >
+            <div
+              className="card flex items-center gap-3 px-5 py-4"
+              style={{ boxShadow: 'var(--shadow-lg)' }}
+            >
+              <span
+                className="spinner"
+                style={{ color: 'var(--color-primary)', width: 18, height: 18 }}
+                aria-hidden="true"
+              />
+              <div>
+                <p className="text-sm font-semibold">Раскладываем граф…</p>
+                <p className="hint">
+                  {totalGraphNodes} {plural(totalGraphNodes, 'узел', 'узла', 'узлов')} · обычно
+                  занимает пару секунд
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

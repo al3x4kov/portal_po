@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
 import { Dashboard } from './Dashboard';
 import { renderWithProviders } from '../test/utils';
@@ -297,6 +297,61 @@ describe('Dashboard (T-513 / T-514)', () => {
       renderDashboard();
 
       expect(await screen.findByTestId('dash-no-desc-nfr')).toBeInTheDocument();
+    });
+
+    it('T6 §2.19.1: карточка «Качество описаний» видна всегда — зелёное состояние при нуле пробелов', async () => {
+      listRequirements.mockResolvedValue({
+        requirements: [ftRoot1, ftWithDesc],
+        broken: [],
+      });
+
+      renderDashboard();
+
+      const quality = await screen.findByTestId('dash-quality');
+      expect(quality).toHaveTextContent('Качество описаний');
+      expect(screen.getByTestId('dash-quality-ok')).toHaveTextContent('Все требования описаны');
+      expect(screen.getByTestId('dash-quality-ok')).toHaveTextContent(
+        'У всех 2 требований заполнено описание. Новые пробелы появятся здесь.',
+      );
+      expect(screen.queryByTestId('dash-quality-count')).not.toBeInTheDocument();
+    });
+
+    it('T6 §2.19.1: бейдж «Без описания: N» при наличии пробелов, зелёного состояния нет', async () => {
+      listRequirements.mockResolvedValue({
+        requirements: [ftRoot1, ftNoDescBlocker, ftNoDescMedium],
+        broken: [],
+      });
+
+      renderDashboard();
+
+      const badge = await screen.findByTestId('dash-quality-count');
+      expect(badge).toHaveTextContent('Без описания: 2');
+      expect(screen.queryByTestId('dash-quality-ok')).not.toBeInTheDocument();
+    });
+
+    it('T6 §2.19.3: список «без описания» ограничен 7 позициями, «Показать все (N)» раскрывает остальные', async () => {
+      const many = Array.from({ length: 9 }, (_, i) =>
+        makeReq({
+          slug: `ft-nd-${i}`,
+          name: `ФТ без описания ${i}`,
+          criticality: 'MEDIUM',
+          description: '',
+          links: [],
+        }),
+      );
+      listRequirements.mockResolvedValue({ requirements: many, broken: [] });
+
+      renderDashboard();
+
+      const section = await screen.findByTestId('dash-no-desc-ft');
+      expect(section.querySelectorAll('li')).toHaveLength(7);
+
+      const showAll = screen.getByTestId('dash-no-desc-ft-show-all');
+      expect(showAll).toHaveTextContent('Показать все (9)');
+      fireEvent.click(showAll);
+      await screen.findByText('ФТ без описания 8');
+      expect(section.querySelectorAll('li')).toHaveLength(9);
+      expect(screen.getByTestId('dash-no-desc-ft-show-all')).toHaveTextContent('Свернуть');
     });
 
     it('does NOT show dash-no-desc-nfr when all NFTs have descriptions', async () => {

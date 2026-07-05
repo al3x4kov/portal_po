@@ -1,31 +1,27 @@
 import { useState } from 'react';
 import { Panel } from '@xyflow/react';
 
-interface LegendEntry {
+interface EdgeEntry {
   label: string;
   color: string;
   dashed: boolean;
   bidirectional: boolean;
 }
 
-const ENTRIES: LegendEntry[] = [
-  { label: 'PARENT_OF', color: '#64748b', dashed: false, bidirectional: false },
-  { label: 'DEPENDS_ON', color: '#3b82f6', dashed: true, bidirectional: false },
-  { label: 'BLOCKED_BY', color: '#ef4444', dashed: true, bidirectional: false },
-  { label: 'RELATES_TO', color: '#22c55e', dashed: false, bidirectional: true },
+/** Edge swatches mirror the actual styles from graphEdgeStyles.ts. */
+const EDGE_ENTRIES: EdgeEntry[] = [
+  { label: 'Иерархия (входит в)', color: '#64748b', dashed: false, bidirectional: false },
+  { label: 'Зависит от', color: '#3b82f6', dashed: true, bidirectional: false },
+  { label: 'Блокируется', color: '#ef4444', dashed: true, bidirectional: false },
+  { label: 'Смысловая связь', color: '#22c55e', dashed: false, bidirectional: true },
 ];
 
-const LABELS: Record<string, string> = {
-  PARENT_OF: 'Родитель',
-  DEPENDS_ON: 'Зависит от',
-  BLOCKED_BY: 'Блокировано',
-  RELATES_TO: 'Связано',
-};
-
 /**
- * Collapsible legend overlay in the top-left corner of the ReactFlow canvas.
- * Kept out of the bottom-left corner so it never overlaps the zoom Controls
- * (bottom-left) or the MiniMap (bottom-right). FR-G7.3.
+ * Collapsible legend overlay in the top-left corner of the ReactFlow canvas
+ * (FR-G7.3). Per the graph-view mockup (§2.20.1) it lists node types (ФТ/НФТ),
+ * edge types and the «Битый файл» state so a broken file is never mistaken
+ * for a requirement. Kept out of the bottom corners so it never overlaps the
+ * zoom Controls (bottom-left) or the MiniMap (bottom-right).
  */
 export function GraphLegend(): React.ReactElement {
   const [collapsed, setCollapsed] = useState(false);
@@ -33,11 +29,11 @@ export function GraphLegend(): React.ReactElement {
   return (
     <Panel position="top-left" data-testid="graph-legend">
       <div
-        className="rounded-lg border shadow-sm overflow-hidden"
+        className="overflow-hidden rounded-lg border shadow-sm"
         style={{
           background: 'var(--color-surface)',
           borderColor: 'var(--color-border)',
-          minWidth: 170,
+          minWidth: 190,
         }}
       >
         <button
@@ -53,10 +49,32 @@ export function GraphLegend(): React.ReactElement {
         </button>
 
         {!collapsed ? (
-          <div className="px-3 pb-3 space-y-2">
-            {ENTRIES.map((entry) => (
+          <div className="space-y-2 px-3 pb-3">
+            {/* Типы узлов */}
+            <div className="flex items-center gap-2">
+              <span
+                className="h-3.5 w-3.5 flex-none rounded border bg-blue-50 dark:bg-blue-950"
+                style={{ borderColor: 'var(--color-border)' }}
+                aria-hidden="true"
+              />
+              <span className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+                ФТ — функциональное
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className="h-3.5 w-3.5 flex-none rounded border bg-orange-50 dark:bg-orange-950"
+                style={{ borderColor: 'var(--color-border)' }}
+                aria-hidden="true"
+              />
+              <span className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+                НФТ — нефункциональное
+              </span>
+            </div>
+
+            {/* Типы рёбер */}
+            {EDGE_ENTRIES.map((entry) => (
               <div key={entry.label} className="flex items-center gap-2">
-                {/* Line swatch */}
                 <svg width="32" height="12" aria-hidden="true" className="shrink-0">
                   {entry.bidirectional ? (
                     <>
@@ -69,9 +87,7 @@ export function GraphLegend(): React.ReactElement {
                         strokeWidth="1.5"
                         strokeDasharray={entry.dashed ? '4 3' : undefined}
                       />
-                      {/* Arrowhead left */}
                       <polygon points="4,3 4,9 0,6" fill={entry.color} />
-                      {/* Arrowhead right */}
                       <polygon points="28,3 28,9 32,6" fill={entry.color} />
                     </>
                   ) : (
@@ -85,16 +101,27 @@ export function GraphLegend(): React.ReactElement {
                         strokeWidth="1.5"
                         strokeDasharray={entry.dashed ? '4 3' : undefined}
                       />
-                      {/* Arrowhead right */}
                       <polygon points="26,3 26,9 30,6" fill={entry.color} />
                     </>
                   )}
                 </svg>
                 <span className="text-xs" style={{ color: 'var(--color-text-2)' }}>
-                  {LABELS[entry.label]}
+                  {entry.label}
                 </span>
               </div>
             ))}
+
+            {/* Состояние «Битый файл» (§2.20.1) */}
+            <div className="flex items-center gap-2">
+              <span
+                className="h-3.5 w-3.5 flex-none rounded border-2 border-dashed"
+                style={{ borderColor: 'var(--color-danger)' }}
+                aria-hidden="true"
+              />
+              <span className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+                Битый файл
+              </span>
+            </div>
           </div>
         ) : null}
       </div>

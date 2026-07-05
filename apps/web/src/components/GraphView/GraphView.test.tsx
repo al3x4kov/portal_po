@@ -142,6 +142,22 @@ describe('GraphView', () => {
     });
   });
 
+  it('T6 §2.20.2: показывает оверлей «Раскладываем граф…» поверх канвы на время раскладки', async () => {
+    const reqs = [makeReq('req-1', 'Req 1'), makeReq('req-2', 'Req 2')];
+    mockUseRequirements.mockReturnValue(
+      makeQueryResult({ data: { requirements: reqs, broken: [], incomplete: [] } }),
+    );
+    renderWithProviders(<GraphView projectId="proj-1" />);
+    // Канва рендерится сразу; оверлей закрывает её, пока ELK не вернул координаты
+    expect(screen.getByTestId('graph-canvas')).toBeInTheDocument();
+    const overlay = screen.getByTestId('graph-building');
+    expect(overlay).toHaveTextContent('Раскладываем граф…');
+    expect(overlay).toHaveTextContent('2 узла · обычно занимает пару секунд');
+    await waitFor(() => {
+      expect(screen.queryByTestId('graph-building')).not.toBeInTheDocument();
+    });
+  });
+
   it('renders graph canvas after layout completes with requirements', async () => {
     const reqs = [makeReq('req-1', 'Req 1'), makeReq('req-2', 'Req 2')];
     mockUseRequirements.mockReturnValue(

@@ -1,23 +1,8 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { Criticality } from '@po/core';
+import { TriangleAlert } from 'lucide-react';
+import { CRITICALITY_COLOR_VAR, CRITICALITY_LABEL } from '../../lib/criticality';
 import type { RequirementNodeData } from './types';
-
-const CRITICALITY_BORDER: Record<Criticality, string> = {
-  LOW: 'var(--color-text-3)',
-  MEDIUM: 'var(--color-warning-fg)',
-  HIGH: 'var(--color-warning)',
-  CRITICAL: 'var(--color-danger)',
-  BLOCKER: '#7f1d1d',
-};
-
-const CRITICALITY_LABEL: Record<Criticality, string> = {
-  LOW: 'Low',
-  MEDIUM: 'Medium',
-  HIGH: 'High',
-  CRITICAL: 'Critical',
-  BLOCKER: 'Blocker',
-};
 
 function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max) + '…' : str;
@@ -26,14 +11,69 @@ function truncate(str: string, max: number): string {
 /**
  * Custom ReactFlow node for a Requirement (FR-G3).
  * Displays type badge, truncated name, criticality, implemented indicator.
+ *
+ * Broken files (§2.20.1, graph-view mockup) get a separate visual language:
+ * red dashed border, TriangleAlert icon, «Битый файл» label, NO criticality
+ * badges, and a hover/focus tooltip with the parse error text.
  */
 export const RequirementNode = memo(function RequirementNode({
   data,
 }: NodeProps & { data: RequirementNodeData; type: unknown }) {
-  const { slug, name, type, criticality, implemented, isBroken, onClick } =
+  const { slug, name, type, criticality, implemented, isBroken, description, onClick } =
     data as RequirementNodeData;
 
-  const borderColor = isBroken ? 'var(--color-danger)' : CRITICALITY_BORDER[criticality];
+  if (isBroken) {
+    return (
+      <div
+        className="tip-host rounded-lg p-3 shadow-sm"
+        style={{
+          width: 220,
+          background: 'var(--color-danger-bg)',
+          border: '1.5px dashed var(--color-danger)',
+        }}
+        tabIndex={0}
+        aria-label={`Битый файл: ${name}. ${description ?? 'Файл не читается.'}`}
+        data-testid={`graph-node-${slug}`}
+      >
+        <Handle type="target" position={Position.Top} style={{ opacity: 0.5 }} />
+        <div className="flex items-center gap-2">
+          <TriangleAlert
+            className="icon"
+            style={{ color: 'var(--color-danger-fg)' }}
+            aria-hidden="true"
+          />
+          <div className="min-w-0">
+            <p
+              className="font-bold"
+              style={{ fontSize: 'var(--text-min)', color: 'var(--color-danger-fg)' }}
+            >
+              Битый файл
+            </p>
+            <p
+              className="mono truncate text-xs"
+              style={{ color: 'var(--color-danger-fg)' }}
+              title={name}
+            >
+              {name}
+            </p>
+          </div>
+        </div>
+        {/* Тултип с текстом ошибки (§2.20.1) — виден по hover/focus */}
+        <div
+          className="tip tip-below"
+          style={{ whiteSpace: 'normal', width: 220, fontWeight: 400 }}
+          role="tooltip"
+          data-testid={`graph-node-${slug}-tip`}
+        >
+          <span className="block font-semibold">Файл не читается</span>
+          {description ?? 'Требование не загружено. Исправьте файл вручную или удалите его.'}
+        </div>
+        <Handle type="source" position={Position.Bottom} style={{ opacity: 0.5 }} />
+      </div>
+    );
+  }
+
+  const borderColor = CRITICALITY_COLOR_VAR[criticality];
   const bgClass =
     type === 'FUNCTION' ? 'bg-blue-50 dark:bg-blue-950' : 'bg-orange-50 dark:bg-orange-950';
 
@@ -61,23 +101,26 @@ export const RequirementNode = memo(function RequirementNode({
     >
       <Handle type="target" position={Position.Top} style={{ opacity: 0.5 }} />
 
-      {/* Header: type badge + broken indicator */}
+      {/* Header: type badge */}
       <div className="mb-1.5 flex items-center justify-between gap-1">
         <span
-          className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+          className="inline-flex items-center rounded px-1.5 py-0.5 font-bold uppercase tracking-wide"
           style={
             type === 'FUNCTION'
-              ? { background: 'rgba(59,130,246,0.15)', color: '#3b82f6' }
-              : { background: 'rgba(249,115,22,0.15)', color: '#f97316' }
+              ? {
+                  fontSize: 'var(--text-min)',
+                  background: 'rgba(59,130,246,0.15)',
+                  color: '#3b82f6',
+                }
+              : {
+                  fontSize: 'var(--text-min)',
+                  background: 'rgba(249,115,22,0.15)',
+                  color: '#f97316',
+                }
           }
         >
           {type === 'FUNCTION' ? 'ФТ' : 'НФТ'}
         </span>
-        {isBroken ? (
-          <span title="Ошибка парсинга" aria-label="Ошибка парсинга">
-            ⚠️
-          </span>
-        ) : null}
       </div>
 
       {/* Name (truncated) */}
@@ -89,18 +132,15 @@ export const RequirementNode = memo(function RequirementNode({
         {displayName}
       </div>
 
-      {/* Broken error text */}
-      {isBroken ? (
-        <div className="mb-1 text-xs font-medium" style={{ color: 'var(--color-danger, #ef4444)' }}>
-          Ошибка парсинга
-        </div>
-      ) : null}
-
       {/* Footer: criticality + implemented */}
       <div className="flex items-center justify-between gap-1">
         <span
-          className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold"
-          style={{ color: borderColor, background: 'rgba(0,0,0,0.05)' }}
+          className="inline-flex items-center rounded px-1.5 py-0.5 font-semibold"
+          style={{
+            fontSize: 'var(--text-min)',
+            color: borderColor,
+            background: 'rgba(0,0,0,0.05)',
+          }}
         >
           {CRITICALITY_LABEL[criticality]}
         </span>

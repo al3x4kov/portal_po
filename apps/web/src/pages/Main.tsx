@@ -453,6 +453,7 @@ export function Main(): React.ReactElement {
           <DescPanel
             requirement={descReq}
             path={ancestorNamesOf(descReq, requirements)}
+            nameBySlug={nameBySlug}
             onClose={() => setDescReq(null)}
             onEdit={onEdit}
             onDelete={onDelete}

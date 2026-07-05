@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { Check } from 'lucide-react';
 import type { Requirement } from '@po/core';
 import { useProject, useRequirements } from '../api/hooks';
 import { Sidebar } from '../components/Sidebar';
@@ -69,11 +70,12 @@ function ActivityChart({ byDay }: { byDay: Map<string, number> }): React.ReactEl
                 stroke="var(--color-border)"
                 strokeWidth={1}
               />
+              {/* §2.19.2: подписи осей ≥10px */}
               <text
                 x={PAD.left - 4}
                 y={y + 4}
                 textAnchor="end"
-                fontSize={9}
+                fontSize={10}
                 fill="var(--color-text-3)"
               >
                 {Math.round(maxVal * f)}
@@ -107,7 +109,7 @@ function ActivityChart({ byDay }: { byDay: Map<string, number> }): React.ReactEl
                   x={x + barW / 2}
                   y={H - PAD.bottom + 14}
                   textAnchor="middle"
-                  fontSize={8}
+                  fontSize={10}
                   fill="var(--color-text-3)"
                 >
                   {day.slice(5)}
@@ -126,6 +128,71 @@ function ActivityChart({ byDay }: { byDay: Map<string, number> }): React.ReactEl
           strokeWidth={1}
         />
       </svg>
+    </div>
+  );
+}
+
+/** §2.19.3: списки проблем ограничены 7 позициями + «Показать все (N)». */
+const PROBLEM_LIST_LIMIT = 7;
+
+/** One «без описания» list inside the always-visible quality card (§2.19.1). */
+function NoDescList({
+  title,
+  items,
+  testid,
+  onOpen,
+}: {
+  title: string;
+  items: Requirement[];
+  testid: string;
+  onOpen: (req: Requirement) => void;
+}): React.ReactElement {
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? items : items.slice(0, PROBLEM_LIST_LIMIT);
+  return (
+    <div data-testid={testid}>
+      <h3 className="mb-3 text-sm font-semibold">
+        {title}
+        <span
+          className="ml-2 rounded-full px-2 py-0.5 text-xs font-bold"
+          style={{
+            background: 'var(--color-warning-bg)',
+            color: 'var(--color-warning-fg)',
+          }}
+        >
+          {items.length}
+        </span>
+      </h3>
+      <ul className="space-y-2">
+        {visible.map((r) => (
+          <li key={r.slug} className="flex items-center gap-2">
+            <CriticalityBadge criticality={r.criticality} />
+            <span className="min-w-0 flex-1 truncate text-sm" title={r.name}>
+              {r.name}
+            </span>
+            <button
+              type="button"
+              className="chip flex-none"
+              style={{ color: 'var(--color-primary)' }}
+              data-testid={`dash-no-desc-open-${r.slug}`}
+              onClick={() => onOpen(r)}
+            >
+              + Описание
+            </button>
+          </li>
+        ))}
+      </ul>
+      {items.length > PROBLEM_LIST_LIMIT ? (
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm mt-3"
+          style={{ color: 'var(--color-primary)' }}
+          data-testid={`${testid}-show-all`}
+          onClick={() => setShowAll((v) => !v)}
+        >
+          {showAll ? 'Свернуть' : `Показать все (${items.length})`}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -198,6 +265,9 @@ export function Dashboard(): React.ReactElement {
 
   const activityByDay = useMemo(() => groupByDay(requirements), [requirements]);
 
+  // §2.19.3: список «Функции без НФТ» тоже ограничен 7 позициями.
+  const [showAllFnWithoutNfr, setShowAllFnWithoutNfr] = useState(false);
+
   // T-514: requirements without description, sorted by criticality
   const fnNoDesc = useMemo(
     () =>
@@ -213,6 +283,8 @@ export function Dashboard(): React.ReactElement {
         .sort((a, b) => (CRIT_ORDER[a.criticality] ?? 9) - (CRIT_ORDER[b.criticality] ?? 9)),
     [nfr],
   );
+
+  const noDescTotal = fnNoDesc.length + nfrNoDesc.length;
 
   const modal = useUiStore((s) => s.modal);
   const openModal = useUiStore((s) => s.openModal);
@@ -275,6 +347,84 @@ export function Dashboard(): React.ReactElement {
                 />
               </div>
 
+              {/* §2.19.1: карточка «Качество описаний» видна всегда — при нуле
+                  пробелов показываем позитивное подтверждение. */}
+              <div className="card" data-testid="dash-quality">
+                <div
+                  className="flex flex-wrap items-center gap-2 border-b px-5 py-3.5"
+                  style={{ borderColor: 'var(--color-border)' }}
+                >
+                  <h2 className="text-sm font-semibold">Качество описаний</h2>
+                  {noDescTotal > 0 ? (
+                    <span
+                      className="badge"
+                      style={{
+                        background: 'var(--color-warning-bg)',
+                        color: 'var(--color-warning-fg)',
+                      }}
+                      data-testid="dash-quality-count"
+                    >
+                      Без описания: {noDescTotal}
+                    </span>
+                  ) : null}
+                </div>
+                {noDescTotal === 0 ? (
+                  <div className="p-8 text-center" data-testid="dash-quality-ok">
+                    <span
+                      className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-full"
+                      style={{
+                        background: 'var(--color-success-bg)',
+                        color: 'var(--color-success-fg)',
+                      }}
+                      aria-hidden="true"
+                    >
+                      <Check className="icon" aria-hidden="true" />
+                    </span>
+                    <h3 className="mb-1 font-semibold" style={{ color: 'var(--color-success-fg)' }}>
+                      Все требования описаны
+                    </h3>
+                    <p className="text-sm" style={{ color: 'var(--color-text-2)' }}>
+                      {requirements.length > 0
+                        ? `У всех ${requirements.length} требований заполнено описание. Новые пробелы появятся здесь.`
+                        : 'Требований пока нет. Пробелы описаний появятся здесь.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-6 p-5 sm:grid-cols-2">
+                    {fnNoDesc.length > 0 ? (
+                      <NoDescList
+                        title="ФТ без описания"
+                        items={fnNoDesc}
+                        testid="dash-no-desc-ft"
+                        onOpen={(r) =>
+                          openModal({
+                            kind: 'requirement',
+                            reqType: r.type,
+                            requirement: r,
+                            focusField: 'description',
+                          })
+                        }
+                      />
+                    ) : null}
+                    {nfrNoDesc.length > 0 ? (
+                      <NoDescList
+                        title="НФТ без описания"
+                        items={nfrNoDesc}
+                        testid="dash-no-desc-nfr"
+                        onOpen={(r) =>
+                          openModal({
+                            kind: 'requirement',
+                            reqType: r.type,
+                            requirement: r,
+                            focusField: 'description',
+                          })
+                        }
+                      />
+                    ) : null}
+                  </div>
+                )}
+              </div>
+
               <div className="card p-5">
                 <h2 className="mb-4 font-semibold">
                   Динамика изменений ФТ/НФТ{' '}
@@ -285,98 +435,16 @@ export function Dashboard(): React.ReactElement {
                 <ActivityChart byDay={activityByDay} />
               </div>
 
-              {fnNoDesc.length > 0 || nfrNoDesc.length > 0 ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {fnNoDesc.length > 0 ? (
-                    <div className="card p-4" data-testid="dash-no-desc-ft">
-                      <h2 className="mb-3 font-semibold">
-                        ФТ без описания
-                        <span
-                          className="ml-2 rounded-full px-2 py-0.5 text-xs font-bold"
-                          style={{
-                            background: 'var(--color-warning-bg)',
-                            color: 'var(--color-warning-fg)',
-                          }}
-                        >
-                          {fnNoDesc.length}
-                        </span>
-                      </h2>
-                      <ul className="space-y-2">
-                        {fnNoDesc.map((r) => (
-                          <li key={r.slug} className="flex items-center gap-2">
-                            <CriticalityBadge criticality={r.criticality} />
-                            <span className="flex-1 truncate text-sm">{r.name}</span>
-                            <button
-                              type="button"
-                              className="btn btn-ghost px-2 py-0.5 text-xs"
-                              style={{ color: 'var(--color-primary)' }}
-                              data-testid={`dash-no-desc-open-${r.slug}`}
-                              onClick={() =>
-                                openModal({
-                                  kind: 'requirement',
-                                  reqType: r.type,
-                                  requirement: r,
-                                  focusField: 'description',
-                                })
-                              }
-                            >
-                              + Описание
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {nfrNoDesc.length > 0 ? (
-                    <div className="card p-4" data-testid="dash-no-desc-nfr">
-                      <h2 className="mb-3 font-semibold">
-                        НФТ без описания
-                        <span
-                          className="ml-2 rounded-full px-2 py-0.5 text-xs font-bold"
-                          style={{
-                            background: 'var(--color-warning-bg)',
-                            color: 'var(--color-warning-fg)',
-                          }}
-                        >
-                          {nfrNoDesc.length}
-                        </span>
-                      </h2>
-                      <ul className="space-y-2">
-                        {nfrNoDesc.map((r) => (
-                          <li key={r.slug} className="flex items-center gap-2">
-                            <CriticalityBadge criticality={r.criticality} />
-                            <span className="flex-1 truncate text-sm">{r.name}</span>
-                            <button
-                              type="button"
-                              className="btn btn-ghost px-2 py-0.5 text-xs"
-                              style={{ color: 'var(--color-primary)' }}
-                              data-testid={`dash-no-desc-open-${r.slug}`}
-                              onClick={() =>
-                                openModal({
-                                  kind: 'requirement',
-                                  reqType: r.type,
-                                  requirement: r,
-                                  focusField: 'description',
-                                })
-                              }
-                            >
-                              + Описание
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
               {functionsWithoutNfr.length > 0 ? (
                 <div className="card p-5">
                   <h2 className="mb-3 font-semibold">
                     Функции без нефункционального требования ({functionsWithoutNfr.length})
                   </h2>
                   <ul className="space-y-1.5">
-                    {functionsWithoutNfr.map((r) => (
+                    {(showAllFnWithoutNfr
+                      ? functionsWithoutNfr
+                      : functionsWithoutNfr.slice(0, PROBLEM_LIST_LIMIT)
+                    ).map((r) => (
                       <li
                         key={r.slug}
                         className="flex items-center gap-2 text-sm"
@@ -391,6 +459,19 @@ export function Dashboard(): React.ReactElement {
                       </li>
                     ))}
                   </ul>
+                  {functionsWithoutNfr.length > PROBLEM_LIST_LIMIT ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm mt-3"
+                      style={{ color: 'var(--color-primary)' }}
+                      data-testid="dashboard-nfr-missing-show-all"
+                      onClick={() => setShowAllFnWithoutNfr((v) => !v)}
+                    >
+                      {showAllFnWithoutNfr
+                        ? 'Свернуть'
+                        : `Показать все (${functionsWithoutNfr.length})`}
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </>

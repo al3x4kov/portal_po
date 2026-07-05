@@ -61,10 +61,34 @@ describe('RequirementNode', () => {
     expect(screen.getByText('⏱')).toBeInTheDocument();
   });
 
-  it('shows broken warning icon and error text for isBroken=true', () => {
-    render(<RequirementNode {...makeNodeProps({ isBroken: true })} />);
-    expect(screen.getByText('⚠️')).toBeInTheDocument();
-    expect(screen.getByText('Ошибка парсинга')).toBeInTheDocument();
+  it('renders the broken node with its own visual language (§2.20.1): label, no badges, error tooltip', () => {
+    render(
+      <RequirementNode
+        {...makeNodeProps({
+          isBroken: true,
+          slug: 'broken-bad.md',
+          name: 'bad.md',
+          description: 'Неверный YAML во frontmatter (строка 3)',
+        })}
+      />,
+    );
+    // Отдельный визуальный язык: «Битый файл» + имя файла, БЕЗ бейджей критичности
+    expect(screen.getByText('Битый файл')).toBeInTheDocument();
+    expect(screen.getByText('bad.md')).toBeInTheDocument();
+    expect(screen.queryByText('Средняя')).not.toBeInTheDocument();
+    // Тултип с текстом ошибки
+    const tip = screen.getByTestId('graph-node-broken-bad.md-tip');
+    expect(tip).toHaveTextContent('Файл не читается');
+    expect(tip).toHaveTextContent('Неверный YAML во frontmatter (строка 3)');
+    // Красная пунктирная рамка
+    expect(screen.getByTestId('graph-node-broken-bad.md')).toHaveStyle({
+      border: '1.5px dashed var(--color-danger)',
+    });
+  });
+
+  it('shows the Russian criticality label on regular nodes', () => {
+    render(<RequirementNode {...makeNodeProps({ criticality: 'CRITICAL' })} />);
+    expect(screen.getByText('Критическая')).toBeInTheDocument();
   });
 
   it('truncates long names after 60 chars', () => {
