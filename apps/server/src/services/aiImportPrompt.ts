@@ -1,8 +1,10 @@
 import path from 'node:path';
 import {
   aiExtractedRequirementSchema,
+  aiRelatePairSchema,
   aiStructureNodeSchema,
   type AiExtractedRequirement,
+  type AiRelatePair,
   type AiStructureNode,
   type RequirementType,
 } from '@po/core';
@@ -215,6 +217,116 @@ export function buildStructureMessages(
     { role: 'system', content: STRUCTURE_SYSTEM_PROMPT },
     { role: 'user', content: user },
   ];
+}
+
+/*
+ * ── todo_16 B2: relate step («Проставление связей ФТ↔НФТ») ─────────────────
+ */
+
+/** One requirement passed into the relate call: id (slug) + name + short description. */
+export interface RelateItem {
+  slug: string;
+  name: string;
+  description?: string;
+}
+
+/** Character budget for one requirement list (ФТ or НФТ) of the relate call. */
+export const AI_IMPORT_RELATE_LIST_CHARS = 6000;
+
+/** Per-item description budget in the relate call (short summary is enough). */
+export const AI_IMPORT_RELATE_DESC_CHARS = 160;
+
+/**
+ * System prompt (RU) for the relate call (todo_16 B2). The model receives the
+ * ALREADY-created requirements of the project (id + name + short description)
+ * and returns meaningful NFR↔FUNCTION pairs for RELATES_TO. It must never
+ * invent ids or requirements — the server drops everything unknown anyway.
+ */
+const RELATE_SYSTEM_PROMPT = [
+  'Ты — аналитик связей требований для портала управления требованиями Product Owner.',
+  'Тебе дают два списка уже созданных требований проекта: функциональные (ФТ) и',
+  'нефункциональные (НФТ) — id, имя и краткое описание.',
+  'Определи, какие НФТ по смыслу ограничивают или характеризуют какие ФТ,',
+  'и верни пары для связи RELATES_TO.',
+  'Используй ТОЛЬКО переданные id: не выдумывай новые id, не переименовывай,',
+  'не добавляй и не изменяй требования. Пара валидна только между НФТ и ФТ.',
+  'Связывай только при явном смысловом соответствии — лучше пропустить, чем связать наугад.',
+  'Ответ верни СТРОГО как JSON-массив объектов вида {"nfr":"<id НФТ>","function":"<id ФТ>"}.',
+  'Без markdown, без преамбул и пояснений. Если уверенных пар нет — верни пустой массив [].',
+].join(' ');
+
+/** One `id\tname\tdescription` line (description single-line, truncated). */
+function relateLine(item: RelateItem): string {
+  const desc = (item.description ?? '').replace(/\s+/g, ' ').trim();
+  const short =
+    desc.length > AI_IMPORT_RELATE_DESC_CHARS
+      ? `${desc.slice(0, AI_IMPORT_RELATE_DESC_CHARS - 1)}…`
+      : desc;
+  return `${item.slug}\t${item.name}\t${short}`;
+}
+
+/** Compact list of one requirement type for the relate call, under a char budget. */
+function buildRelateList(items: RelateItem[], maxChars = AI_IMPORT_RELATE_LIST_CHARS): string {
+  return truncateLines(
+    items.map(relateLine),
+    maxChars,
+    (omitted) => `…и ещё ${omitted} требований`,
+  );
+}
+
+/**
+ * Build the two-message conversation for the relate call (todo_16 B2):
+ * both lists as `id\tимя\tкраткое описание` lines.
+ */
+export function buildRelateMessages(functions: RelateItem[], nfrs: RelateItem[]): AiChatMessage[] {
+  const user = [
+    `Функциональные требования (ФТ), формат: id, имя, краткое описание через табуляцию (${functions.length} шт.):`,
+    buildRelateList(functions),
+    '',
+    `Нефункциональные требования (НФТ), формат: id, имя, краткое описание через табуляцию (${nfrs.length} шт.):`,
+    buildRelateList(nfrs),
+  ].join('\n');
+  return [
+    { role: 'system', content: RELATE_SYSTEM_PROMPT },
+    { role: 'user', content: user },
+  ];
+}
+
+/** Outcome of parsing one relate answer (mirrors {@link ParsedStructure}). */
+export interface ParsedRelate {
+  /** Pairs that passed {@link aiRelatePairSchema}. */
+  pairs: AiRelatePair[];
+  /** Pairs dropped by the lenient mode (always 0 in strict mode). */
+  droppedInvalid: number;
+  /** Total number of elements in the answer array. */
+  total: number;
+}
+
+/**
+ * Parse one relate answer: locate the JSON array (bare, fenced, embedded or
+ * salvaged), then validate every pair against {@link aiRelatePairSchema}.
+ * `strict` (default) invalidates the whole answer on any bad pair (retried);
+ * `lenient` (last attempt) keeps the valid pairs. `null` when no array found.
+ */
+export function parseRelateResponse(
+  content: string,
+  mode: 'strict' | 'lenient' = 'strict',
+): ParsedRelate | null {
+  const array = extractJsonArray(content);
+  if (array === null) return null;
+  const pairs: AiRelatePair[] = [];
+  let droppedInvalid = 0;
+  for (const pair of array) {
+    const parsed = aiRelatePairSchema.safeParse(pair);
+    if (parsed.success) {
+      pairs.push(parsed.data);
+    } else if (mode === 'strict') {
+      return null;
+    } else {
+      droppedInvalid += 1;
+    }
+  }
+  return { pairs, droppedInvalid, total: array.length };
 }
 
 /** Outcome of parsing one structure answer (Task 14 B7). */

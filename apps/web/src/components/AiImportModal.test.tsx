@@ -362,6 +362,188 @@ describe('AiImportModal (Task 11)', () => {
     expect(screen.queryByTestId('ai-import-error')).not.toBeInTheDocument();
   });
 
+  // ── todo_16 A3: re-request the model list, re-pick a model at any time ─────
+
+  describe('model list refresh (A3)', () => {
+    it('re-requests the list on click and keeps the selection', async () => {
+      listModels
+        .mockResolvedValueOnce(MODELS)
+        .mockResolvedValue({ models: [...MODELS.models, 'GigaChat-3'] });
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await screen.findByRole('option', { name: 'Qwen-Coder-Next' });
+      await user.selectOptions(screen.getByTestId('ai-import-model-select'), 'Qwen-Coder-Next');
+
+      await user.click(screen.getByTestId('ai-models-refresh-import'));
+      await screen.findByRole('option', { name: 'GigaChat-3' });
+      expect(listModels).toHaveBeenCalledTimes(2);
+      // The selection survives the refresh; no notice is shown.
+      expect(screen.getByTestId('ai-import-model-select')).toHaveValue('Qwen-Coder-Next');
+      expect(screen.queryByTestId('ai-models-notice-import')).not.toBeInTheDocument();
+    });
+
+    it('vanished selection resets to the project model; the next run uses it', async () => {
+      getJob.mockResolvedValue(RUNNING_JOB);
+      listModels.mockResolvedValueOnce(MODELS).mockResolvedValue({ models: ['GigaChat-2-Pro'] });
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await screen.findByRole('option', { name: 'Qwen-Coder-Next' });
+      await user.selectOptions(screen.getByTestId('ai-import-model-select'), 'Qwen-Coder-Next');
+
+      await user.click(screen.getByTestId('ai-models-refresh-import'));
+      await waitFor(() =>
+        expect(screen.getByTestId('ai-import-model-select')).toHaveValue('GigaChat-2-Pro'),
+      );
+      const notice = screen.getByTestId('ai-models-notice-import');
+      expect(notice).toHaveTextContent('Qwen-Coder-Next');
+      expect(notice).toHaveTextContent('GigaChat-2-Pro');
+
+      // Starting the import now sends the auto-picked model.
+      await startJob(user);
+      expect(startImport).toHaveBeenCalledWith('proj-1', archive, 'GigaChat-2-Pro');
+    });
+
+    it('refresh failure shows an inline error and keeps the selection', async () => {
+      listModels
+        .mockResolvedValueOnce(MODELS)
+        .mockRejectedValue(new Error('AI Hub недоступен (502)'));
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+
+      await user.click(screen.getByTestId('ai-models-refresh-import'));
+      const notice = await screen.findByTestId('ai-models-notice-import');
+      expect(notice).toHaveTextContent('Не удалось обновить список моделей');
+      expect(notice).toHaveTextContent('502');
+      expect(screen.getByTestId('ai-import-model-select')).toHaveValue('GigaChat-2-Pro');
+    });
+  });
+
+  // ── todo_16 B2: optional AI relate step (связи ФТ↔НФТ) ─────────────────────
+
+  describe('AI relate step (B2)', () => {
+    it('checkbox is off by default and the start call omits inferLinks (pre-B2 shape)', async () => {
+      getJob.mockResolvedValue(RUNNING_JOB);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      expect(screen.getByTestId('ai-import-infer-links')).not.toBeChecked();
+      await startJob(user);
+      // Exactly the old 3-argument shape — no inferLinks argument at all.
+      expect(startImport).toHaveBeenCalledWith('proj-1', archive, undefined);
+    });
+
+    it('enabled checkbox sends inferLinks=true with the start request', async () => {
+      getJob.mockResolvedValue(RUNNING_JOB);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await user.click(screen.getByTestId('ai-import-infer-links'));
+      expect(screen.getByTestId('ai-import-infer-links')).toBeChecked();
+      await startJob(user);
+      expect(startImport).toHaveBeenCalledWith('proj-1', archive, undefined, true);
+    });
+
+    it('running relate: shows the step as executing; «Этап:» switches to the relate step (Ф6)', async () => {
+      getJob.mockResolvedValue({
+        ...RUNNING_JOB,
+        stage: 'populate',
+        progress: 90,
+        relate: { status: 'running', created: 0 },
+      } satisfies AiImportJobView);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      const status = await screen.findByTestId('ai-import-relate-status');
+      expect(status).toHaveTextContent('Проставление связей ФТ↔НФТ: выполняется…');
+      // Ф6: while the relate AI call runs, the stage line names the actual step
+      // instead of the formal `populate` stage.
+      expect(screen.getByTestId('ai-import-stage')).toHaveTextContent(
+        'Этап: Проставление связей ФТ↔НФТ',
+      );
+    });
+
+    it('relate finished: «Этап:» returns to the regular stage label (Ф6, negative)', async () => {
+      getJob.mockResolvedValue({
+        ...SUCCEEDED_JOB,
+        relate: { status: 'done', created: 4 },
+      } satisfies AiImportJobView);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      await screen.findByTestId('ai-import-success');
+      expect(screen.getByTestId('ai-import-stage')).toHaveTextContent('Этап: Готово');
+    });
+
+    it('done relate: «создано связей: N» next to the success summary', async () => {
+      getJob.mockResolvedValue({
+        ...SUCCEEDED_JOB,
+        relate: { status: 'done', created: 4 },
+      } satisfies AiImportJobView);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      await screen.findByTestId('ai-import-success');
+      expect(screen.getByTestId('ai-import-relate-status')).toHaveTextContent(
+        'Проставление связей ФТ↔НФТ: создано связей: 4',
+      );
+    });
+
+    it('partial relate: «создано N, часть не создана»', async () => {
+      getJob.mockResolvedValue({
+        ...SUCCEEDED_JOB,
+        relate: { status: 'partial', created: 3 },
+      } satisfies AiImportJobView);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      await screen.findByTestId('ai-import-success');
+      expect(screen.getByTestId('ai-import-relate-status')).toHaveTextContent(
+        'Проставление связей ФТ↔НФТ: создано 3, часть не создана',
+      );
+    });
+
+    it('skipped relate: the step is reported as skipped while the import succeeds', async () => {
+      getJob.mockResolvedValue({
+        ...SUCCEEDED_JOB,
+        relate: { status: 'skipped', created: 0 },
+      } satisfies AiImportJobView);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      // The import itself is successful — the green summary is still there.
+      expect(await screen.findByTestId('ai-import-success')).toHaveTextContent(
+        'Подгрузка завершена',
+      );
+      expect(screen.getByTestId('ai-import-relate-status')).toHaveTextContent(
+        'Проставление связей ФТ↔НФТ: шаг пропущен из-за ошибки AI',
+      );
+    });
+
+    it('without the relate field there is no step block (pre-B2 view)', async () => {
+      getJob.mockResolvedValue(SUCCEEDED_JOB);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      await screen.findByTestId('ai-import-success');
+      expect(screen.queryByTestId('ai-import-relate-status')).not.toBeInTheDocument();
+    });
+  });
+
   // ── Task 12 · F-2.4 (PO-T2): job lost after a server restart ───────────────
   describe('PO-T2: lost job (GET /api/ai-import/:jobId → 404)', () => {
     const notFound = () => new ApiError(404, { code: 'NOT_FOUND', message: 'Задание не найдено' });
@@ -375,8 +557,10 @@ describe('AiImportModal (Task 11)', () => {
 
       const error = await screen.findByTestId('ai-import-error');
       expect(error).toHaveTextContent('Задание потеряно');
+      // Ф9: cause-first wording (restart or expired job) + a clear next step.
       expect(error).toHaveTextContent(
-        'Задание потеряно (сервер был перезапущен). Запустите анализ заново.',
+        'Статус задания недоступен (возможно, сервер был перезапущен или задание устарело). ' +
+          'Запустите анализ заново.',
       );
       // Failed footer: retry is offered, the running-only stop button is gone.
       expect(screen.getByTestId('ai-import-retry')).toBeInTheDocument();
@@ -418,6 +602,125 @@ describe('AiImportModal (Task 11)', () => {
       // Closing no longer demands the «Прекратить автоматизацию?» confirmation.
       await user.click(screen.getByTestId('ai-import-error-close'));
       expect(screen.queryByTestId('ai-import-confirm')).not.toBeInTheDocument();
+    });
+  });
+
+  // ── todo_16 Ф7: partial-result summary after a manual stop ─────────────────
+
+  describe('Ф7: cancelled summary', () => {
+    it('cancelled with a result: shows what was created before the stop', async () => {
+      getJob.mockResolvedValue(CANCELLED_JOB);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      const summary = await screen.findByTestId('ai-import-cancelled-summary');
+      expect(summary).toHaveTextContent('Остановлено. Успели создать: 2 ФТ и 0 НФТ');
+      expect(summary).toHaveTextContent('связей: 0');
+      // The «Остановлено» badge on the file card is still there.
+      expect(screen.getByTestId('ai-import-cancelled')).toHaveTextContent('Остановлено');
+    });
+
+    it('cancelled without a result: no summary panel', async () => {
+      getJob.mockResolvedValue({
+        ...CANCELLED_JOB,
+        result: undefined,
+      } satisfies AiImportJobView);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      await screen.findByTestId('ai-import-cancelled');
+      expect(screen.queryByTestId('ai-import-cancelled-summary')).not.toBeInTheDocument();
+    });
+  });
+
+  // ── todo_16 Ф8: warn/error counter next to the log ─────────────────────────
+
+  describe('Ф8: warnings badge', () => {
+    it('counts warn and error log lines: «Предупреждений: N»', async () => {
+      getJob.mockResolvedValue({
+        ...RUNNING_JOB,
+        log: [
+          ...RUNNING_JOB.log, // 1 info + 1 warn
+          { ts: '2026-07-04T12:01:30.000Z', level: 'error', message: 'batch 2 failed' },
+        ],
+      } satisfies AiImportJobView);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      expect(await screen.findByTestId('ai-import-warn-count')).toHaveTextContent(
+        'Предупреждений: 2',
+      );
+    });
+
+    it('stays visible after the job finishes', async () => {
+      getJob.mockResolvedValue(SUCCEEDED_JOB); // log keeps 1 warn line
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      await screen.findByTestId('ai-import-success');
+      expect(screen.getByTestId('ai-import-warn-count')).toHaveTextContent('Предупреждений: 1');
+    });
+
+    it('zero warnings: no badge at all', async () => {
+      getJob.mockResolvedValue({
+        ...RUNNING_JOB,
+        log: [RUNNING_JOB.log[0]], // the single info line only
+      } satisfies AiImportJobView);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      expect(screen.getByTestId('ai-import-log')).toHaveTextContent('Архив распакован');
+      expect(screen.queryByTestId('ai-import-warn-count')).not.toBeInTheDocument();
+    });
+  });
+
+  // ── todo_16 Ф10: client-side archive size limit (50 МБ) ────────────────────
+
+  describe('Ф10: file size check on pick', () => {
+    function makeBigFile(): File {
+      const f = new File(['x'], 'huge-docs.zip', { type: 'application/zip' });
+      // A real 50 МБ payload would slow the test down — fake the size only.
+      Object.defineProperty(f, 'size', { value: 50 * 1024 * 1024 + 1 });
+      return f;
+    }
+
+    it('oversized archive: inline error, file not accepted, start not called', async () => {
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await user.upload(screen.getByTestId('ai-import-file'), makeBigFile());
+
+      expect(await screen.findByTestId('ai-import-start-error')).toHaveTextContent(
+        'Файл больше 50 МБ — уменьшите архив документации.',
+      );
+      // The file was rejected: no file card, start stays disabled, no API call.
+      expect(screen.queryByTestId('ai-import-file-name')).not.toBeInTheDocument();
+      expect(screen.getByTestId('ai-import-start')).toBeDisabled();
+      await user.click(screen.getByTestId('ai-import-start'));
+      expect(startImport).not.toHaveBeenCalled();
+    });
+
+    it('a normal archive after the oversized one clears the error and starts fine', async () => {
+      getJob.mockResolvedValue(RUNNING_JOB);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await user.upload(screen.getByTestId('ai-import-file'), makeBigFile());
+      await screen.findByTestId('ai-import-start-error');
+
+      await startJob(user); // uploads the regular small archive + starts
+      expect(screen.queryByTestId('ai-import-start-error')).not.toBeInTheDocument();
+      expect(startImport).toHaveBeenCalledWith('proj-1', archive, undefined);
     });
   });
 });

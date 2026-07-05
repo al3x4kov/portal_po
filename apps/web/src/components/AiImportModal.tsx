@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AiImportJobView, AiImportStage } from '@po/core';
+import type { AiImportJobView, AiImportRelateView, AiImportStage } from '@po/core';
+import { AI_IMPORT_MAX_ARCHIVE_BYTES } from '@po/core';
 import {
   useAiConfig,
   useAiImportJob,
-  useAiModels,
+  useAiModelsRefresh,
   useCancelAiImport,
   useStartAiImport,
 } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import { Modal } from './Modal';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ModelListNotice, ModelRefreshButton } from './ModelRefresh';
 import { AI_IMPORT_LOG_BG, AI_IMPORT_LOG_LEVEL_COLOR, AI_IMPORT_LOG_TEXT } from '../lib/logColors';
 
 /**
@@ -31,6 +33,39 @@ export const AI_IMPORT_STAGE_LABELS: Record<AiImportStage, string> = {
 };
 
 const MODEL_HINT = 'Задайте API-ключ на экране AI (меню проекта → AI), затем выберите модель.';
+
+/** B2 (todo_16): opt-in checkbox label for the AI relate step. */
+const INFER_LINKS_LABEL =
+  'Дополнительно проставить связи между ФТ и НФТ (возможны галлюцинации) — ' +
+  'без добавления новых ФТ/НФТ';
+
+/** Name of the optional relate step shown in the progress/result view. */
+const RELATE_STEP_LABEL = 'Проставление связей ФТ↔НФТ';
+
+/**
+ * Human-readable outcome of the relate step (todo_16 B2). `skipped` means the
+ * AI call failed/timed out — the import itself still succeeded.
+ */
+export function relateStatusText(relate: AiImportRelateView): string {
+  switch (relate.status) {
+    case 'running':
+      return 'выполняется…';
+    case 'done':
+      return `создано связей: ${relate.created}`;
+    case 'partial':
+      return `создано ${relate.created}, часть не создана`;
+    case 'skipped':
+      return 'шаг пропущен из-за ошибки AI';
+  }
+}
+
+/** Ф9 (todo_16): a 404 on the job poll — restart-safe, human-readable text. */
+const JOB_LOST_MESSAGE =
+  'Статус задания недоступен (возможно, сервер был перезапущен или задание устарело). ' +
+  'Запустите анализ заново.';
+
+/** Ф10 (todo_16): client-side mirror of the server archive size limit. */
+const FILE_TOO_BIG_MESSAGE = 'Файл больше 50 МБ — уменьшите архив документации.';
 
 const CONFIRM_MESSAGE =
   'Анализ документации ещё выполняется. Если закрыть окно, процесс будет остановлен. ' +
@@ -61,6 +96,8 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   const [file, setFile] = useState<File | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [modelOverride, setModelOverride] = useState<string | null>(null);
+  // B2: optional AI relate step (ФТ↔НФТ links), off by default.
+  const [inferLinks, setInferLinks] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -69,8 +106,6 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   const configQuery = useAiConfig(projectId);
   const config = configQuery.data;
   const configured = Boolean(config?.hasApiKey);
-  // Same rule as the chat widget: models are requested only once a key exists.
-  const modelsQuery = useAiModels(configured);
 
   const startMut = useStartAiImport(projectId);
   const jobQuery = useAiImportJob(projectId, jobId);
@@ -81,12 +116,22 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   const selectedModel = modelOverride ?? config?.model ?? '';
   const modelReady = configured && selectedModel.length > 0;
 
+  // A3: same rule as the chat widget — models are requested only once a key
+  // exists; the refresh button refetches and reconciles a vanished selection
+  // (project model / first one) with an inline notice.
+  const modelsRefresh = useAiModelsRefresh({
+    enabled: configured,
+    selectedModel,
+    fallbackModel: config?.model,
+    onModelReset: setModelOverride,
+  });
+
   // Loaded models + the currently selected one, so the value is never lost.
   const modelOptions = useMemo(() => {
-    const set = new Set<string>(modelsQuery.data?.models ?? []);
+    const set = new Set<string>(modelsRefresh.models);
     if (selectedModel) set.add(selectedModel);
     return [...set];
-  }, [modelsQuery.data, selectedModel]);
+  }, [modelsRefresh.models, selectedModel]);
 
   // PO-T2: the job vanished server-side (404 after a restart — jobs are
   // in-memory). Treat it as a failure with a retry, not an eternal progress.
@@ -111,6 +156,12 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
 
   const pickFile = (f: File | null | undefined): void => {
     if (!f) return;
+    // Ф10: reject oversized archives client-side, before any upload — the
+    // server enforces the same AI_IMPORT_MAX_ARCHIVE_BYTES limit (@po/core).
+    if (f.size > AI_IMPORT_MAX_ARCHIVE_BYTES) {
+      setStartError(FILE_TOO_BIG_MESSAGE);
+      return;
+    }
     setFile(f);
     setStartError(null);
   };
@@ -119,7 +170,7 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
     if (!file || !modelReady || startMut.isPending) return;
     setStartError(null);
     startMut.mutate(
-      { file, model: modelOverride ?? undefined },
+      { file, model: modelOverride ?? undefined, inferLinks },
       {
         onSuccess: (res) => setJobId(res.jobId),
         onError: (err) => setStartError(errorMessage(err)),
@@ -223,6 +274,19 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   const progress = job?.progress ?? 0;
   const stageLabel = AI_IMPORT_STAGE_LABELS[job?.stage ?? 'unpack'];
   const result = job?.result;
+  // B2: present only when the import was started with inferLinks (absent → no block).
+  const relate = job?.relate;
+  // Ф6: while the AI relate call runs the job formally sits on `populate` —
+  // show the relate step in the «Этап:» line so the user sees what is going on.
+  const currentStepLabel = relate?.status === 'running' ? RELATE_STEP_LABEL : stageLabel;
+  // Ф8: warnings counter next to the log (warn + error lines), hidden at 0.
+  const warnCount = (job?.log ?? []).filter((e) => e.level !== 'info').length;
+  const relateColor =
+    relate?.status === 'done'
+      ? 'var(--color-success-fg)'
+      : relate?.status === 'running'
+        ? 'var(--color-text-3)'
+        : 'var(--color-warning-fg)'; // partial / skipped
 
   const fileCard = file ? (
     <div
@@ -325,21 +389,34 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               Модель:
             </label>
             {configured ? (
-              <select
-                id="ai-import-model"
-                className="input flex-1 cursor-pointer py-1.5 text-sm"
-                title="Модель для анализа документации"
-                data-testid="ai-import-model-select"
-                value={selectedModel}
-                onChange={(e) => setModelOverride(e.target.value)}
-              >
-                {selectedModel.length === 0 ? <option value="">— выберите модель —</option> : null}
-                {modelOptions.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+              <>
+                <select
+                  id="ai-import-model"
+                  className="input min-w-0 flex-1 cursor-pointer py-1.5 text-sm"
+                  title="Модель для анализа документации"
+                  data-testid="ai-import-model-select"
+                  value={selectedModel}
+                  onChange={(e) => {
+                    modelsRefresh.clearNotice();
+                    setModelOverride(e.target.value);
+                  }}
+                >
+                  {selectedModel.length === 0 ? (
+                    <option value="">— выберите модель —</option>
+                  ) : null}
+                  {modelOptions.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+                <ModelRefreshButton
+                  testid="ai-models-refresh-import"
+                  className="btn btn-secondary px-2.5 py-1.5"
+                  refreshing={modelsRefresh.isFetching}
+                  onClick={() => void modelsRefresh.refresh()}
+                />
+              </>
             ) : (
               <div className="min-w-0 flex-1" title={MODEL_HINT} data-testid="ai-import-model-hint">
                 <select
@@ -353,6 +430,21 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               </div>
             )}
           </div>
+
+          {/* A3: inline notice — selection reset after refresh / refresh failure. */}
+          <ModelListNotice testid="ai-models-notice-import" notice={modelsRefresh.notice} />
+
+          {/* B2: opt-in AI relate step (RELATES_TO between existing ФТ/НФТ only). */}
+          <label className="flex cursor-pointer items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 shrink-0 accent-[var(--color-primary)]"
+              data-testid="ai-import-infer-links"
+              checked={inferLinks}
+              onChange={(e) => setInferLinks(e.target.checked)}
+            />
+            <span>{INFER_LINKS_LABEL}</span>
+          </label>
 
           {startError ? (
             <div
@@ -432,14 +524,28 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                 </svg>
                 {jobLost ? 'Задание потеряно' : `Ошибка на этапе „${stageLabel}“`}
               </div>
-              <p className="mb-1 text-sm">
-                {jobLost
-                  ? 'Задание потеряно (сервер был перезапущен). Запустите анализ заново.'
-                  : job?.error?.message}
-              </p>
+              <p className="mb-1 text-sm">{jobLost ? JOB_LOST_MESSAGE : job?.error?.message}</p>
               {!jobLost && job?.error?.hint ? (
                 <p className="text-sm font-semibold">Что делать: {job.error.hint}</p>
               ) : null}
+            </div>
+          ) : null}
+
+          {/* Ф7: partial-result summary after a manual stop (mirrors the success panel). */}
+          {phase === 'cancelled' && result ? (
+            <div
+              className="rounded-lg border px-4 py-3"
+              style={{
+                borderColor: 'var(--color-warning-fg)',
+                background: 'var(--color-warning-bg)',
+              }}
+              data-testid="ai-import-cancelled-summary"
+            >
+              <p className="text-sm" style={{ color: 'var(--color-warning-fg)' }}>
+                Остановлено. Успели создать: <b>{result.createdFunctions} ФТ</b> и{' '}
+                <b>{result.createdNfrs} НФТ</b>, связей: <b>{result.links}</b>, связей НФТ→ФТ:{' '}
+                <b>{result.relatesLinks}</b>. Пропущено как существующие: {result.skippedExisting}.
+              </p>
             </div>
           ) : null}
 
@@ -448,7 +554,7 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               className="mb-1 flex items-center justify-between text-xs"
               style={{ color: 'var(--color-text-3)' }}
             >
-              <span data-testid="ai-import-stage">Этап: {stageLabel}</span>
+              <span data-testid="ai-import-stage">Этап: {currentStepLabel}</span>
               <b data-testid="ai-import-progress-pct">{Math.round(progress)}%</b>
             </div>
             <div
@@ -471,6 +577,28 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               />
             </div>
           </div>
+
+          {/* B2: status of the optional relate step; hidden when not requested. */}
+          {relate ? (
+            <div
+              className="text-sm"
+              data-testid="ai-import-relate-status"
+              style={{ color: relateColor }}
+            >
+              {RELATE_STEP_LABEL}: {relateStatusText(relate)}
+            </div>
+          ) : null}
+
+          {/* Ф8: warn/error counter for the log; hidden when there is nothing to flag. */}
+          {warnCount > 0 ? (
+            <div
+              className="text-xs font-semibold"
+              style={{ color: 'var(--color-warning-fg)' }}
+              data-testid="ai-import-warn-count"
+            >
+              Предупреждений: {warnCount}
+            </div>
+          ) : null}
 
           <div
             ref={logRef}

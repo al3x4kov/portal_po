@@ -3,13 +3,14 @@ import { useParams } from 'react-router-dom';
 import { AI_DEFAULT_BASE_URL, type AiConfigUpdate } from '@po/core';
 import {
   useAiConfig,
+  useAiModelsRefresh,
   useDeleteAiKey,
-  useListAiModels,
   useProject,
   useSaveAiConfig,
 } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { ModelListNotice, ModelRefreshButton } from '../components/ModelRefresh';
 import { Sidebar } from '../components/Sidebar';
 import { PathHeader } from '../components/PathHeader';
 import { useUiStore } from '../store/ui';
@@ -39,7 +40,6 @@ export function AiPage(): React.ReactElement {
   const config = configQuery.data;
 
   const saveMut = useSaveAiConfig();
-  const modelsMut = useListAiModels();
   const deleteKeyMut = useDeleteAiKey();
 
   // ── Local form state ──────────────────────────────────────────────────────
@@ -48,10 +48,18 @@ export function AiPage(): React.ReactElement {
   const [baseURL, setBaseURL] = useState(AI_DEFAULT_BASE_URL);
   const [model, setModel] = useState('');
   const [manualModel, setManualModel] = useState(false);
-  const [models, setModels] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>(null);
   const [hydrated, setHydrated] = useState(false);
   const [confirmDeleteKey, setConfirmDeleteKey] = useState(false);
+
+  // A3: shared model-list logic — «Сохранить и загрузить модели» and the
+  // refresh button both go through refresh(); a vanished selection falls back
+  // to the first model with an inline notice (fetch on explicit action only).
+  const modelsRefresh = useAiModelsRefresh({
+    enabled: false,
+    selectedModel: model,
+    onModelReset: setModel,
+  });
 
   // Hydrate baseURL/model once the saved config arrives (don't clobber edits).
   useEffect(() => {
@@ -62,16 +70,16 @@ export function AiPage(): React.ReactElement {
     }
   }, [config, hydrated]);
 
-  const busy = saveMut.isPending || modelsMut.isPending || deleteKeyMut.isPending;
+  const busy = saveMut.isPending || modelsRefresh.isFetching || deleteKeyMut.isPending;
   const hasStoredKey = Boolean(config?.hasApiKey);
   const keyProvided = hasStoredKey || apiKey.trim().length > 0;
 
   // Options: loaded models + the currently saved model (so it is never lost).
   const modelOptions = useMemo(() => {
-    const set = new Set<string>(models);
+    const set = new Set<string>(modelsRefresh.models);
     if (model) set.add(model);
     return [...set];
-  }, [models, model]);
+  }, [modelsRefresh.models, model]);
 
   const buildUpdate = (): AiConfigUpdate => {
     const update: AiConfigUpdate = { baseURL: baseURL.trim(), projectId: id };
@@ -84,20 +92,33 @@ export function AiPage(): React.ReactElement {
     setStatus(null);
     try {
       await saveMut.mutateAsync(buildUpdate());
-      const res = await modelsMut.mutateAsync();
-      setModels(res.models);
-      setApiKey('');
-      // Auto-select the first model if none chosen yet.
-      if (!model && res.models.length > 0) setModel(res.models[0]);
-      setStatus({
-        kind: 'success',
-        text: `Подключение успешно · загружено ${res.models.length} ${
-          res.models.length === 1 ? 'модель' : 'моделей'
-        }`,
-      });
     } catch (err) {
       setStatus({ kind: 'error', text: `Не удалось подключиться: ${errorMessage(err)}` });
+      return;
     }
+    const res = await modelsRefresh.refresh();
+    if (!res.ok) {
+      // The status line below is the single error message on this flow.
+      modelsRefresh.clearNotice();
+      setStatus({ kind: 'error', text: `Не удалось подключиться: ${errorMessage(res.error)}` });
+      return;
+    }
+    setApiKey('');
+    // Auto-select the first model if none chosen yet.
+    if (!model && res.models.length > 0) setModel(res.models[0]);
+    setStatus({
+      kind: 'success',
+      text: `Подключение успешно · загружено ${res.models.length} ${
+        res.models.length === 1 ? 'модель' : 'моделей'
+      }`,
+    });
+  };
+
+  /** A3: refresh button next to the model select — re-request the list only. */
+  const handleRefreshModels = async (): Promise<void> => {
+    const res = await modelsRefresh.refresh();
+    // Same auto-select rule as the load flow: pick the first model if none yet.
+    if (res.ok && !model && res.models.length > 0) setModel(res.models[0]);
   };
 
   const handleDeleteKey = async (): Promise<void> => {
@@ -239,7 +260,7 @@ export function AiPage(): React.ReactElement {
                 title={!keyProvided ? 'Введите API-ключ, чтобы загрузить модели' : undefined}
                 onClick={() => void handleSaveAndLoad()}
               >
-                {modelsMut.isPending ? '⟳ Загрузка моделей…' : 'Сохранить и загрузить модели'}
+                {modelsRefresh.isFetching ? '⟳ Загрузка моделей…' : 'Сохранить и загрузить модели'}
               </button>
 
               {/* Model */}
@@ -247,32 +268,44 @@ export function AiPage(): React.ReactElement {
                 <label className="label" htmlFor="ai-model-select">
                   Модель (для этого проекта)
                 </label>
-                {manualModel || modelOptions.length === 0 ? (
-                  <input
-                    id="ai-model-select"
-                    className="input"
-                    type="text"
-                    value={model}
-                    placeholder="Напр.: GigaChat-2-Pro"
-                    data-testid="ai-model-manual"
-                    onChange={(e) => setModel(e.target.value)}
+                <div className="flex gap-2">
+                  {manualModel || modelOptions.length === 0 ? (
+                    <input
+                      id="ai-model-select"
+                      className="input flex-1"
+                      type="text"
+                      value={model}
+                      placeholder="Напр.: GigaChat-2-Pro"
+                      data-testid="ai-model-manual"
+                      onChange={(e) => setModel(e.target.value)}
+                    />
+                  ) : (
+                    <select
+                      id="ai-model-select"
+                      className="input flex-1"
+                      value={model}
+                      data-testid="ai-model-select"
+                      onChange={(e) => {
+                        modelsRefresh.clearNotice();
+                        setModel(e.target.value);
+                      }}
+                    >
+                      <option value="">— выберите модель —</option>
+                      {modelOptions.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <ModelRefreshButton
+                    testid="ai-models-refresh"
+                    refreshing={modelsRefresh.isFetching}
+                    disabled={busy || !keyProvided}
+                    onClick={() => void handleRefreshModels()}
                   />
-                ) : (
-                  <select
-                    id="ai-model-select"
-                    className="input"
-                    value={model}
-                    data-testid="ai-model-select"
-                    onChange={(e) => setModel(e.target.value)}
-                  >
-                    <option value="">— выберите модель —</option>
-                    {modelOptions.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                </div>
+                <ModelListNotice testid="ai-models-notice" notice={modelsRefresh.notice} />
                 <p className="mt-1 text-xs" style={{ color: 'var(--color-text-3)' }}>
                   {manualModel ? (
                     <>

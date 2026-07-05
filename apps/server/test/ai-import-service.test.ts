@@ -1491,6 +1491,78 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       ),
     ).toBe(true);
   });
+
+  it('todo_16 Ф1–Ф3: logs archive size, file preparation and a pre-call line before EVERY AI request', async () => {
+    const client = scriptedClient([
+      JSON.stringify([record()]),
+      JSON.stringify([record({ type: 'NFR', name: 'Время отклика', source: 'perf.md § SLA' })]),
+      structure([{ name: 'Вход по паролю' }, { type: 'NFR', name: 'Время отклика' }]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({
+      'auth.md': '# Вход\nПользователь входит по email и паролю.',
+      'perf.md': '# SLA\nОтклик до 200 мс.',
+    });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    const messages = view.log.map((l) => l.message);
+    // Ф1: размер архива виден перед распаковкой.
+    expect(messages.some((m) => /^Распаковка архива \(.+ МБ\)…$/.test(m))).toBe(true);
+    // Ф2: чтение/нарезка файлов не «немая».
+    expect(messages).toContain('Чтение и подготовка файлов документации…');
+    // Ф3: pre-call строка для каждого фрагмента analyze…
+    expect(messages).toContain('Файл auth.md (фрагмент 1/1): запрос к модели…');
+    expect(messages).toContain('Файл perf.md (фрагмент 1/1): запрос к модели…');
+    // …и для каждого батча structure.
+    expect(messages).toContain('Структура: батч 1/1 — запрос к модели…');
+    // The pre-call line precedes the per-chunk result line (user sees «going», then «done»).
+    const preIdx = messages.indexOf('Файл auth.md (фрагмент 1/1): запрос к модели…');
+    const resIdx = messages.findIndex((m) =>
+      m.startsWith('Файл auth.md (фрагмент 1/1): извлечено'),
+    );
+    expect(preIdx).toBeGreaterThanOrEqual(0);
+    expect(resIdx).toBeGreaterThan(preIdx);
+    // And the reading line precedes the first pre-call line.
+    expect(messages.indexOf('Чтение и подготовка файлов документации…')).toBeLessThan(preIdx);
+  });
+
+  it('todo_16 Ф3: every structure batch gets its own pre-call line', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'А', source: 'a.md § А' }),
+        record({ name: 'Б', source: 'a.md § Б' }),
+      ]),
+      structure([{ name: 'А' }]),
+      structure([{ name: 'Б' }]),
+    ]);
+    const service = makeService(client, { structureBatch: 1 });
+    const archive = await writeZip({ 'a.md': 'Два требования.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    const messages = view.log.map((l) => l.message);
+    expect(messages).toContain('Структура: батч 1/2 — запрос к модели…');
+    expect(messages).toContain('Структура: батч 2/2 — запрос к модели…');
+  });
+
+  it('todo_16 Ф1: progress reaches 2 during unpack — a corrupt archive fails at progress=2 with the size line logged', async () => {
+    const client = scriptedClient(['[]']);
+    const service = makeService(client);
+    const bogus = path.join(os.tmpdir(), `po-test-obs-${randomBytes(6).toString('hex')}.zip`);
+    await fs.writeFile(bogus, 'совсем не архив');
+
+    const jobId = await runToEnd(service, bogus);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('failed');
+    expect(view.stage).toBe('unpack');
+    expect(view.progress).toBe(2);
+    expect(view.log.some((l) => /^Распаковка архива \(.+ МБ\)…$/.test(l.message))).toBe(true);
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create).not.toHaveBeenCalled();
+  });
 });
 
 describe('T14 B6 breakParentCycles (pure, deterministic)', () => {

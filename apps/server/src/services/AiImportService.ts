@@ -4,6 +4,7 @@ import {
   AI_IMPORT_CHUNK_CHARS,
   AI_IMPORT_MAX_ARCHIVE_BYTES,
   AI_IMPORT_MAX_TOKENS,
+  AI_IMPORT_RELATE_MAX_TOKENS,
   AI_IMPORT_STRUCTURE_BATCH,
   AI_IMPORT_STRUCTURE_MAX_TOKENS,
   AI_IMPORT_TEMPERATURE,
@@ -29,12 +30,16 @@ import { BadRequestError, NotFoundError } from '../lib/errors.js';
 import {
   buildArchiveMap,
   buildExtractionMessages,
+  buildRelateMessages,
   buildStructureMessages,
   chunkText,
   parseExtractionResponse,
+  parseRelateResponse,
   parseStructureResponse,
   type ParsedExtraction,
+  type ParsedRelate,
   type ParsedStructure,
+  type RelateItem,
   type StructureItem,
 } from './aiImportPrompt.js';
 
@@ -51,6 +56,8 @@ export const AI_IMPORT_HINT_UNPARSEABLE =
   'Модель вернула неструктурированный ответ. Попробуйте другую модель или повторите';
 export const AI_IMPORT_HINT_POPULATE =
   'Часть элементов не создана (см. лог). Исправьте данные в проекте и повторите — существующие не будут задублированы';
+export const AI_IMPORT_HINT_INTERNAL =
+  'Повторите анализ; если ошибка повторяется — обратитесь к администратору.';
 
 /** Defaults applied for gaps in the source (PO decision §3.1). */
 export const AI_IMPORT_DEFAULT_CRITICALITY = 'MEDIUM' as const;
@@ -74,6 +81,12 @@ export function nextQuarterOf(nowIso: string): {
 function sanitize(message: string, apiKey: string): string {
   if (!apiKey) return message;
   return message.split(apiKey).join('***');
+}
+
+/** Human-readable megabytes for the unpack log line (todo_16 Ф1). */
+function formatMb(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  return mb < 0.1 ? '<0.1' : mb.toFixed(1);
 }
 
 /** Case-insensitive, trimmed identity of a requirement name within a type. */
@@ -226,6 +239,7 @@ export class AiImportService {
     projectId: string,
     archivePath: string,
     modelOverride?: string,
+    inferLinks = false,
   ): Promise<AiImportStartResponse> {
     if (!(await this.deps.projectExists(projectId))) {
       throw new NotFoundError(`Project not found: "${projectId}".`);
@@ -236,6 +250,7 @@ export class AiImportService {
     if (!cfg.apiKey || !model) {
       throw new BadRequestError(AI_IMPORT_HINT_CONFIGURE);
     }
+    const apiKey = cfg.apiKey; // narrowed const — usable inside the catch closure
 
     const stat = await fs.stat(archivePath);
     if (stat.size > AI_IMPORT_MAX_ARCHIVE_BYTES) {
@@ -244,12 +259,19 @@ export class AiImportService {
 
     const job = this.deps.jobs.create(projectId); // ConflictError (409) when running
 
-    const run = this.run(job, archivePath, model, cfg.apiKey, cfg.baseURL)
+    const run = this.run(job, archivePath, model, apiKey, cfg.baseURL, inferLinks, stat.size)
       .catch((err: unknown) => {
-        // Belt-and-braces: run() handles its own failures; this guards a bug in run() itself.
-        this.logLine(job, 'error', `Внутренняя ошибка автоматизации: ${(err as Error).message}`);
+        // Belt-and-braces: run() handles its own failures; this guards a bug in
+        // run() itself. todo_16 Ф4: the raw error text goes to the LOG only
+        // (sanitized — it may embed upstream details); the user-facing error is
+        // a stable readable message with an actionable hint.
+        const raw = err instanceof Error ? err.message : String(err);
+        this.logLine(job, 'error', sanitize(`Внутренняя ошибка автоматизации: ${raw}`, apiKey));
         if (job.status === 'running') {
-          job.error = { message: (err as Error).message, hint: AI_IMPORT_HINT_ARCHIVE };
+          job.error = {
+            message: 'Внутренняя ошибка автоматизации.',
+            hint: AI_IMPORT_HINT_INTERNAL,
+          };
           this.deps.jobs.finish(job, 'failed');
         }
       })
@@ -405,6 +427,191 @@ export class AiImportService {
     return { kind: 'unparsed' };
   }
 
+  /**
+   * Optional step «Проставление связей ФТ↔НФТ» (todo_16 B2): one AI-hub call
+   * over the ALREADY-created requirements (slug + name + short description),
+   * answered with NFR↔FUNCTION pairs for RELATES_TO. Hard guarantees:
+   *
+   * - never creates or modifies requirements — links only;
+   * - fabricated ids, self-links and in-answer duplicates are dropped;
+   * - existing links (incl. explicit-mention RELATES_TO from Task 15 /
+   *   commit 6b3327e) are never duplicated — the fresh snapshot is checked
+   *   first, and LinkService re-applies every @po/core graph rule on create;
+   * - an AI error/timeout or an unparsable answer NEVER fails the import:
+   *   the step is reported as `skipped` (or `partial`) in `job.relate`.
+   *
+   * Returns `true` when the job was cancelled inside the step (already
+   * finished by {@link cancelIfRequested}); the caller must stop then.
+   */
+  private async relateStep(args: {
+    job: AiImportJobState;
+    counters: AiImportResult;
+    client: AiClient;
+    model: string;
+    apiKey: string;
+    requirementService: RequirementService;
+    linkService: LinkService;
+  }): Promise<boolean> {
+    const { job, counters } = args;
+    job.relate = { status: 'running', created: 0 };
+    this.logLine(job, 'info', 'Дополнительный шаг: проставление связей ФТ↔НФТ через AI hub…');
+    if (this.cancelIfRequested(job, counters)) {
+      job.relate = { status: 'skipped', created: 0 };
+      return true;
+    }
+
+    const { requirements } = await args.requirementService.list();
+    const functions = requirements.filter((r) => r.type === 'FUNCTION');
+    const nfrs = requirements.filter((r) => r.type === 'NFR');
+    if (functions.length === 0 || nfrs.length === 0) {
+      this.logLine(
+        job,
+        'info',
+        'Проставление связей ФТ↔НФТ: связывать нечего (в проекте нет пары ФТ/НФТ) — запрос к AI Hub не выполнялся.',
+      );
+      job.relate = { status: 'done', created: 0 };
+      return false;
+    }
+
+    const toItem = (r: Requirement): RelateItem => ({
+      slug: r.slug,
+      name: r.name,
+      description: r.description,
+    });
+    // todo_16 Ф3/Ф5: pre-call line before the relate AI request — job.relate
+    // is already 'running' at this point, so the poller sees both signals.
+    this.logLine(job, 'info', 'Связи ФТ↔НФТ: запрос к модели…');
+    const outcome = await this.chatWithJsonRetries<ParsedRelate>({
+      job,
+      counters,
+      client: args.client,
+      model: args.model,
+      messages: buildRelateMessages(functions.map(toItem), nfrs.map(toItem)),
+      maxTokens: AI_IMPORT_RELATE_MAX_TOKENS,
+      parse: (content) => parseRelateResponse(content),
+      parseFinal: (content) => parseRelateResponse(content, 'lenient'),
+      attemptWarn: (attempt) =>
+        `Проставление связей ФТ↔НФТ: ответ модели не распознан как JSON-массив пар (попытка ${attempt} из ${AI_IMPORT_JSON_ATTEMPTS}).`,
+      truncatedWarn: (attempt) =>
+        `Проставление связей ФТ↔НФТ: ответ модели обрезан по лимиту токенов (попытка ${attempt} из ${AI_IMPORT_JSON_ATTEMPTS}).`,
+    });
+    if (outcome.kind === 'cancelled') {
+      job.relate = { status: 'skipped', created: 0 };
+      return true;
+    }
+    if (outcome.kind === 'upstream') {
+      this.logLine(
+        job,
+        'warn',
+        sanitize(
+          `Проставление связей ФТ↔НФТ: ошибка обращения к AI Hub: ${outcome.error.message}. Шаг пропущен, импорт продолжен.`,
+          args.apiKey,
+        ),
+      );
+      job.relate = { status: 'skipped', created: 0 };
+      return false;
+    }
+    if (outcome.kind === 'unparsed') {
+      this.logLine(
+        job,
+        'warn',
+        'Проставление связей ФТ↔НФТ: ответ модели не распознан — шаг пропущен, импорт продолжен.',
+      );
+      job.relate = { status: 'skipped', created: 0 };
+      return false;
+    }
+
+    const { pairs, droppedInvalid, total } = outcome.value;
+    if (droppedInvalid > 0) {
+      this.logLine(
+        job,
+        'warn',
+        `Проставление связей ФТ↔НФТ: принято ${total - droppedInvalid} из ${total} пар, невалидных отброшено ${droppedInvalid}.`,
+      );
+    }
+    // Role-typed lookups: a pair is only valid FROM an existing NFR TO an
+    // existing FUNCTION — anything else counts as a fabricated id.
+    const nfrBySlug = new Map(nfrs.map((r) => [r.slug, r]));
+    const fnBySlug = new Map(functions.map((r) => [r.slug, r]));
+    const seenPairs = new Set<string>();
+    let created = 0;
+    let failed = 0;
+    let droppedUnknown = 0;
+    let droppedSelf = 0;
+    let droppedDup = 0;
+    let skippedExisting = 0;
+    for (const pair of pairs) {
+      if (pair.nfr === pair.function) {
+        droppedSelf += 1; // core rule: no self-link (assertNoSelfLink)
+        continue;
+      }
+      const source = nfrBySlug.get(pair.nfr);
+      const target = fnBySlug.get(pair.function);
+      if (!source || !target) {
+        droppedUnknown += 1;
+        continue;
+      }
+      const key = `${source.slug} ${target.slug}`;
+      if (seenPairs.has(key)) {
+        droppedDup += 1;
+        continue;
+      }
+      seenPairs.add(key);
+      // RELATES_TO is symmetric — the NFR endpoint always carries its half,
+      // so the fresh snapshot suffices to skip present links (incl. the ones
+      // just created from explicit mentions, commit 6b3327e).
+      if (source.links.some((l) => l.type === 'RELATES_TO' && l.targetSlug === target.slug)) {
+        skippedExisting += 1;
+        continue;
+      }
+      if (this.cancelIfRequested(job, counters)) {
+        job.relate = { status: created > 0 ? 'partial' : 'skipped', created };
+        return true;
+      }
+      try {
+        // LinkService re-validates via @po/core graph rules (self-link,
+        // duplicates, allowed types, cycles) before writing anything.
+        await args.linkService.create({
+          sourceSlug: source.slug,
+          type: 'RELATES_TO',
+          targetSlug: target.slug,
+        });
+        created += 1;
+        job.relate = { status: 'running', created };
+        this.logLine(
+          job,
+          'info',
+          `Связано (AI): НФТ «${source.name}» → ФТ «${target.name}» (RELATES_TO).`,
+        );
+      } catch (err) {
+        if (err instanceof DomainError) {
+          failed += 1;
+          this.logLine(
+            job,
+            'warn',
+            `Связь RELATES_TO «${source.name}» → «${target.name}» не создана (${err.code}): ${err.message}`,
+          );
+        } else {
+          throw err;
+        }
+      }
+    }
+    const dropped = droppedUnknown + droppedSelf + droppedDup;
+    this.logLine(
+      job,
+      dropped > 0 || failed > 0 ? 'warn' : 'info',
+      `Проставление связей ФТ↔НФТ завершено: создано ${created}` +
+        (skippedExisting > 0 ? `, уже существовало ${skippedExisting}` : '') +
+        (dropped > 0
+          ? `, отброшено ${dropped} (выдуманные id: ${droppedUnknown}, self-link: ${droppedSelf}, дубли: ${droppedDup})`
+          : '') +
+        (failed > 0 ? `, не создано из-за ошибок: ${failed}` : '') +
+        '.',
+    );
+    job.relate = { status: failed > 0 ? 'partial' : 'done', created };
+    return false;
+  }
+
   /** The asynchronous pipeline. Never throws for expected failures — it fails the job. */
   private async run(
     job: AiImportJobState,
@@ -412,6 +619,8 @@ export class AiImportService {
     model: string,
     apiKey: string,
     baseURL: string,
+    inferLinks = false,
+    archiveBytes = 0,
   ): Promise<void> {
     const counters: AiImportResult = {
       createdFunctions: 0,
@@ -425,6 +634,10 @@ export class AiImportService {
       // ── unpack (0–5) ────────────────────────────────────────────────────
       job.stage = 'unpack';
       this.logLine(job, 'info', 'Распаковка архива документации…');
+      // todo_16 Ф1: the size line + progress=2 are visible WHILE the archive
+      // unpacks, so a large archive never looks like a hang at 0%.
+      this.logLine(job, 'info', `Распаковка архива (${formatMb(archiveBytes)} МБ)…`);
+      job.progress = 2;
       let unpacked: UnpackedDocs;
       try {
         unpacked = await unpackDocsArchive(archivePath);
@@ -457,6 +670,8 @@ export class AiImportService {
 
       // ── analyze (5–65) ──────────────────────────────────────────────────
       job.stage = 'analyze';
+      // todo_16 Ф2: reading/chunking many files is not instant — say so.
+      this.logLine(job, 'info', 'Чтение и подготовка файлов документации…');
       const chunkChars = this.deps.chunkChars ?? AI_IMPORT_CHUNK_CHARS;
       const chunksByFile: Array<{ file: string; chunks: string[] }> = [];
       let totalChunks = 0;
@@ -485,6 +700,13 @@ export class AiImportService {
         for (let i = 0; i < chunks.length; i++) {
           if (this.cancelIfRequested(job, counters)) return;
 
+          // todo_16 Ф3: a pre-call line BEFORE the (long) AI request, so the
+          // user always sees what the pipeline is waiting for right now.
+          this.logLine(
+            job,
+            'info',
+            `Файл ${file} (фрагмент ${i + 1}/${chunks.length}): запрос к модели…`,
+          );
           const messages = buildExtractionMessages(
             chunks[i]!,
             file,
@@ -607,6 +829,8 @@ export class AiImportService {
       for (let b = 0; b < batches.length; b++) {
         if (b > 0 && this.cancelIfRequested(job, counters)) return;
         const batchLabel = `Структуризация (батч ${b + 1}/${batches.length})`;
+        // todo_16 Ф3: pre-call line before each structure batch request.
+        this.logLine(job, 'info', `Структура: батч ${b + 1}/${batches.length} — запрос к модели…`);
         const outcome = await this.chatWithJsonRetries<ParsedStructure>({
           job,
           counters,
@@ -953,6 +1177,22 @@ export class AiImportService {
             }
           }
         }
+      }
+
+      // ── relate (optional, todo_16 B2) ───────────────────────────────────
+      // Runs BEFORE the final `done` transition, over the ALREADY-created
+      // requirements. Best-effort: its failure never fails the import.
+      if (inferLinks) {
+        const stopped = await this.relateStep({
+          job,
+          counters,
+          client,
+          model,
+          apiKey,
+          requirementService,
+          linkService,
+        });
+        if (stopped) return;
       }
 
       // ── done ────────────────────────────────────────────────────────────

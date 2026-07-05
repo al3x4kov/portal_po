@@ -174,6 +174,36 @@ describe('T11 AI import routes (integration, mock client)', () => {
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ model: 'Override-Model' }));
   });
 
+  it('todo_16 B2: inferLinks field — "true" runs the relate step, "false"/omitted does not', async () => {
+    await boot(okClient('[]'));
+    await configure();
+
+    const on = await startImport({ 'a.md': 'Текст.' }, { inferLinks: 'true' });
+    expect(on.statusCode).toBe(202);
+    const onView = await pollUntilDone(on.json().jobId);
+    expect(onView.status).toBe('succeeded');
+    // Nothing was extracted → nothing to relate, but the step IS reported.
+    expect(onView.relate).toEqual({ status: 'done', created: 0 });
+
+    const off = await startImport({ 'b.md': 'Текст.' }, { inferLinks: 'false' });
+    expect(off.statusCode).toBe(202);
+    const offView = await pollUntilDone(off.json().jobId);
+    expect(offView.status).toBe('succeeded');
+    expect(offView.relate).toBeUndefined();
+
+    const omitted = await startImport({ 'c.md': 'Текст.' });
+    const omittedView = await pollUntilDone(omitted.json().jobId);
+    expect(omittedView.relate).toBeUndefined();
+  });
+
+  it('todo_16 B2: 400 for an invalid inferLinks value', async () => {
+    await boot(okClient('[]'));
+    await configure();
+    const res = await startImport({ 'a.md': 'Текст.' }, { inferLinks: 'да' });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { message?: string }).message).toContain('inferLinks');
+  });
+
   it('409 when a second import starts while the first is still running', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));

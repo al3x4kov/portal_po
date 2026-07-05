@@ -1358,3 +1358,247 @@ test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
     }
   });
 });
+
+/* ══ todo_16 · A3 (модалка) + B2: обновление моделей и AI-шаг связей ФТ↔НФТ ══ */
+
+test.describe('todo_16 · AI-импорт: обновление списка моделей и шаг связей', () => {
+  /** Текстовые поля multipart-запуска, `file:<имя>` для файловой части. */
+  type AiImportFields = Record<string, string>;
+
+  /**
+   * B2 проверяет СОСТАВ полей multipart-запуска (`inferLinks`), но CDP не
+   * отдаёт postData для FormData с файлом (`postDataBuffer()` → null). Поэтому
+   * оборачиваем window.fetch и фиксируем поля FormData ровно того запроса,
+   * который уходит на POST …/ai-import (клиент шлёт его через fetch,
+   * api/client.ts). Вызвать ПОСЛЕ загрузки страницы, ДО клика «Запустить».
+   */
+  async function captureAiImportFormData(page: Page): Promise<void> {
+    await page.evaluate(() => {
+      const w = window as unknown as {
+        __aiImportFields: Record<string, string> | null;
+        fetch: typeof fetch;
+      };
+      w.__aiImportFields = null;
+      const orig = w.fetch.bind(window);
+      w.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes('/ai-import') && init?.body instanceof FormData) {
+          const fields: Record<string, string> = {};
+          // forEach вместо entries(): lib e2e-tsconfig без DOM.Iterable.
+          init.body.forEach((value, key) => {
+            fields[key] = typeof value === 'string' ? value : `file:${value.name}`;
+          });
+          w.__aiImportFields = fields;
+        }
+        return orig(input, init);
+      };
+    });
+  }
+
+  /** Запуск анализа + захваченные поля multipart (см. captureAiImportFormData). */
+  async function startAnalysisCaptured(page: Page): Promise<{ fields: AiImportFields }> {
+    await startAnalysis(page);
+    const fields = await page.evaluate(
+      () => (window as unknown as { __aiImportFields: AiImportFields | null }).__aiImportFields,
+    );
+    expect(fields, 'поля multipart-запуска должны быть захвачены').not.toBeNull();
+    return { fields: fields! };
+  }
+
+  /* ── A3: кнопка обновления списка моделей в модалке AI-импорта ─────────── */
+
+  test('A3: обновление списка моделей в модалке; сброс исчезнувшей модели; выбранная модель уходит в extraction-запрос', async ({
+    page,
+  }, testInfo) => {
+    await projectWithAi(page, 'AiImp-Refresh');
+
+    await openAiImport(page);
+    const select = page.getByTestId('ai-import-model-select');
+    await expect(select).toHaveValue('Qwen-Coder-Next');
+    // Автозагрузка списка при открытой модалке (ключ есть) — обе модели стаба.
+    await expect(select.locator('option[value="GigaChat-2-Pro"]')).toHaveCount(1);
+
+    try {
+      // Список изменился: выбранная модель проекта исчезла, появилась новая.
+      stub.setModels(['GigaChat-2-Pro', 'Qwen-3-Coder']);
+      const [res] = await Promise.all([
+        page.waitForResponse(
+          (r) => r.request().method() === 'GET' && r.url().includes('/api/ai/models'),
+        ),
+        page.getByTestId('ai-models-refresh-import').click(),
+      ]);
+      expect(res.status()).toBe(200);
+
+      // Options обновлены, выбор сброшен на первую модель нового списка.
+      await expect(select.locator('option[value="Qwen-3-Coder"]')).toHaveCount(1);
+      await expect(select.locator('option[value="Qwen-Coder-Next"]')).toHaveCount(0);
+      await expect(select).toHaveValue('GigaChat-2-Pro');
+      const notice = page.getByTestId('ai-models-notice-import');
+      await expect(notice).toBeVisible();
+      await expect(notice).toContainText('Qwen-Coder-Next');
+      await expect(notice).toContainText('больше недоступна');
+
+      // Смена модели применяется к последующему запросу: extraction-вызовы
+      // стаба идут с выбранной вручную моделью.
+      await select.selectOption('Qwen-3-Coder');
+      const zip = makeZip(testInfo, 'docs-refresh.zip', { 'auth.md': DOCS['auth.md']! });
+      await chooseFile(page, zip);
+      const callsBefore = stub.extractionRequests.length;
+      await startAnalysis(page);
+      await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
+      const calls = stub.extractionRequests.slice(callsBefore);
+      expect(calls.length).toBeGreaterThan(0);
+      for (const call of calls) expect(call.model).toBe('Qwen-3-Coder');
+    } finally {
+      stub.setModels(null); // общий стаб файла — вернуть исходный список
+    }
+  });
+
+  /* ── B2: чекбокс выключен (default) — поведение прежнее ────────────────── */
+
+  test('B2: чекбокс связей по умолчанию выключен — inferLinks не уходит в multipart, блока статуса нет, relate-запросов нет', async ({
+    page,
+  }, testInfo) => {
+    await projectWithAi(page, 'AiImp-RelOff');
+
+    await openAiImport(page);
+    // Default off (spec B2).
+    const checkbox = page.getByTestId('ai-import-infer-links');
+    await expect(checkbox).toBeVisible();
+    await expect(checkbox).not.toBeChecked();
+
+    const zip = makeZip(testInfo, 'docs-rel-off.zip', { 'auth.md': DOCS['auth.md']! });
+    await chooseFile(page, zip);
+    await captureAiImportFormData(page);
+
+    const relateBefore = stub.relateRequests.length;
+    const { fields } = await startAnalysisCaptured(page);
+    // Off-путь прежний: поля inferLinks в multipart нет ВОВСЕ (не 'false').
+    expect(Object.keys(fields)).not.toContain('inferLinks');
+    expect(fields['file']).toBe('file:docs-rel-off.zip');
+
+    const success = page.getByTestId('ai-import-success');
+    await expect(success).toBeVisible(JOB_TIMEOUT);
+    await expect(success).toContainText('Создано: 2 ФТ и 0 НФТ');
+
+    // Блок статуса relate-шага не рендерится, AI-hub relate-вызовов не было.
+    await expect(page.getByTestId('ai-import-relate-status')).toHaveCount(0);
+    expect(stub.relateRequests.length).toBe(relateBefore);
+  });
+
+  /* ── B2: чекбокс включён — happy-path с «выполняется…» → «создано связей: N» ── */
+
+  test('B2: включённый чекбокс — inferLinks=true в multipart, статусы шага, только RELATES_TO между существующими, выдуманные id отброшены', async ({
+    page,
+  }, testInfo) => {
+    const id = await projectWithAi(page, 'AiImp-RelOn');
+
+    // Ответ relate-вызова: НФТ «отчёт ≤ 5 c» ↔ ФТ «вход по логину» + одна
+    // выдуманная пара, которую пайплайн обязан отбросить (не найдя id).
+    stub.setRelatePairsByName({ [REQ_REPORT]: [REQ_LOGIN] });
+    stub.setRelateRawPairs([{ nfr: 'fake-nfr-id', function: 'fake-fn-id' }]);
+    // Задержка relate-ответа — окно для статуса «выполняется…» (поллер 800 мс).
+    stub.setRelateDelay(3000);
+
+    try {
+      const zip = makeZip(testInfo, 'docs-rel-on.zip', {
+        'auth.md': DOCS['auth.md']!,
+        'reports.md': DOCS['reports.md']!,
+      });
+      await openAiImport(page);
+      await chooseFile(page, zip);
+      await page.getByTestId('ai-import-infer-links').check();
+      await captureAiImportFormData(page);
+
+      const relateBefore = stub.relateRequests.length;
+      const { fields } = await startAnalysisCaptured(page);
+      // Флаг уходит текстовым multipart-полем со значением 'true'.
+      expect(fields['inferLinks']).toBe('true');
+
+      // Пока стаб держит relate-ответ, шаг виден как «выполняется…».
+      const relateStatus = page.getByTestId('ai-import-relate-status');
+      await expect(relateStatus).toContainText(
+        'Проставление связей ФТ↔НФТ: выполняется…',
+        JOB_TIMEOUT,
+      );
+
+      // Импорт завершён; итог шага — «создано связей: 1».
+      const success = page.getByTestId('ai-import-success');
+      await expect(success).toBeVisible(JOB_TIMEOUT);
+      await expect(success).toContainText('Создано: 2 ФТ и 1 НФТ');
+      await expect(relateStatus).toHaveText('Проставление связей ФТ↔НФТ: создано связей: 1');
+
+      // Лог: созданная связь + отброшенная выдуманная пара.
+      const log = page.getByTestId('ai-import-log');
+      await expect(log).toContainText(
+        `Связано (AI): НФТ «${REQ_REPORT}» → ФТ «${REQ_LOGIN}» (RELATES_TO).`,
+      );
+      await expect(log).toContainText('выдуманные id: 1');
+      await attachShot(page, testInfo, 'relate-done');
+
+      // Ровно один relate-вызов, той же моделью, оба списка переданы.
+      const relateCalls = stub.relateRequests.slice(relateBefore);
+      expect(relateCalls.length).toBe(1);
+      expect(relateCalls[0]?.model).toBe('Qwen-Coder-Next');
+
+      // API-истина: требований по-прежнему 3 (шаг ничего не создал/не изменил),
+      // появилась ровно одна связь RELATES_TO — симметричные записи у обоих концов.
+      const reqs = await listRequirements(page, id);
+      expect(reqs.length).toBe(3);
+      const byName = new Map(reqs.map((r) => [r.name, r]));
+      const nfr = byName.get(REQ_REPORT);
+      const fn = byName.get(REQ_LOGIN);
+      expect(relatesTargets(nfr)).toEqual([fn!.slug]);
+      expect(relatesTargets(fn)).toEqual([nfr!.slug]);
+      // Иерархия extraction/structure не пострадала (RESET остался под LOGIN).
+      expect(childOfTargets(byName.get(REQ_RESET))).toEqual([fn!.slug]);
+    } finally {
+      stub.setRelatePairsByName(null);
+      stub.setRelateRawPairs(null);
+      stub.setRelateDelay(0);
+    }
+  });
+
+  /* ── B2: ошибка AI на relate-шаге — «шаг пропущен», импорт успешен ──────── */
+
+  test('B2: relate-ответ не парсится (все ретраи) — «шаг пропущен из-за ошибки AI», импорт успешен, связей нет', async ({
+    page,
+  }, testInfo) => {
+    const id = await projectWithAi(page, 'AiImp-RelSkip');
+
+    // Все 3 попытки relate-вызова отвечают прозой без JSON → шаг деградирует.
+    stub.failNextRelateJson(3);
+
+    try {
+      const zip = makeZip(testInfo, 'docs-rel-skip.zip', {
+        'auth.md': DOCS['auth.md']!,
+        'reports.md': DOCS['reports.md']!,
+      });
+      await openAiImport(page);
+      await chooseFile(page, zip);
+      await page.getByTestId('ai-import-infer-links').check();
+      await startAnalysis(page);
+
+      // Импорт НЕ падает: success-блок + статус пропуска relate-шага.
+      const success = page.getByTestId('ai-import-success');
+      await expect(success).toBeVisible(JOB_TIMEOUT);
+      await expect(success).toContainText('Создано: 2 ФТ и 1 НФТ');
+      await expect(page.getByTestId('ai-import-relate-status')).toHaveText(
+        'Проставление связей ФТ↔НФТ: шаг пропущен из-за ошибки AI',
+      );
+      await expect(page.getByTestId('ai-import-log')).toContainText(
+        'Проставление связей ФТ↔НФТ: ответ модели не распознан',
+      );
+      await attachShot(page, testInfo, 'relate-skipped');
+
+      // API-истина: требования созданы, RELATES_TO связей нет.
+      const reqs = await listRequirements(page, id);
+      expect(reqs.length).toBe(3);
+      for (const r of reqs) expect(relatesTargets(r)).toEqual([]);
+    } finally {
+      stub.failNextRelateJson(0);
+      stub.setRelateDelay(0);
+    }
+  });
+});

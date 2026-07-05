@@ -5,7 +5,12 @@ import { randomBytes } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { DomainError, formatZodError, type AiImportJobView } from '@po/core';
+import {
+  aiImportInferLinksFieldSchema,
+  DomainError,
+  formatZodError,
+  type AiImportJobView,
+} from '@po/core';
 import {
   createAiConfigRepo,
   createLinkService,
@@ -59,6 +64,7 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
 
     let uploadPath: string | undefined;
     let model: string | undefined;
+    let inferLinksRaw: string | undefined;
     // Translate a busboy parse error into BAD_REQUEST (as routes/archive.ts).
     try {
       const parts = req.parts();
@@ -72,6 +78,10 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
         } else if (part.fieldname === 'model') {
           const value = String(part.value).trim();
           if (value.length > 0) model = value;
+        } else if (part.fieldname === 'inferLinks') {
+          // todo_16 B2: optional boolean flag, same text-field style as `model`.
+          const value = String(part.value).trim();
+          if (value.length > 0) inferLinksRaw = value;
         }
       }
     } catch (err) {
@@ -84,7 +94,15 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
       throw new BadRequestError('No archive file provided in upload.');
     }
     try {
-      const started = await service.start(id, uploadPath, model);
+      let inferLinks = false;
+      if (inferLinksRaw !== undefined) {
+        const parsed = aiImportInferLinksFieldSchema.safeParse(inferLinksRaw);
+        if (!parsed.success) {
+          throw new BadRequestError('Поле inferLinks должно быть "true" или "false".');
+        }
+        inferLinks = parsed.data;
+      }
+      const started = await service.start(id, uploadPath, model, inferLinks);
       reply.code(202);
       return started;
     } catch (err) {

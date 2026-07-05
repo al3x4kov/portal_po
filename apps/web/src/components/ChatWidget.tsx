@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { matchPath, useLocation } from 'react-router-dom';
 import { AI_CHAT_HISTORY_LIMIT, type AiChatMessage, type AiChatRequest } from '@po/core';
-import { useAiChat, useAiConfig, useAiModels } from '../api/hooks';
+import { useAiChat, useAiConfig, useAiModelsRefresh } from '../api/hooks';
 import { errorMessage } from '../api/client';
+import { ModelListNotice, ModelRefreshButton } from './ModelRefresh';
 import { useChatStore, type ChatPosition } from '../store/chat';
 
 /**
@@ -331,8 +332,6 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
   const configQuery = useAiConfig(projectId);
   const config = configQuery.data;
   const configured = Boolean(config?.hasApiKey);
-  // Models are requested only once a key is stored (same rule as AiPage).
-  const modelsQuery = useAiModels(configured);
 
   const chatMut = useAiChat();
   const pending = chatMut.isPending;
@@ -348,12 +347,22 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
   const modelReady = configured && selectedModel.length > 0;
   const canSend = modelReady && !pending && draft.trim().length > 0;
 
+  // A3: models are requested only once a key is stored (same rule as AiPage);
+  // the refresh button refetches and, if the selected model vanished, falls
+  // back to the project model / first one with an inline notice.
+  const modelsRefresh = useAiModelsRefresh({
+    enabled: configured,
+    selectedModel,
+    fallbackModel: config?.model,
+    onModelReset: setModelOverride,
+  });
+
   // Loaded models + the currently selected one, so the value is never lost.
   const modelOptions = useMemo(() => {
-    const set = new Set<string>(modelsQuery.data?.models ?? []);
+    const set = new Set<string>(modelsRefresh.models);
     if (selectedModel) set.add(selectedModel);
     return [...set];
-  }, [modelsQuery.data, selectedModel]);
+  }, [modelsRefresh.models, selectedModel]);
 
   // Autoscroll to the latest entry (message, typing indicator or error).
   useEffect(() => {
@@ -432,14 +441,17 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
         onPointerUp={drag.onPointerUp}
       >
         {configured ? (
-          <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-1 items-center gap-1">
             <select
-              className="input cursor-pointer py-1 text-[13px]"
+              className="input min-w-0 flex-1 cursor-pointer py-1 text-[13px]"
               title="Модель для этого чата"
               aria-label="Модель для этого чата"
               data-testid="chat-model-select"
               value={selectedModel}
-              onChange={(e) => setModelOverride(e.target.value)}
+              onChange={(e) => {
+                modelsRefresh.clearNotice();
+                setModelOverride(e.target.value);
+              }}
             >
               {selectedModel.length === 0 ? <option value="">— выберите модель —</option> : null}
               {modelOptions.map((m) => (
@@ -448,6 +460,13 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
                 </option>
               ))}
             </select>
+            <ModelRefreshButton
+              testid="ai-models-refresh-chat"
+              className={ICON_BTN_CLASS}
+              style={{ color: 'var(--color-text-3)' }}
+              refreshing={modelsRefresh.isFetching}
+              onClick={() => void modelsRefresh.refresh()}
+            />
           </div>
         ) : (
           <div className="min-w-0 flex-1" title={MODEL_HINT} data-testid="chat-model-hint">
@@ -484,6 +503,13 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
           <CloseIcon />
         </button>
       </div>
+
+      {/* A3: inline notice — selection reset after refresh / refresh failure. */}
+      <ModelListNotice
+        testid="ai-models-notice-chat"
+        notice={modelsRefresh.notice}
+        className="px-3 pt-2 text-xs"
+      />
 
       {/* Message feed */}
       <div

@@ -187,4 +187,75 @@ describe('AiPage (T-803)', () => {
     await user.type(manual, 'Custom-Model');
     expect(manual).toHaveValue('Custom-Model');
   });
+
+  // ── todo_16 A3: re-request the model list, re-pick a model at any time ─────
+
+  describe('model list refresh (A3)', () => {
+    const STORED = {
+      baseURL: 'https://api.ai.sbt/openai/v1',
+      hasApiKey: true,
+      model: 'GigaChat-2',
+    };
+
+    it('refresh button is disabled until a key is provided', async () => {
+      getConfig.mockResolvedValue({ baseURL: '', hasApiKey: false });
+      renderAiPage();
+      await screen.findByTestId('ai-page');
+      expect(screen.getByTestId('ai-models-refresh')).toBeDisabled();
+    });
+
+    it('re-requests the list on click and keeps the current selection', async () => {
+      getConfig.mockResolvedValue(STORED);
+      listModels.mockResolvedValue({ models: ['GigaChat-2-Pro', 'GigaChat-2'] });
+      const user = userEvent.setup();
+      renderAiPage();
+
+      // Only the saved model until the list is loaded; no auto-fetch on mount.
+      const select = await screen.findByTestId('ai-model-select');
+      expect(listModels).not.toHaveBeenCalled();
+
+      await user.click(screen.getByTestId('ai-models-refresh'));
+      await screen.findByRole('option', { name: 'GigaChat-2-Pro' });
+      expect(listModels).toHaveBeenCalledTimes(1);
+      // The stored selection survives the refresh; no notice is shown.
+      expect(select).toHaveValue('GigaChat-2');
+      expect(screen.queryByTestId('ai-models-notice')).not.toBeInTheDocument();
+
+      // The select stays usable — another model can be picked at any time.
+      await user.selectOptions(select, 'GigaChat-2-Pro');
+      expect(select).toHaveValue('GigaChat-2-Pro');
+    });
+
+    it('vanished model: falls back to the first one and shows a notice', async () => {
+      getConfig.mockResolvedValue({ ...STORED, model: 'Old-Model' });
+      listModels.mockResolvedValue({ models: ['GigaChat-2-Pro'] });
+      const user = userEvent.setup();
+      renderAiPage();
+
+      await screen.findByTestId('ai-model-select');
+      await user.click(screen.getByTestId('ai-models-refresh'));
+
+      await waitFor(() =>
+        expect(screen.getByTestId('ai-model-select')).toHaveValue('GigaChat-2-Pro'),
+      );
+      const notice = screen.getByTestId('ai-models-notice');
+      expect(notice).toHaveTextContent('Old-Model');
+      expect(notice).toHaveTextContent('GigaChat-2-Pro');
+    });
+
+    it('refresh failure shows an inline error and keeps the selection', async () => {
+      getConfig.mockResolvedValue(STORED);
+      listModels.mockRejectedValue(new Error('AI Hub недоступен (502)'));
+      const user = userEvent.setup();
+      renderAiPage();
+
+      const select = await screen.findByTestId('ai-model-select');
+      await user.click(screen.getByTestId('ai-models-refresh'));
+
+      const notice = await screen.findByTestId('ai-models-notice');
+      expect(notice).toHaveTextContent('Не удалось обновить список моделей');
+      expect(notice).toHaveTextContent('502');
+      expect(select).toHaveValue('GigaChat-2');
+    });
+  });
 });

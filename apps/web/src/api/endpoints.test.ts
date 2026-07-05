@@ -199,6 +199,23 @@ describe('aiImportApi (Task 11)', () => {
     expect(fd.has('model')).toBe(false);
   });
 
+  it('start with inferLinks=true appends the text field "true" (todo_16 B2)', async () => {
+    const file = new File(['x'], 'docs.zip');
+    await aiImportApi.start('p', file, undefined, true);
+    const fd = apiRequestMock.mock.calls[0][1]?.formData as FormData;
+    expect(fd.get('inferLinks')).toBe('true');
+    expect(fd.get('file')).toBe(file);
+    expect(fd.has('model')).toBe(false);
+  });
+
+  it('start omits inferLinks when false/absent (absence = false on the server)', async () => {
+    const file = new File(['x'], 'docs.zip');
+    await aiImportApi.start('p', file, 'GigaChat-2-Pro', false);
+    const fd = apiRequestMock.mock.calls[0][1]?.formData as FormData;
+    expect(fd.has('inferLinks')).toBe(false);
+    expect(fd.get('model')).toBe('GigaChat-2-Pro');
+  });
+
   it('getJob → GET /ai-import/:jobId (encoded)', async () => {
     await aiImportApi.getJob('job/1');
     expect(apiRequestMock).toHaveBeenCalledWith('/ai-import/job%2F1');

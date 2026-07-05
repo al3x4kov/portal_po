@@ -218,6 +218,77 @@ describe('ChatWidget (Task 9)', () => {
     expect(screen.getByTestId('chat-send')).toBeDisabled();
   });
 
+  // ── todo_16 A3: re-request the model list, re-pick a model at any time ─────
+
+  describe('model list refresh (A3)', () => {
+    it('re-requests the list on click; a new model becomes selectable, selection kept', async () => {
+      listModels
+        .mockResolvedValueOnce(MODELS)
+        .mockResolvedValue({ models: ['GigaChat-2-Pro', 'GigaChat-2-Max', 'GigaChat-3'] });
+      const user = userEvent.setup();
+      renderWidget('/p/proj-1');
+      await openWidget(user);
+
+      const select = await screen.findByTestId('chat-model-select');
+      await waitFor(() => expect(select).toHaveValue('GigaChat-2-Pro'));
+      expect(screen.queryByRole('option', { name: 'GigaChat-3' })).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId('ai-models-refresh-chat'));
+      await screen.findByRole('option', { name: 'GigaChat-3' });
+      expect(listModels).toHaveBeenCalledTimes(2);
+      // The selection survives the refresh; no notice is shown.
+      expect(select).toHaveValue('GigaChat-2-Pro');
+      expect(screen.queryByTestId('ai-models-notice-chat')).not.toBeInTheDocument();
+
+      // The select stays usable — the freshly loaded model can be picked.
+      await user.selectOptions(select, 'GigaChat-3');
+      expect(select).toHaveValue('GigaChat-3');
+    });
+
+    it('vanished selection falls back to the project model with a notice; requests use it', async () => {
+      listModels.mockResolvedValueOnce(MODELS).mockResolvedValue({ models: ['GigaChat-2-Pro'] });
+      chat.mockResolvedValue({ message: { role: 'assistant', content: 'ok' } });
+      const user = userEvent.setup();
+      renderWidget('/p/proj-1');
+      await openWidget(user);
+
+      const select = await screen.findByTestId('chat-model-select');
+      await waitFor(() => expect(select).toHaveValue('GigaChat-2-Pro'));
+      await user.selectOptions(select, 'GigaChat-2-Max');
+
+      await user.click(screen.getByTestId('ai-models-refresh-chat'));
+      await waitFor(() => expect(select).toHaveValue('GigaChat-2-Pro'));
+      const notice = screen.getByTestId('ai-models-notice-chat');
+      expect(notice).toHaveTextContent('GigaChat-2-Max');
+      expect(notice).toHaveTextContent('GigaChat-2-Pro');
+
+      // Subsequent chat turns use the auto-picked model.
+      await user.type(screen.getByTestId('chat-input'), 'вопрос');
+      await user.click(screen.getByTestId('chat-send'));
+      await waitFor(() =>
+        expect(chat).toHaveBeenCalledWith(expect.objectContaining({ model: 'GigaChat-2-Pro' })),
+      );
+    });
+
+    it('refresh failure shows an inline error and keeps the selection', async () => {
+      listModels
+        .mockResolvedValueOnce(MODELS)
+        .mockRejectedValue(new Error('AI Hub недоступен (502)'));
+      const user = userEvent.setup();
+      renderWidget('/p/proj-1');
+      await openWidget(user);
+
+      const select = await screen.findByTestId('chat-model-select');
+      await waitFor(() => expect(select).toHaveValue('GigaChat-2-Pro'));
+
+      await user.click(screen.getByTestId('ai-models-refresh-chat'));
+      const notice = await screen.findByTestId('ai-models-notice-chat');
+      expect(notice).toHaveTextContent('Не удалось обновить список моделей');
+      expect(notice).toHaveTextContent('502');
+      expect(select).toHaveValue('GigaChat-2-Pro');
+    });
+  });
+
   // PO-T3: Escape collapses the expanded widget, exactly like ✕ — the
   // conversation AND the unsent draft survive (draft lives in the store).
   describe('Escape (PO-T3)', () => {

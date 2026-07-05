@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type {
   AiImportJobView,
   AiImportLogEntry,
+  AiImportRelateView,
   AiImportResult,
   AiImportStage,
   AiImportStatus,
@@ -21,6 +22,8 @@ export interface AiImportJobState {
   log: AiImportLogEntry[];
   result?: AiImportResult;
   error?: { message: string; hint: string };
+  /** Outcome of the optional relate step (todo_16 B2); set only when requested. */
+  relate?: AiImportRelateView;
   /** Set by the cancel endpoint; the runner honours it at a chunk boundary. */
   cancelRequested: boolean;
   /** Epoch ms when the job left `running` (drives the TTL sweep). */
@@ -96,6 +99,7 @@ export class AiImportJobs {
       log: [...job.log],
       ...(job.result ? { result: { ...job.result } } : {}),
       ...(job.error ? { error: { ...job.error } } : {}),
+      ...(job.relate ? { relate: { ...job.relate } } : {}),
     };
   }
 }

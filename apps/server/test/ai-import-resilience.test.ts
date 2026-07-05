@@ -10,7 +10,7 @@ import { buildApp } from '../src/app.js';
 import { AiConfigRepo } from '../src/repositories/AiConfigRepo.js';
 import { FsRequirementRepo } from '../src/repositories/FsRequirementRepo.js';
 import { AiImportJobs } from '../src/services/AiImportJobs.js';
-import { AiImportService } from '../src/services/AiImportService.js';
+import { AI_IMPORT_HINT_INTERNAL, AiImportService } from '../src/services/AiImportService.js';
 import type { AiClient } from '../src/services/AiHubService.js';
 import type { LinkService } from '../src/services/LinkService.js';
 import type { RequirementService } from '../src/services/RequirementService.js';
@@ -151,12 +151,19 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
     const jobId = await runToEnd(service, await writeZip({ 'auth.md': 'Документация.' }));
 
     const view = service.getView(jobId);
-    // Not "silently succeeded": failed with a message a user can read and act on.
+    // Not "silently succeeded": failed with a message a user can read and act
+    // on. todo_16 Ф4: the user-facing error is a stable readable text + an
+    // actionable hint; the RAW error message lives in the log only.
     expect(view.status).toBe('failed');
-    expect(view.error?.message).toContain('EIO: injected write failure');
-    expect(view.error?.hint).toBeTruthy();
+    expect(view.error?.message).toBe('Внутренняя ошибка автоматизации.');
+    expect(view.error?.hint).toBe(AI_IMPORT_HINT_INTERNAL);
     expect(
-      view.log.some((l) => l.level === 'error' && l.message.includes('Внутренняя ошибка')),
+      view.log.some(
+        (l) =>
+          l.level === 'error' &&
+          l.message.includes('Внутренняя ошибка') &&
+          l.message.includes('EIO: injected write failure'),
+      ),
     ).toBe(true);
 
     // The half-written project is still valid: both requirements parse, and the
@@ -202,7 +209,10 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
     const first = makeService(fixedClient(), { makeRequirementService: failingChild });
     const firstJob = await runToEnd(first, await writeZip({ 'auth.md': 'Документация.' }));
     expect(first.getView(firstJob).status).toBe('failed');
-    expect(first.getView(firstJob).error?.message).toContain('ENOSPC');
+    // todo_16 Ф4: the raw ENOSPC goes to the log; the error text stays stable.
+    expect(first.getView(firstJob).error?.message).toBe('Внутренняя ошибка автоматизации.');
+    expect(first.getView(firstJob).error?.hint).toBe(AI_IMPORT_HINT_INTERNAL);
+    expect(first.getView(firstJob).log.some((l) => l.message.includes('ENOSPC'))).toBe(true);
 
     const afterCrash = await assertProjectValid(root);
     expect(afterCrash.map((r) => r.name)).toEqual(['Аутентификация']);
@@ -244,6 +254,29 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
     expect(settled).toHaveLength(2);
     // Exactly one pair, unchanged after the no-op run.
     expect(settled.flatMap((r) => r.links)).toHaveLength(2);
+  });
+
+  it('todo_16 Ф4: a crash message carrying the API key is sanitized in the log and never shown as the user-facing error', async () => {
+    const failingLinks = (pid: string): LinkService => {
+      const real = createLinkService(ctx, pid);
+      real.create = () => Promise.reject(new Error(`boom ${SECRET} exploded`));
+      return real;
+    };
+    const service = makeService(fixedClient(), { makeLinkService: failingLinks });
+    const jobId = await runToEnd(service, await writeZip({ 'auth.md': 'Документация.' }));
+
+    const view = service.getView(jobId);
+    expect(view.status).toBe('failed');
+    expect(view.error?.message).toBe('Внутренняя ошибка автоматизации.');
+    expect(view.error?.hint).toBe(AI_IMPORT_HINT_INTERNAL);
+    const line = view.log.find(
+      (l) => l.level === 'error' && l.message.includes('Внутренняя ошибка автоматизации'),
+    );
+    expect(line).toBeDefined();
+    expect(line!.message).toContain('boom');
+    expect(line!.message).toContain('***');
+    // The secret never leaks anywhere in the client view.
+    expect(JSON.stringify(view)).not.toContain(SECRET);
   });
 
   it('re-run adds only the missing CHILD_OF of a skipped requirement and never touches its other links', async () => {

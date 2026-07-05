@@ -64,6 +64,25 @@ import { createServer, type Server } from 'node:http';
  * map per test via `setExtractionItems` (same discipline as
  * `setStructureParents`: `null` restores the constructor default), so the
  * shared beforeAll fixtures stay untouched.
+ *
+ * todo_16 A3 (model-list refresh): `setModels(models)` swaps the list served
+ * by `GET /models` for subsequent calls (`null` restores the constructor
+ * list) — the refresh-button scenarios need the list to CHANGE between two
+ * requests, including the selected model vanishing.
+ *
+ * todo_16 B2 (optional relate step «Проставление связей ФТ↔НФТ»): relate
+ * calls are detected by their distinct system prompt («аналитик связей
+ * требований», buildRelateMessages) and captured in `relateRequests`. The
+ * user message carries the ALREADY-created requirements as `slug\tname\tdesc`
+ * lines in two sections (ФТ / НФТ, parse via the exported `relateListsOf`);
+ * the stub answers a STRICT JSON array of `{nfr, function}` SLUG pairs built
+ * from `setRelatePairsByName` (NFR NAME → FUNCTION NAMEs, resolved to slugs
+ * against the parsed lists — tests never have to know slugs up front), plus
+ * `setRelateRawPairs` verbatim (fabricated ids the pipeline must drop).
+ * `setRelateDelay(ms)` delays relate replies only (the «выполняется…» status
+ * needs a window for the 800 ms poller); `failNextRelateJson(n)` makes the
+ * next `n` relate replies a NON-JSON sentence — with n ≥ retry attempts the
+ * step degrades to «пропущен из-за ошибки AI» without failing the import.
  */
 
 /** Captured `/chat/completions` request body (openai SDK JSON payload). */
@@ -98,6 +117,12 @@ export interface AiStub {
   baseUrl: string;
   /** `ok` (default) answers with `reply`; `error` returns HTTP 500. */
   setChatMode(mode: 'ok' | 'error'): void;
+  /**
+   * todo_16 A3: models served by `GET /models` from now on; `null` restores
+   * the constructor list. Always restore in `finally` — the stub is shared
+   * by every test of the spec file.
+   */
+  setModels(models: string[] | null): void;
   /** All captured `/chat/completions` bodies, in arrival order. */
   readonly chatRequests: AiChatCompletionCapture[];
   lastChatRequest(): AiChatCompletionCapture | undefined;
@@ -126,6 +151,21 @@ export interface AiStub {
   failNextExtractionJson(n: number): void;
   /** Task 13 B2: the next `n` structure replies are NON-JSON text (HTTP 200). */
   failNextStructureJson(n: number): void;
+  /** todo_16 B2: only the relate-prompt `/chat/completions` bodies. */
+  readonly relateRequests: AiChatCompletionCapture[];
+  /**
+   * todo_16 B2: relate answer as NFR NAME → FUNCTION NAMEs (resolved to slugs
+   * from the request's own lists; unknown names are silently dropped by the
+   * stub — use `setRelateRawPairs` for deliberately fabricated ids).
+   * `null` restores the default (empty map → `[]` answers).
+   */
+  setRelatePairsByName(map: Record<string, string[]> | null): void;
+  /** todo_16 B2: raw `{nfr, function}` pairs appended VERBATIM to answers. */
+  setRelateRawPairs(pairs: Array<{ nfr: string; function: string }> | null): void;
+  /** todo_16 B2: delay (ms) applied to every relate reply; 0 disables. */
+  setRelateDelay(ms: number): void;
+  /** todo_16 B2: the next `n` relate replies are NON-JSON text (HTTP 200). */
+  failNextRelateJson(n: number): void;
   close(): Promise<void>;
 }
 
@@ -134,6 +174,9 @@ const EXTRACTION_PROMPT_MARKER = 'экстрактор требований';
 
 /** Marker of the structure system prompt (buildStructureMessages, task 13 B2). */
 const STRUCTURE_PROMPT_MARKER = 'архитектор дерева требований';
+
+/** Marker of the relate system prompt (buildRelateMessages, todo_16 B2). */
+const RELATE_PROMPT_MARKER = 'аналитик связей требований';
 
 /** Deliberately NON-JSON model answer for the retry scenarios (task 13). */
 const NON_JSON_REPLY = 'Извините, сначала пришлю требования прозой, без JSON.';
@@ -209,19 +252,70 @@ export function structureParentsListOf(
   return items;
 }
 
+/** One requirement of the relate user message (todo_16 B2): slug + name. */
+export interface RelateListItem {
+  slug: string;
+  name: string;
+}
+
+/** Both sections of the relate user message, parsed. */
+export interface RelateLists {
+  functions: RelateListItem[];
+  nfrs: RelateListItem[];
+}
+
+/** Section markers of the relate user message (buildRelateMessages). */
+const RELATE_FN_MARKER = 'Функциональные требования (ФТ)';
+const RELATE_NFR_MARKER = 'Нефункциональные требования (НФТ)';
+
+/**
+ * Parse the relate user message (todo_16 B2): `slug\tname\tdesc` lines under
+ * the «Функциональные требования (ФТ)…» / «Нефункциональные требования
+ * (НФТ)…» section headers. The description may be empty; the optional
+ * «…и ещё N требований» truncation tail has no tabs and is skipped naturally.
+ */
+export function relateListsOf(body: AiChatCompletionCapture | undefined): RelateLists {
+  const user = body?.messages?.find((m) => m.role === 'user')?.content ?? '';
+  const lists: RelateLists = { functions: [], nfrs: [] };
+  let section: 'fn' | 'nfr' | null = null;
+  for (const line of user.split('\n')) {
+    // NFR check first — «Нефункциональные…» contains «функциональные» too.
+    if (line.startsWith(RELATE_NFR_MARKER)) {
+      section = 'nfr';
+      continue;
+    }
+    if (line.startsWith(RELATE_FN_MARKER)) {
+      section = 'fn';
+      continue;
+    }
+    if (!section) continue;
+    const match = /^([^\t]+)\t([^\t]+)\t(.*)$/.exec(line);
+    if (!match) continue;
+    const item: RelateListItem = { slug: match[1]!, name: match[2]! };
+    (section === 'fn' ? lists.functions : lists.nfrs).push(item);
+  }
+  return lists;
+}
+
 /** Start the stub on an ephemeral 127.0.0.1 port. Call `close()` in afterAll. */
 export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
   let chatMode: 'ok' | 'error' = 'ok';
+  let models: string[] = opts.models;
   let extractionDelayMs = 0;
   let structureDelayMs = 0;
+  let relateDelayMs = 0;
   let structureParents: Record<string, string> = opts.structureParents ?? {};
   let extractionItems: Record<string, unknown[]> = opts.extractionItemsByFile ?? {};
   let structureExtraNodes: Array<Record<string, unknown>> = [];
+  let relatePairsByName: Record<string, string[]> = {};
+  let relateRawPairs: Array<{ nfr: string; function: string }> = [];
   let nonJsonExtractionLeft = 0;
   let nonJsonStructureLeft = 0;
+  let nonJsonRelateLeft = 0;
   const chatRequests: AiChatCompletionCapture[] = [];
   const extractionRequests: AiChatCompletionCapture[] = [];
   const structureRequests: AiChatCompletionCapture[] = [];
+  const relateRequests: AiChatCompletionCapture[] = [];
 
   const server: Server = createServer((req, res) => {
     const url = req.url ?? '';
@@ -233,7 +327,7 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
         res.end(
           JSON.stringify({
             object: 'list',
-            data: opts.models.map((id) => ({ id, object: 'model' })),
+            data: models.map((id) => ({ id, object: 'model' })),
           }),
         );
         return;
@@ -251,8 +345,10 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
           system?.role === 'system' && system.content.includes(EXTRACTION_PROMPT_MARKER);
         const isStructure =
           system?.role === 'system' && system.content.includes(STRUCTURE_PROMPT_MARKER);
+        const isRelate = system?.role === 'system' && system.content.includes(RELATE_PROMPT_MARKER);
         if (isExtraction && body) extractionRequests.push(body);
         if (isStructure && body) structureRequests.push(body);
+        if (isRelate && body) relateRequests.push(body);
 
         // Consume the non-JSON fault counters SYNCHRONOUSLY (before any delay)
         // so concurrent polling never races the decrement.
@@ -263,6 +359,10 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
         }
         if (isStructure && nonJsonStructureLeft > 0) {
           nonJsonStructureLeft -= 1;
+          forceNonJson = true;
+        }
+        if (isRelate && nonJsonRelateLeft > 0) {
+          nonJsonRelateLeft -= 1;
           forceNonJson = true;
         }
 
@@ -290,6 +390,20 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
               })),
               ...structureExtraNodes,
             ]);
+          } else if (isRelate) {
+            // todo_16 B2: resolve NFR NAME → FUNCTION NAMEs pairs to slug
+            // pairs against the request's own two lists; raw pairs (fabricated
+            // ids) are appended verbatim.
+            const lists = relateListsOf(body);
+            const fnSlugByName = new Map(lists.functions.map((f) => [f.name, f.slug]));
+            const pairs: Array<{ nfr: string; function: string }> = [];
+            for (const nfr of lists.nfrs) {
+              for (const fnName of relatePairsByName[nfr.name] ?? []) {
+                const fnSlug = fnSlugByName.get(fnName);
+                if (fnSlug) pairs.push({ nfr: nfr.slug, function: fnSlug });
+              }
+            }
+            content = JSON.stringify([...pairs, ...relateRawPairs]);
           } else {
             content = opts.reply;
           }
@@ -307,6 +421,7 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
         // keep their pace.
         if (isExtraction && extractionDelayMs > 0) setTimeout(respond, extractionDelayMs);
         else if (isStructure && structureDelayMs > 0) setTimeout(respond, structureDelayMs);
+        else if (isRelate && relateDelayMs > 0) setTimeout(respond, relateDelayMs);
         else respond();
         return;
       }
@@ -325,6 +440,9 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
     baseUrl: `http://127.0.0.1:${addr.port}/v1`,
     setChatMode(mode) {
       chatMode = mode;
+    },
+    setModels(next) {
+      models = next ?? opts.models;
     },
     chatRequests,
     lastChatRequest() {
@@ -352,6 +470,19 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
     },
     failNextStructureJson(n) {
       nonJsonStructureLeft = n;
+    },
+    relateRequests,
+    setRelatePairsByName(map) {
+      relatePairsByName = map ?? {};
+    },
+    setRelateRawPairs(pairs) {
+      relateRawPairs = pairs ?? [];
+    },
+    setRelateDelay(ms) {
+      relateDelayMs = ms;
+    },
+    failNextRelateJson(n) {
+      nonJsonRelateLeft = n;
     },
     close() {
       return new Promise<void>((resolve) => server.close(() => resolve()));

@@ -311,3 +311,66 @@ test.describe('Task 10 · удаление API-ключа', () => {
     expect(await getHasKey()).toBe(false);
   });
 });
+
+/* ── todo_16 A3 · повторный запрос списка моделей на экране AI ───────────── */
+
+test.describe('todo_16 A3 · экран AI: обновление списка моделей', () => {
+  test('кнопка обновления перезапрашивает GET /api/ai/models; выбор сохраняется/сбрасывается; смена модели сохраняется в конфиг', async ({
+    page,
+  }) => {
+    const name = uniqueName('AI-Refresh');
+    await createProject(page, name);
+    const id = projectId(page);
+    // UI-флоу задачи 8: ключ+baseURL сохранены, модели загружены,
+    // выбрана и сохранена 'GigaChat-2-Pro'.
+    await configureAi(page, id);
+
+    const select = page.getByTestId('ai-model-select');
+    const refresh = page.getByTestId('ai-models-refresh');
+    await expect(refresh).toBeEnabled();
+
+    try {
+      // 1) Список не менялся → refetch реально уходит, выбор сохраняется,
+      //    уведомления нет.
+      const [first] = await Promise.all([
+        page.waitForResponse(
+          (r) => r.request().method() === 'GET' && r.url().includes('/api/ai/models'),
+        ),
+        refresh.click(),
+      ]);
+      expect(first.status()).toBe(200);
+      await expect(select).toHaveValue('GigaChat-2-Pro');
+      await expect(select.locator('option[value="GigaChat-2"]')).toHaveCount(1);
+      await expect(page.getByTestId('ai-models-notice')).toHaveCount(0);
+
+      // 2) Список изменился, выбранная модель исчезла → options обновлены,
+      //    выбрана первая из нового списка (сервер сортирует ids по алфавиту:
+      //    'GigaChat-2' < 'GigaChat-3-Max'), показано ненавязчивое уведомление.
+      stub.setModels(['GigaChat-3-Max', 'GigaChat-2']);
+      const [second] = await Promise.all([
+        page.waitForResponse(
+          (r) => r.request().method() === 'GET' && r.url().includes('/api/ai/models'),
+        ),
+        refresh.click(),
+      ]);
+      expect(second.status()).toBe(200);
+      await expect(select.locator('option[value="GigaChat-3-Max"]')).toHaveCount(1);
+      await expect(select).toHaveValue('GigaChat-2');
+      const notice = page.getByTestId('ai-models-notice');
+      await expect(notice).toBeVisible();
+      await expect(notice).toContainText('GigaChat-2-Pro');
+      await expect(notice).toContainText('больше недоступна');
+
+      // 3) Селект остаётся активным: смена модели + сохранение применяются
+      //    к последующим запросам (модель проекта в конфиге).
+      await select.selectOption('GigaChat-3-Max');
+      await page.getByTestId('ai-save').click();
+      await expect(page.getByTestId('ai-status').locator('[data-state="success"]')).toBeVisible();
+      const cfg = await page.request.get(`/api/ai/config?projectId=${encodeURIComponent(id)}`);
+      expect(cfg.ok()).toBe(true);
+      expect(((await cfg.json()) as { model?: string }).model).toBe('GigaChat-3-Max');
+    } finally {
+      stub.setModels(null); // общий стаб — вернуть список задачи 8
+    }
+  });
+});

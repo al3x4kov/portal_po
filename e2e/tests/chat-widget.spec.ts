@@ -323,3 +323,52 @@ test.describe('Task 9 · плавающий AI-чат', () => {
     }
   });
 });
+
+/* ── todo_16 A3 · повторный запрос списка моделей в виджете чата ─────────── */
+
+test.describe('todo_16 A3 · виджет чата: обновление списка моделей', () => {
+  test('кнопка обновления перезапрашивает модели; исчезнувший выбор сброшен с уведомлением; новая модель уходит в апстрим', async ({
+    page,
+  }) => {
+    await createProject(page, uniqueName('Chat-Refresh'));
+    const id = projectIdFromUrl(page);
+    await configureAi(page, id, 'GigaChat-2-Pro');
+
+    await openWidget(page);
+    const select = page.getByTestId('chat-model-select');
+    await expect(select).toHaveValue('GigaChat-2-Pro');
+    // Автозагрузка списка при открытии — обе модели стаба в options.
+    await expect(select.locator('option[value="GigaChat-2"]')).toHaveCount(1);
+
+    try {
+      // Список апстрима изменился: выбранная модель исчезла, появилась новая.
+      stub.setModels(['GigaChat-3-Max', 'GigaChat-2']);
+      const [res] = await Promise.all([
+        page.waitForResponse(
+          (r) => r.request().method() === 'GET' && r.url().includes('/api/ai/models'),
+        ),
+        page.getByTestId('ai-models-refresh-chat').click(),
+      ]);
+      expect(res.status()).toBe(200);
+
+      // Options обновлены; выбор сброшен на первую модель нового списка
+      // (сервер сортирует ids по алфавиту: 'GigaChat-2' < 'GigaChat-3-Max').
+      await expect(select.locator('option[value="GigaChat-3-Max"]')).toHaveCount(1);
+      await expect(select.locator('option[value="GigaChat-2-Pro"]')).toHaveCount(0);
+      await expect(select).toHaveValue('GigaChat-2');
+      const notice = page.getByTestId('ai-models-notice-chat');
+      await expect(notice).toBeVisible();
+      await expect(notice).toContainText('GigaChat-2-Pro');
+      await expect(notice).toContainText('больше недоступна');
+
+      // Селект остаётся активным: смена модели применяется к следующему
+      // запросу — апстрим видит выбранную вручную модель.
+      await select.selectOption('GigaChat-3-Max');
+      await sendMessage(page, 'Ответь коротко.');
+      await expect(page.getByTestId('chat-msg-assistant')).toContainText(STUB_REPLY);
+      expect(stub.lastChatRequest()?.model).toBe('GigaChat-3-Max');
+    } finally {
+      stub.setModels(null); // общий стаб файла — вернуть исходный список
+    }
+  });
+});

@@ -182,6 +182,55 @@ export const aiImportResultSchema = z.object({
 });
 export type AiImportResult = z.infer<typeof aiImportResultSchema>;
 
+/*
+ * ── todo_16 B2: optional «Проставление связей ФТ↔НФТ» (relate) step ────────
+ * Opt-in via the `inferLinks` multipart field of the start request. The step
+ * runs between `populate` and the final `done` transition, asks the hub for
+ * meaningful NFR↔FUNCTION pairs over the ALREADY-created requirements and
+ * creates RELATES_TO links only. It never creates or edits requirements, and
+ * its failure never fails the import — the outcome is reported in the job
+ * view under `relate` (this is the step's visibility contract; the stage
+ * enum above is deliberately NOT extended).
+ */
+
+/**
+ * Multipart text field `inferLinks` of `POST /api/projects/:id/ai-import`
+ * (same style as the existing `model` text field). Default: absent = false.
+ */
+export const aiImportInferLinksFieldSchema = z
+  .enum(['true', 'false'])
+  .transform((value) => value === 'true');
+
+/** Token budget for one relate call (pairs are short; mirrors the structure budget). */
+export const AI_IMPORT_RELATE_MAX_TOKENS = 4000;
+
+/**
+ * Statuses of the relate step shown by the frontend: `running` while the step
+ * executes, `done` when every accepted pair was created, `partial` when some
+ * link creations failed, `skipped` when the AI call failed/was unparsable (the
+ * import itself still succeeds).
+ */
+export const AI_IMPORT_RELATE_STATUSES = ['running', 'done', 'partial', 'skipped'] as const;
+export type AiImportRelateStatus = (typeof AI_IMPORT_RELATE_STATUSES)[number];
+
+/** Outcome of the optional relate step (present in the view only when requested). */
+export const aiImportRelateViewSchema = z.object({
+  status: z.enum(AI_IMPORT_RELATE_STATUSES),
+  /** RELATES_TO links created by THIS step (not counted in `result.relatesLinks`). */
+  created: z.number().int().min(0),
+});
+export type AiImportRelateView = z.infer<typeof aiImportRelateViewSchema>;
+
+/**
+ * One pair of the relate answer. Both ids are requirement slugs of the
+ * project; fabricated ids, self-links and duplicates are dropped server-side.
+ */
+export const aiRelatePairSchema = z.object({
+  nfr: z.string().min(1).max(300),
+  function: z.string().min(1).max(300),
+});
+export type AiRelatePair = z.infer<typeof aiRelatePairSchema>;
+
 /** Response of `GET /api/ai-import/:jobId` (polled by the modal). */
 export const aiImportJobViewSchema = z.object({
   jobId: z.string(),
@@ -194,6 +243,8 @@ export const aiImportJobViewSchema = z.object({
   result: aiImportResultSchema.optional(),
   /** Present when failed: readable message + "what to do next" (spec §4). */
   error: z.object({ message: z.string(), hint: z.string() }).optional(),
+  /** Outcome of the optional relate step (todo_16 B2); absent when not requested. */
+  relate: aiImportRelateViewSchema.optional(),
 });
 export type AiImportJobView = z.infer<typeof aiImportJobViewSchema>;
 
