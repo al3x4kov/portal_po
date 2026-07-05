@@ -157,6 +157,16 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
           404: errorResponse('Проект не найден.'),
         },
       },
+      delete: {
+        tags: ['projects'],
+        summary: 'Удалить проект (каталог со всеми файлами)',
+        parameters: [idParam],
+        responses: {
+          204: { description: 'Проект удалён.' },
+          400: errorResponse('Некорректный id (например попытка path traversal).'),
+          404: errorResponse('Проект не найден.'),
+        },
+      },
     },
     '/api/projects/import': {
       post: {

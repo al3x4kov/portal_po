@@ -68,6 +68,8 @@ export interface ProjectRepo {
   get(id: string): Promise<ProjectSummary>;
   exists(id: string): Promise<boolean>;
   create(rawName: string, now?: () => string): Promise<ProjectSummary>;
+  /** Recursively delete a project directory (and thus all its requirements). */
+  delete(id: string): Promise<void>;
 }
 
 export type ArchiveFormat = 'zip' | 'targz';

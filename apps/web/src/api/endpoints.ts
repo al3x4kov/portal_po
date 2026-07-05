@@ -42,6 +42,9 @@ export const projectsApi = {
   get: (id: string): Promise<ProjectSummary> => apiRequest(`/projects/${encodeURIComponent(id)}`),
   create: (name: string): Promise<ProjectSummary> =>
     apiRequest('/projects', { method: 'POST', body: { name } }),
+  /** B1 (todo_16): DELETE /api/projects/:id → 204 (empty body) on success. */
+  remove: (id: string): Promise<null> =>
+    apiRequest(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   import: (name: string, file: File): Promise<ProjectSummary> => {
     const fd = new FormData();
     fd.append('name', name);
@@ -154,12 +157,21 @@ export const aiApi = {
  * Task 11: AI-import of ФТ/НФТ from a documentation archive. `start` uploads
  * the archive as multipart (same client path as `projectsApi.import`); `model`
  * is an optional override — absent means "use the project model" (server
- * falls back and answers 400 when neither is set).
+ * falls back and answers 400 when neither is set). `inferLinks` (todo_16 B2)
+ * turns on the optional AI relate step; the field is sent as the text 'true'
+ * only when enabled — absence means false, so the off-path request is
+ * byte-identical to the pre-B2 one.
  */
 export const aiImportApi = {
-  start: (projectId: string, file: File, model?: string): Promise<AiImportStartResponse> => {
+  start: (
+    projectId: string,
+    file: File,
+    model?: string,
+    inferLinks?: boolean,
+  ): Promise<AiImportStartResponse> => {
     const fd = new FormData();
     if (model) fd.append('model', model);
+    if (inferLinks) fd.append('inferLinks', 'true');
     fd.append('file', file);
     return apiRequest(`/projects/${encodeURIComponent(projectId)}/ai-import`, {
       method: 'POST',

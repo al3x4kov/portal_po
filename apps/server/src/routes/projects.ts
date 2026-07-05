@@ -10,7 +10,7 @@ const createBody = z.object({
 
 const idParam = z.object({ id: z.string().min(1) });
 
-/** Project routes: GET /api/projects, POST /api/projects, GET /api/projects/:id (T-304). */
+/** Project routes: GET/POST /api/projects, GET/DELETE /api/projects/:id (T-304, B1). */
 export async function projectRoutes(app: FastifyInstance, deps: AppDeps): Promise<void> {
   const ctx: ServiceContext = { projectsRoot: deps.projectsRoot, now: deps.now, log: deps.log };
   const service = createProjectService(ctx);
@@ -29,5 +29,12 @@ export async function projectRoutes(app: FastifyInstance, deps: AppDeps): Promis
   app.get('/api/projects/:id', async (req) => {
     const { id } = parseInput(idParam, req.params);
     return service.get(id);
+  });
+
+  app.delete('/api/projects/:id', async (req, reply) => {
+    const { id } = parseInput(idParam, req.params);
+    await service.deleteProject(id);
+    reply.code(204);
+    return null;
   });
 }

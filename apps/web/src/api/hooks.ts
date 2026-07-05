@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import type {
   AiChatRequest,
@@ -13,6 +13,8 @@ import type {
   Requirement,
 } from '@po/core';
 import { useToast } from '../components/Toast';
+import { useUiStore } from '../store/ui';
+import { errorMessage } from './client';
 import { aiApi, aiImportApi, linksApi, projectsApi, requirementsApi } from './endpoints';
 import type {
   LinkInput,
@@ -68,6 +70,35 @@ export function useImportProject() {
   return useMutation({
     mutationFn: ({ name, file }: { name: string; file: File }) => projectsApi.import(name, file),
     onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.projects }),
+  });
+}
+
+/**
+ * B1 (todo_16): deletes a project (and its whole directory on disk) via
+ * DELETE /api/projects/:id. On success the projects list is invalidated,
+ * every cached query scoped to the deleted project is dropped, and the
+ * project-scoped UI selection (expanded branches, search, filters, open
+ * modal) is reset — the app has no other "selected project" state besides
+ * the route, so this is the full cleanup. Success/error feedback via toast.
+ */
+export function useDeleteProject() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  return useMutation<null, Error, { id: string; name: string }>({
+    mutationFn: ({ id }) => projectsApi.remove(id),
+    onSuccess: (_data, { id, name }) => {
+      // Drop project-scoped caches first so the list invalidation below does
+      // not refetch queries for a project that no longer exists.
+      qc.removeQueries({ queryKey: queryKeys.project(id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.projects, exact: true });
+      const ui = useUiStore.getState();
+      ui.closeModal();
+      ui.setExpanded([]);
+      ui.setSearch('');
+      ui.resetFilters();
+      toast.show(`Проект «${name}» удалён`);
+    },
+    onError: (err) => toast.show(errorMessage(err), 'error'),
   });
 }
 
@@ -158,12 +189,6 @@ export function useDeleteAiKey() {
   });
 }
 
-export function useListAiModels() {
-  return useMutation<AiModelsView, Error, void>({
-    mutationFn: () => aiApi.listModels(),
-  });
-}
-
 /* ── AI chat widget (Task 9) ─────────────────────────────────────────────── */
 
 /**
@@ -176,6 +201,93 @@ export function useAiModels(enabled: boolean): UseQueryResult<AiModelsView> {
     queryFn: () => aiApi.listModels(),
     enabled,
   });
+}
+
+/* ── AI model list refresh + selection reconciliation (todo_16 A3) ───────── */
+
+/** Human-readable inline message shown next to the model select. */
+export interface AiModelsNotice {
+  kind: 'reset' | 'error';
+  text: string;
+}
+
+export type AiModelsRefreshResult = { ok: true; models: string[] } | { ok: false; error: Error };
+
+export interface UseAiModelsRefreshOptions {
+  /** Auto-fetch the list (React Query `enabled`). `refresh()` works regardless. */
+  enabled: boolean;
+  /** Currently selected model id ('' when nothing is selected). */
+  selectedModel: string;
+  /** Preferred replacement when the selected model vanished (e.g. project model). */
+  fallbackModel?: string;
+  /** Applies the replacement when the selected model vanished after a refresh. */
+  onModelReset: (model: string) => void;
+}
+
+export interface UseAiModelsRefreshResult {
+  /** Latest loaded model list (shared `aiModels` cache). */
+  models: string[];
+  isFetching: boolean;
+  /** Set after `refresh()`: selection reset ('reset') or request failure ('error'). */
+  notice: AiModelsNotice | null;
+  clearNotice: () => void;
+  /** Re-requests the list and reconciles the current selection. Never throws. */
+  refresh: () => Promise<AiModelsRefreshResult>;
+}
+
+/**
+ * A3 (todo_16): shared «Обновить список моделей» logic for the AI screen, the
+ * chat widget and the AI-import modal. Wraps the cached `useAiModels` query;
+ * `refresh()` refetches (works even when `enabled` is false) and, if the
+ * selected model vanished from the fresh list, picks `fallbackModel` (when
+ * still available) or the first model and reports it via `notice` so the UI
+ * can show an unobtrusive inline message.
+ */
+export function useAiModelsRefresh(opts: UseAiModelsRefreshOptions): UseAiModelsRefreshResult {
+  const query = useAiModels(opts.enabled);
+  const { refetch } = query;
+  const [notice, setNotice] = useState<AiModelsNotice | null>(null);
+  // refresh() must see the CURRENT selection, not the one captured on render.
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
+
+  const refresh = useCallback(async (): Promise<AiModelsRefreshResult> => {
+    setNotice(null);
+    const res = await refetch();
+    if (res.error || res.data === undefined) {
+      const error =
+        res.error instanceof Error ? res.error : new Error('Пустой ответ списка моделей');
+      setNotice({
+        kind: 'error',
+        text: `Не удалось обновить список моделей: ${errorMessage(error)}`,
+      });
+      return { ok: false, error };
+    }
+    const models = res.data.models;
+    const { selectedModel, fallbackModel, onModelReset } = optsRef.current;
+    if (selectedModel && !models.includes(selectedModel)) {
+      const fallback =
+        fallbackModel && models.includes(fallbackModel) ? fallbackModel : (models[0] ?? '');
+      onModelReset(fallback);
+      setNotice({
+        kind: 'reset',
+        text: fallback
+          ? `Модель «${selectedModel}» больше недоступна — выбрана «${fallback}»`
+          : `Модель «${selectedModel}» больше недоступна — выберите модель из списка`,
+      });
+    }
+    return { ok: true, models };
+  }, [refetch]);
+
+  const clearNotice = useCallback(() => setNotice(null), []);
+
+  return {
+    models: query.data?.models ?? [],
+    isFetching: query.isFetching,
+    notice,
+    clearNotice,
+    refresh,
+  };
 }
 
 /** One chat turn: POST /api/ai/chat with the trailing message history. */
@@ -196,10 +308,21 @@ export function useGenerateDescription() {
 /** Polling cadence for a running AI-import job (PO decision §3.3). */
 export const AI_IMPORT_POLL_MS = 800;
 
-/** Starts an AI-import job: uploads the archive, gets back `{ jobId }`. */
+/**
+ * Starts an AI-import job: uploads the archive, gets back `{ jobId }`.
+ * `inferLinks` (todo_16 B2) opts into the AI relate step; when falsy the call
+ * keeps the exact pre-B2 shape so the off-path behaviour stays byte-identical.
+ */
 export function useStartAiImport(projectId: string) {
-  return useMutation<AiImportStartResponse, Error, { file: File; model?: string }>({
-    mutationFn: ({ file, model }) => aiImportApi.start(projectId, file, model),
+  return useMutation<
+    AiImportStartResponse,
+    Error,
+    { file: File; model?: string; inferLinks?: boolean }
+  >({
+    mutationFn: ({ file, model, inferLinks }) =>
+      inferLinks
+        ? aiImportApi.start(projectId, file, model, true)
+        : aiImportApi.start(projectId, file, model),
   });
 }
 

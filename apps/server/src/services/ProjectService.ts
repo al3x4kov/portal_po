@@ -72,6 +72,19 @@ export class ProjectService {
   }
 
   /**
+   * Delete a project and all its files from disk (B1). Serialized on the
+   * project directory so it cannot interleave with a concurrent mutation of
+   * the same project (ADR-003). Requirements live inside the directory, so no
+   * separate link cleanup is needed; the in-memory AI import job registry only
+   * keeps status snapshots keyed by projectId and needs no purge.
+   */
+  deleteProject(id: string): Promise<void> {
+    return withOpLog(this.log, { op: 'deleteProject', projectId: id }, () =>
+      withProjectLock(this.projectsRoot, id, () => this.repo.delete(id)),
+    );
+  }
+
+  /**
    * Export an existing project as a downloadable archive. `fields` selects which
    * optional sections each `.md` carries (Task 2): when omitted (`undefined`) the
    * on-disk files are copied verbatim (fast, lossless); when provided every

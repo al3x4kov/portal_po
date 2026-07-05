@@ -114,4 +114,19 @@ export class FsProjectRepo implements ProjectRepo {
     await atomicWrite(resolveSafe(dir, MANIFEST_PATH), serializeManifest(manifest));
     return this.summaryOf(id, dir);
   }
+
+  /**
+   * Recursively delete a project directory with everything in it (B1). The
+   * target is resolved through {@link resolveSafe} and re-checked with
+   * {@link assertRealpathWithin}, so a traversal or symlinked id can never
+   * remove anything outside the Projects root (NFR-5).
+   */
+  async delete(id: string): Promise<void> {
+    const dir = this.dirOf(id); // throws PathSafetyError on `..` / absolute ids
+    await assertRealpathWithin(this.projectsRoot, dir);
+    if (!(await this.exists(id))) {
+      throw new NotFoundError(`Project not found: "${id}".`);
+    }
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 }
