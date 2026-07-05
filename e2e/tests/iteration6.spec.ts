@@ -28,8 +28,8 @@ test('FR-17/18: поле источника сохраняется и отобр
   await page.getByTestId('req-name').fill(reqName);
   await page.getByTestId('req-criticality-high').click();
 
-  // Fill source field (FR-17)
-  await page.getByTestId('req-source').fill('АС21');
+  // Fill source field (FR-17) — T4 (todo_17): now a select with presets
+  await page.getByTestId('req-source').selectOption('АС21');
 
   // Set implementation status
   await page.getByTestId('req-implemented-yes').click();
@@ -75,7 +75,7 @@ test('FR-19: фильтр "Источник" скрывает требовани
   await expect(page.getByTestId('requirement-modal')).toBeVisible();
   await page.getByTestId('req-name').fill(withSource);
   await page.getByTestId('req-criticality-high').click();
-  await page.getByTestId('req-source').fill('АС21');
+  await page.getByTestId('req-source').selectOption('АС21');
   await page.getByTestId('req-implemented-yes').click();
   await page.getByTestId('req-submit').click();
   await expect(page.getByTestId('requirement-modal')).toBeHidden();
@@ -127,8 +127,9 @@ test('FR-20: добавление и удаление пары справочн�
   await createProject(page, project);
   await addRequirement(page, { kind: 'function', name: reqName, criticality: 'MEDIUM' });
 
-  // Open edit modal
+  // Open edit modal; info items now live behind the «Справочно» tab (T4, todo_17)
   const modal = await openEdit(page, reqName);
+  await page.getByTestId('req-tab-info').click();
 
   // Click "+" to show inline add form
   await page.getByTestId('info-add-btn').click();
@@ -147,14 +148,14 @@ test('FR-20: добавление и удаление пары справочн�
   await expect(modal.getByText('Регламент')).toBeVisible();
   await expect(modal.getByText('ГОСТ 34')).toBeVisible();
 
-  // Save the requirement (edit requires confirmation)
+  // Save the requirement — T4 (todo_17): no confirm, toast «Сохранено» instead
   await page.getByTestId('req-submit').click();
-  await expect(page.getByTestId('req-save-confirm')).toBeVisible();
-  await page.getByTestId('req-save-confirm-confirm').click();
   await expect(modal).toBeHidden();
+  await expect(page.getByTestId('toast').filter({ hasText: 'Сохранено' })).toBeVisible();
 
-  // Re-open to verify persistence
+  // Re-open to verify persistence (info items behind the «Справочно» tab)
   const modal2 = await openEdit(page, reqName);
+  await page.getByTestId('req-tab-info').click();
   await expect(modal2.getByText('Регламент')).toBeVisible();
   await expect(modal2.getByText('ГОСТ 34')).toBeVisible();
 
@@ -177,7 +178,7 @@ test('FR-20: добавление и удаление пары справочн�
   // Modal may ask for confirmation if dirty — dismiss if appears
   const cancelConfirm = page.getByTestId('req-cancel-confirm');
   if (await cancelConfirm.isVisible()) {
-    await cancelConfirm.getByTestId('req-save-confirm-confirm').click();
+    await page.getByTestId('req-cancel-confirm-confirm').click();
   }
 });
 
@@ -192,6 +193,7 @@ test('FR-20: кнопка "Нет" при удалении пары отменя
   await addRequirement(page, { kind: 'function', name: reqName, criticality: 'MEDIUM' });
 
   const modal = await openEdit(page, reqName);
+  await page.getByTestId('req-tab-info').click();
 
   // Add info pair
   await page.getByTestId('info-add-btn').click();

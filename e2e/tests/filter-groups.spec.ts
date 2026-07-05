@@ -177,25 +177,29 @@ test.describe('Task 1 · Экран «Выбор требований для э�
     ]);
     const modal = await openExportPicker(page);
 
+    // T4 (todo_17): две отдельные кнопки «Выбрать все» / «Снять выделение»
+    // и счётчик «Выбрано N» (picker-counter).
     const selectionGroup = modal.getByRole('group', { name: 'Выбор' });
-    const toggle = modal.getByTestId('export-toggle-all');
+    const selectAll = modal.getByTestId('export-toggle-all');
+    const deselectAll = modal.getByTestId('export-untoggle-all');
     const next = modal.getByTestId('export-next');
 
-    // Изначально всё выбрано (3 из 3), «Далее» активна.
-    await expect(selectionGroup).toContainText('3 из 3 выбрано');
+    // Изначально всё выбрано (3), «Далее» активна, «Выбрать все» уже не нужна.
+    await expect(selectionGroup).toContainText('Выбрано 3');
     await expect(next).toBeEnabled();
-    await expect(toggle).toHaveText('Снять выделение');
+    await expect(selectAll).toBeDisabled();
+    await expect(deselectAll).toBeEnabled();
 
     // Снять выделение → 0, кнопка выключена, подсказка видна.
-    await toggle.click();
-    await expect(selectionGroup).toContainText('0 из 3 выбрано');
+    await deselectAll.click();
+    await expect(selectionGroup).toContainText('Выбрано 0');
     await expect(next).toBeDisabled();
     await expect(modal.getByTestId('export-next-hint')).toBeVisible();
-    await expect(toggle).toHaveText('Выбрать все');
+    await expect(deselectAll).toBeDisabled();
 
-    // Выбрать все → снова 3 из 3, кнопка активна.
-    await toggle.click();
-    await expect(selectionGroup).toContainText('3 из 3 выбрано');
+    // Выбрать все → снова 3, кнопка активна.
+    await selectAll.click();
+    await expect(selectionGroup).toContainText('Выбрано 3');
     await expect(next).toBeEnabled();
   });
 });
@@ -250,11 +254,12 @@ test.describe('Task 1 · Экран «Выбор ФТ/НФТ для TaskTracker�
 
     // Подпись подтверждения на этом экране — «Предпросмотр».
     await expect(next).toContainText('Предпросмотр');
-    await expect(selectionGroup).toContainText('2 из 2 выбрано');
+    await expect(selectionGroup).toContainText('Выбрано 2');
     await expect(next).toBeEnabled();
 
-    await modal.getByTestId('export-toggle-all').click();
-    await expect(selectionGroup).toContainText('0 из 2 выбрано');
+    // T4 (todo_17): снятие выделения — отдельной кнопкой export-untoggle-all.
+    await modal.getByTestId('export-untoggle-all').click();
+    await expect(selectionGroup).toContainText('Выбрано 0');
     await expect(next).toBeDisabled();
   });
 });

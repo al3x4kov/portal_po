@@ -305,7 +305,7 @@ describe('Task 12 — tracker flow via RequirementPickerModal', () => {
 });
 
 describe('Task 12 — step navigation and MD download', () => {
-  it('«← Назад» from the preview returns to the direction choice and clears the preview', async () => {
+  it('«Назад» from the preview returns to the direction choice and clears the preview (smoke: нет шага 2)', async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <ExportTasksModal projectId="proj-1" requirements={[ftA, ftB]} onClose={vi.fn()} />,
@@ -313,13 +313,13 @@ describe('Task 12 — step navigation and MD download', () => {
 
     await user.click(screen.getByTestId('export-tasks-dir-smoke'));
     await screen.findByTestId('export-tasks-preview');
-    await user.click(screen.getByRole('button', { name: '← Назад' }));
+    await user.click(screen.getByTestId('gen-back-2'));
 
     expect(screen.getByTestId('export-tasks-dir-smoke')).toBeInTheDocument();
     expect(screen.queryByTestId('export-tasks-preview')).not.toBeInTheDocument();
   });
 
-  it('«← Назад» from the unimpl-question returns to the direction choice', async () => {
+  it('«Назад» from the unimpl-question returns to the direction choice', async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <ExportTasksModal projectId="proj-1" requirements={[ftA, ftC]} onClose={vi.fn()} />,
@@ -327,10 +327,60 @@ describe('Task 12 — step navigation and MD download', () => {
 
     await user.click(screen.getByTestId('export-tasks-dir-crit-regression'));
     await screen.findByTestId('unimpl-question');
-    await user.click(screen.getByRole('button', { name: '← Назад' }));
+    await user.click(screen.getByTestId('gen-back-1'));
 
     expect(screen.getByTestId('export-tasks-dir-crit-regression')).toBeInTheDocument();
     expect(screen.queryByTestId('unimpl-question')).not.toBeInTheDocument();
+  });
+
+  it('T4 (§2.15.1): «Назад» из preview возвращает на ПРЕДЫДУЩИЙ шаг — вопрос о нереализованных', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ExportTasksModal projectId="proj-1" requirements={[ftA, ftC]} onClose={vi.fn()} />,
+    );
+
+    await user.click(screen.getByTestId('export-tasks-dir-crit-regression'));
+    await screen.findByTestId('unimpl-question');
+    await user.click(screen.getByTestId('unimpl-include-yes'));
+    await screen.findByTestId('export-tasks-preview');
+
+    await user.click(screen.getByTestId('gen-back-2'));
+    // Back to step 2 (the coverage question), not to the direction choice.
+    expect(await screen.findByTestId('unimpl-question')).toBeInTheDocument();
+    expect(screen.queryByTestId('export-tasks-preview')).not.toBeInTheDocument();
+  });
+
+  it('T4 (§2.15.1): «Назад» из tracker-preview снова открывает выбор требований', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ExportTasksModal projectId="proj-1" requirements={[ftA, ftB]} onClose={vi.fn()} />,
+    );
+
+    await user.click(screen.getByTestId('export-tasks-dir-tracker'));
+    await screen.findByTestId('tracker-select-modal');
+    await user.click(screen.getByTestId('export-next'));
+    await screen.findByTestId('export-tasks-preview');
+
+    await user.click(screen.getByTestId('gen-back-2'));
+    expect(await screen.findByTestId('tracker-select-modal')).toBeInTheDocument();
+  });
+
+  it('T4 (§2.15.1): индикатор шагов подсвечивает активный шаг и отмечает пройденные', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ExportTasksModal projectId="proj-1" requirements={[ftA, ftB]} onClose={vi.fn()} />,
+    );
+
+    // Шаг 1 активен на выборе направления.
+    expect(screen.getByTestId('gen-steps')).toBeInTheDocument();
+    expect(screen.getByTestId('gen-step-1')).toHaveAttribute('data-state', 'active');
+    expect(screen.getByTestId('gen-step-3')).toHaveAttribute('data-state', 'todo');
+
+    await user.click(screen.getByTestId('export-tasks-dir-smoke'));
+    await screen.findByTestId('export-tasks-preview');
+    expect(screen.getByTestId('gen-step-1')).toHaveAttribute('data-state', 'done');
+    expect(screen.getByTestId('gen-step-2')).toHaveAttribute('data-state', 'done');
+    expect(screen.getByTestId('gen-step-3')).toHaveAttribute('data-state', 'active');
   });
 
   it('«Скачать MD» builds a blob, clicks a temp anchor and revokes the URL', async () => {

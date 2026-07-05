@@ -71,7 +71,7 @@ describe('TreeTable (T-1102, FR-7)', () => {
     renderTree(false);
     const row = screen.getByTestId('tree-row-r2');
     expect(row).toHaveTextContent('Q4 2026');
-    expect(row).toHaveTextContent('Medium');
+    expect(row).toHaveTextContent('Средняя');
   });
 
   it('exposes a description button per row', () => {

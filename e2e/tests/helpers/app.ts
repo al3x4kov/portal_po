@@ -3,7 +3,7 @@ import { expect, type Locator, type Page, type TestInfo } from '@playwright/test
 
 export type LinkType = 'CHILD_OF' | 'PARENT_OF' | 'RELATES_TO' | 'DEPENDS_ON' | 'BLOCKED_BY';
 export type ReqKind = 'function' | 'nfr';
-export type Criticality = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+export type Criticality = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'BLOCKER';
 export type Quarter = 'Q1' | 'Q2' | 'Q3' | 'Q4';
 
 let counter = 0;
@@ -119,7 +119,19 @@ export async function addRequirement(page: Page, opts: RequirementOptions): Prom
     await page.getByTestId('req-year').fill(String(opts.year ?? 2027));
   }
 
-  if (opts.source) await page.getByTestId('req-source').fill(opts.source);
+  if (opts.source) {
+    // T4 (todo_17): «Источник» is now a select with presets + «Другой…» (custom input).
+    const presetValues = await page
+      .getByTestId('req-source')
+      .locator('option')
+      .evaluateAll((els) => els.map((el) => (el as HTMLOptionElement).value));
+    if (presetValues.includes(opts.source)) {
+      await page.getByTestId('req-source').selectOption(opts.source);
+    } else {
+      await page.getByTestId('req-source').selectOption('__custom__');
+      await page.getByTestId('req-source-custom').fill(opts.source);
+    }
+  }
 
   if (opts.description) await page.getByTestId('req-description').fill(opts.description);
 
@@ -147,7 +159,7 @@ export async function openEdit(page: Page, name: string): Promise<Locator> {
   return modal;
 }
 
-/** Edit an existing requirement's name, going through the save confirmation. */
+/** Edit an existing requirement's name. T4 (todo_17): save is level-0 friction — no confirm, success toast «Сохранено». */
 export async function renameRequirement(
   page: Page,
   oldName: string,
@@ -156,9 +168,6 @@ export async function renameRequirement(
   const modal = await openEdit(page, oldName);
   await page.getByTestId('req-name').fill(newName);
   await page.getByTestId('req-submit').click();
-  // Editing requires explicit confirmation (FR-6.5).
-  await expect(page.getByTestId('req-save-confirm')).toBeVisible();
-  await page.getByTestId('req-save-confirm-confirm').click();
   await expect(modal).toBeHidden();
   await expect(rowByName(page, newName)).toBeVisible();
 }
@@ -182,7 +191,8 @@ export async function linkRequirements(
   await rowByName(page, sourceName).locator('[data-testid^="link-btn-"]').click();
   const modal = page.getByTestId('link-modal');
   await expect(modal).toBeVisible();
-  await page.getByTestId('link-type').selectOption(type);
+  // T4 (todo_17): link type is a radio-card group (`link-type-<TYPE>`), not a select.
+  await page.getByTestId(`link-type-${type}`).check();
   await page.getByTestId('link-search').fill(targetName);
 
   const candidate = page

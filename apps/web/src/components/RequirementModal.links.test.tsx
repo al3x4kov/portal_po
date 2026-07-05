@@ -82,6 +82,8 @@ describe('RequirementModal — link sections & error branches (Task 12 · F-1)',
       />,
     );
 
+    // T4: links moved into the «Связи» tab.
+    await user.click(screen.getByTestId('req-tab-links'));
     const ftSection = screen.getByTestId('req-links-ft');
     const nfrSection = screen.getByTestId('req-links-nfr');
     // Counters reflect the split: 2 ФТ links (hierarchy + FT target), 1 НФТ.
@@ -131,6 +133,7 @@ describe('RequirementModal — link sections & error branches (Task 12 · F-1)',
       />,
     );
 
+    await user.click(screen.getByTestId('req-tab-links'));
     await user.click(screen.getByTestId('req-links-add-ft'));
     expect(onAddLink).toHaveBeenCalledWith('FUNCTION');
     await user.click(screen.getByTestId('req-links-add-nfr'));
@@ -171,6 +174,7 @@ describe('RequirementModal — link sections & error branches (Task 12 · F-1)',
       />,
     );
 
+    await user.click(screen.getByTestId('req-tab-links'));
     await user.click(screen.getByTestId('req-link-del-pci'));
     await user.click(screen.getByTestId('req-link-del-confirm'));
 
@@ -196,8 +200,8 @@ describe('RequirementModal — link sections & error branches (Task 12 · F-1)',
     await waitFor(() =>
       expect(screen.getByTestId('req-name-status')).toHaveAttribute('data-state', 'ok'),
     );
+    // T4 (уровень 0): сохранение без confirm — запрос уходит сразу.
     await user.click(screen.getByTestId('req-submit'));
-    await user.click(await screen.findByTestId('req-save-confirm-confirm'));
 
     expect(await screen.findByTestId('req-error')).toHaveTextContent('Файл изменён');
     expect(onClose).not.toHaveBeenCalled();
@@ -291,14 +295,16 @@ describe('RequirementModal — link sections & error branches (Task 12 · F-1)',
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('save confirmation can be dismissed: no update call, modal stays open', async () => {
+  it('T4 (уровень 0): saving an edit never opens a confirm dialog', async () => {
+    update.mockResolvedValueOnce({});
+    const onClose = vi.fn();
     const user = userEvent.setup();
     renderWithProviders(
       <RequirementModal
         projectId="p1"
         reqType="FUNCTION"
         requirement={makeReq({ slug: 'card', name: 'Оплата картой' })}
-        onClose={vi.fn()}
+        onClose={onClose}
       />,
     );
 
@@ -307,11 +313,11 @@ describe('RequirementModal — link sections & error branches (Task 12 · F-1)',
       expect(screen.getByTestId('req-name-status')).toHaveAttribute('data-state', 'ok'),
     );
     await user.click(screen.getByTestId('req-submit'));
-    await user.click(await screen.findByTestId('req-save-confirm-cancel'));
 
-    await waitFor(() => expect(screen.queryByTestId('req-save-confirm')).not.toBeInTheDocument());
-    expect(update).not.toHaveBeenCalled();
-    expect(screen.getByTestId('requirement-modal')).toBeInTheDocument();
+    // Routine save = friction level 0: no dialog, the request goes right away.
+    expect(screen.queryByTestId('req-save-confirm')).not.toBeInTheDocument();
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
   // ── FR-20 · infoItems handlers ─────────────────────────────────────────────
@@ -321,6 +327,8 @@ describe('RequirementModal — link sections & error branches (Task 12 · F-1)',
     const user = userEvent.setup();
     renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={onClose} />);
 
+    // T4: infoItems live in the «Справочно» tab.
+    await user.click(screen.getByTestId('req-tab-info'));
     await user.click(screen.getByTestId('info-add-btn'));
     // Apply is disabled until both «тип» and «значение» are filled.
     expect(screen.getByTestId('info-apply-btn')).toBeDisabled();
@@ -351,6 +359,7 @@ describe('RequirementModal — link sections & error branches (Task 12 · F-1)',
     const user = userEvent.setup();
     renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />);
 
+    await user.click(screen.getByTestId('req-tab-info'));
     await user.click(screen.getByTestId('info-add-btn'));
     await user.type(screen.getByTestId('info-type-input'), 'Автор');
     await user.click(screen.getByTestId('info-cancel-btn'));
@@ -377,6 +386,7 @@ describe('RequirementModal — link sections & error branches (Task 12 · F-1)',
       />,
     );
 
+    await user.click(screen.getByTestId('req-tab-info'));
     await user.click(screen.getByTestId('info-delete-0'));
     expect(screen.getByText('Удалить?')).toBeInTheDocument();
     await user.click(screen.getByTestId('info-delete-cancel-0'));

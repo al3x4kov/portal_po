@@ -126,7 +126,8 @@ export function useUpdateRequirement(projectId: string) {
     mutationFn: ({ slug, input }) => requirementsApi.update(projectId, slug, input),
     onSuccess: () => {
       invalidateRequirements(qc, projectId);
-      toast.show('Требование обновлено');
+      // Уровень 0 (§2.10-2): сохранение без confirm — подтверждение через toast.
+      toast.show('Сохранено');
     },
   });
 }

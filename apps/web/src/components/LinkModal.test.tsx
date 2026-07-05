@@ -55,17 +55,75 @@ describe('LinkModal (T-606, FR-8)', () => {
     expect(screen.getByTestId('link-submit')).toBeEnabled();
   });
 
-  it('shows the readable relationship sentence after picking a target', async () => {
+  it('T4: link types are radio cards in the mockup order, «Двусторонняя связь» is the default', () => {
+    renderWithProviders(
+      <LinkModal projectId="p1" source={source} requirements={requirements} onClose={vi.fn()} />,
+    );
+    const radios = screen
+      .getAllByRole('radio')
+      .map((r) => (r as HTMLInputElement).value) as string[];
+    expect(radios).toEqual(['RELATES_TO', 'CHILD_OF', 'PARENT_OF', 'DEPENDS_ON', 'BLOCKED_BY']);
+    // §2.11: the safe symmetric type is pre-selected, not CHILD_OF.
+    expect(screen.getByTestId('link-type-RELATES_TO')).toBeChecked();
+    expect(screen.getByText('Двусторонняя связь')).toBeInTheDocument();
+    expect(screen.getByText('Дочернее для цели')).toBeInTheDocument();
+  });
+
+  it('shows the readable relationship sentence with highlighted names after picking a target', async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <LinkModal projectId="p1" source={source} requirements={requirements} onClose={vi.fn()} />,
     );
     await user.type(screen.getByTestId('link-search'), 'Оплата');
     await user.click(screen.getByTestId('link-result-a1'));
-    const sentence = screen.getByTestId('link-sentence');
+
+    // Default RELATES_TO — symmetric sentence.
+    let sentence = screen.getByTestId('link-sentence');
     expect(sentence).toHaveTextContent('«Сохранение карты»');
-    expect(sentence).toHaveTextContent('является дочерней для');
+    expect(sentence).toHaveTextContent('будут связаны двусторонней связью');
     expect(sentence).toHaveTextContent('«Оплата картой»');
+
+    // CHILD_OF — the target becomes the parent (mockup wording).
+    await user.click(screen.getByTestId('link-type-CHILD_OF'));
+    sentence = screen.getByTestId('link-sentence');
+    expect(sentence).toHaveTextContent('«Оплата картой» станет родителем «Сохранение карты»');
+  });
+
+  it('T4: the search field stays a search field; the chosen target is a chip with a reset ✕', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <LinkModal projectId="p1" source={source} requirements={requirements} onClose={vi.fn()} />,
+    );
+    await user.type(screen.getByTestId('link-search'), 'Оплата');
+    await user.click(screen.getByTestId('link-result-a1'));
+
+    // The input keeps the typed query — it is not overwritten by the selection.
+    expect(screen.getByTestId('link-search')).toHaveValue('Оплата');
+    expect(screen.getByTestId('link-target-chip')).toHaveTextContent('Цель: «Оплата картой»');
+
+    // Reset clears the selection and disables submit again.
+    await user.click(screen.getByTestId('link-target-reset'));
+    expect(screen.queryByTestId('link-target-chip')).not.toBeInTheDocument();
+    expect(screen.getByTestId('link-submit')).toBeDisabled();
+  });
+
+  it('T4: shows «первые 25 из N» when the result list is truncated', async () => {
+    const user = userEvent.setup();
+    const many = [
+      source,
+      ...Array.from({ length: 30 }, (_, i) =>
+        makeReq({ slug: `m${i}`, name: `Массовое требование ${i}` }),
+      ),
+    ];
+    renderWithProviders(
+      <LinkModal projectId="p1" source={source} requirements={many} onClose={vi.fn()} />,
+    );
+    expect(screen.getByTestId('link-results-more')).toHaveTextContent(
+      'Показаны первые 25 из 30 — уточните запрос',
+    );
+    // Narrowing the query removes the truncation notice.
+    await user.type(screen.getByTestId('link-search'), 'Массовое требование 1');
+    expect(screen.queryByTestId('link-results-more')).not.toBeInTheDocument();
   });
 
   it('displays an integrity error returned by the API', async () => {
@@ -90,7 +148,7 @@ describe('LinkModal (T-606, FR-8)', () => {
     renderWithProviders(
       <LinkModal projectId="p1" source={fn} requirements={[fn, nfr]} onClose={vi.fn()} />,
     );
-    // default type is CHILD_OF
+    await user.click(screen.getByTestId('link-type-CHILD_OF'));
     await user.type(screen.getByTestId('link-search'), 'НФТ');
     const target = screen.getByTestId('link-result-nfr');
     expect(target).toBeDisabled();
@@ -112,6 +170,7 @@ describe('LinkModal (T-606, FR-8)', () => {
     renderWithProviders(
       <LinkModal projectId="p1" source={parent} requirements={[parent, child]} onClose={vi.fn()} />,
     );
+    await user.click(screen.getByTestId('link-type-CHILD_OF'));
     await user.type(screen.getByTestId('link-search'), 'Дочерний');
     expect(screen.getByTestId('link-result-c')).toBeDisabled();
     expect(screen.getByTestId('link-result-reason-c')).toHaveTextContent(/цикл/i);
@@ -133,6 +192,7 @@ describe('LinkModal (T-606, FR-8)', () => {
     renderWithProviders(
       <LinkModal projectId="p1" source={c} requirements={[p1, c, p2]} onClose={vi.fn()} />,
     );
+    await user.click(screen.getByTestId('link-type-CHILD_OF'));
     await user.type(screen.getByTestId('link-search'), 'Второй');
     expect(screen.getByTestId('link-result-p2')).toBeDisabled();
     expect(screen.getByTestId('link-result-reason-p2')).toHaveTextContent(/родител/i);
@@ -145,7 +205,7 @@ describe('LinkModal (T-606, FR-8)', () => {
     renderWithProviders(
       <LinkModal projectId="p1" source={fn} requirements={[fn, nfr]} onClose={vi.fn()} />,
     );
-    await user.selectOptions(screen.getByTestId('link-type'), 'RELATES_TO');
+    await user.click(screen.getByTestId('link-type-RELATES_TO'));
     await user.type(screen.getByTestId('link-search'), 'НФТ');
     const target = screen.getByTestId('link-result-nfr');
     expect(target).not.toBeDisabled();

@@ -1,8 +1,17 @@
 import type { Criticality } from '@po/core';
 
-// Display labels live in core (BE-3) so the UI and the Excel export share one
-// source of truth; re-exported here for existing web imports.
-export { CRITICALITY_LABEL } from '@po/core';
+/**
+ * Russian display labels for the web UI (T4 / new_design: «все тексты UI на
+ * русском», русские бейджи критичности в модалках и дереве). The English
+ * labels in core (`CRITICALITY_LABEL`) stay untouched for the Excel export.
+ */
+export const CRITICALITY_LABEL: Record<Criticality, string> = {
+  LOW: 'Низкая',
+  MEDIUM: 'Средняя',
+  HIGH: 'Высокая',
+  CRITICAL: 'Критическая',
+  BLOCKER: 'Блокер',
+};
 
 /** CSS custom property holding the dot color for each criticality level. */
 export const CRITICALITY_COLOR_VAR: Record<Criticality, string> = {

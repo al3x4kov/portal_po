@@ -255,7 +255,7 @@ describe('RequirementPickerModal', () => {
       expect(onConfirm).toHaveBeenCalledWith(new Set(['f1', 'f2']));
     });
 
-    it('toggle-all flips between «Выбрать все» and «Снять выделение»', async () => {
+    it('T4: «Выбрать все» и «Снять выделение» — две отдельные кнопки (picker-modal mockup)', async () => {
       const user = userEvent.setup();
       renderWithProviders(
         <RequirementPickerModal
@@ -265,14 +265,69 @@ describe('RequirementPickerModal', () => {
           onConfirm={vi.fn()}
         />,
       );
-      const toggle = screen.getByTestId('export-toggle-all');
-      // All selected by default → the button offers to deselect.
-      expect(toggle).toHaveTextContent('Снять выделение');
-      await user.click(toggle);
-      expect(toggle).toHaveTextContent('Выбрать все');
+      const selectAll = screen.getByTestId('export-toggle-all');
+      const deselectAll = screen.getByTestId('export-untoggle-all');
+      expect(selectAll).toHaveTextContent('Выбрать все');
+      expect(deselectAll).toHaveTextContent('Снять выделение');
+      // All selected by default → «Выбрать все» is redundant and disabled.
+      expect(selectAll).toBeDisabled();
+
+      await user.click(deselectAll);
       expect(screen.getByTestId('export-next')).toBeDisabled();
-      await user.click(toggle);
+      expect(screen.getByTestId('picker-counter')).toHaveTextContent('Выбрано 0');
+
+      await user.click(selectAll);
       expect(screen.getByTestId('export-next')).toBeEnabled();
+      expect(screen.getByTestId('picker-counter')).toHaveTextContent('Выбрано 2');
+    });
+
+    it('T4: поиск по имени фильтрует список; счётчик показывает «(из них видно…)» и hint о невидимых выбранных', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <RequirementPickerModal
+          title="Выбор требований"
+          requirements={requirements}
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+
+      // Everything selected; the search hides «Возвраты» but keeps it selected.
+      await user.type(screen.getByTestId('picker-search'), 'Оплата');
+      expect(screen.getByTestId('export-item-f1')).toBeInTheDocument();
+      expect(screen.queryByTestId('export-item-f2')).not.toBeInTheDocument();
+
+      // §2.12.1: two-part counter + warning that hidden rows stay selected.
+      expect(screen.getByTestId('picker-counter')).toHaveTextContent('Выбрано 2 (из них видно 1)');
+      expect(screen.getByTestId('picker-hidden-hint')).toHaveTextContent(
+        'Невидимые из-за фильтра требования остаются выбранными — в экспорт попадут все 2.',
+      );
+      // Footer names how many rows the filters hid.
+      expect(screen.getByTestId('picker-hidden-count')).toHaveTextContent(
+        '1 требование скрыто фильтрами',
+      );
+
+      // «Сбросить» clears the filters and the hint disappears.
+      await user.click(screen.getByTestId('picker-filters-reset'));
+      expect(screen.getByTestId('export-item-f2')).toBeInTheDocument();
+      expect(screen.queryByTestId('picker-hidden-hint')).not.toBeInTheDocument();
+      expect(screen.getByTestId('picker-counter')).toHaveTextContent('Выбрано 2');
+    });
+
+    it('T4: критичность в строках — русский бейдж, не сырой enum', () => {
+      renderWithProviders(
+        <RequirementPickerModal
+          title="Выбор требований"
+          requirements={[
+            makeReq({ slug: 'f1', name: 'Оплата', type: 'FUNCTION', criticality: 'CRITICAL' }),
+          ]}
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+        />,
+      );
+      const row = screen.getByTestId('export-item-f1');
+      expect(row).toHaveTextContent('Критическая');
+      expect(row).not.toHaveTextContent('CRITICAL');
     });
 
     it('renders the ФТ hierarchy with tree markers («▾» for parents, «•» for leaves)', () => {

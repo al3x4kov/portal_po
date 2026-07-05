@@ -167,7 +167,9 @@ test.describe('Task 8 · AI Hub', () => {
       fullPage: true,
     });
 
-    await page.getByTestId('ai-gen-apply').click();
+    // T4 (todo_17): «Дополнить» (ai-gen-append) appends; «Заменить описание»
+    // (ai-gen-apply) would replace the text wholesale.
+    await page.getByTestId('ai-gen-append').click();
 
     // Applied = appended after the original, on a new line — original preserved.
     await expect(page.getByTestId('req-description')).toHaveValue(`${initial}\n${STUB_DESC}`);

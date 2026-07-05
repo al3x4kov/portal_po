@@ -137,7 +137,9 @@ test.describe('T-1502 · E15 PO UX', () => {
 
     // T2: в карточке источника A виден блок «Связи с ФТ» (RELATES_TO к другому ФТ → FT-секция).
     // Wave 1-2: секции разделены на req-links-ft и req-links-nfr.
+    // T4 (todo_17): связи теперь за табом «Связи» (req-tab-links).
     let modal = await openEdit(page, a);
+    await page.getByTestId('req-tab-links').click();
     await expect(page.getByTestId('req-links-ft')).toBeVisible();
     const linkToB = page.getByTestId(`req-link-${bSlug}`);
     await expect(linkToB).toBeVisible();
@@ -160,12 +162,14 @@ test.describe('T-1502 · E15 PO UX', () => {
     await page.getByTestId('requirement-modal-close').click();
     await expect(modal).toBeHidden();
     modal = await openEdit(page, a);
+    await page.getByTestId('req-tab-links').click();
     await expect(page.getByTestId('req-links-ft-empty')).toBeVisible();
     await page.getByTestId('requirement-modal-close').click();
     await expect(modal).toBeHidden();
 
     // Реципрокная связь у цели B тоже исчезла (RELATES_TO реципрокна, target A = ФТ → FT-секция).
     modal = await openEdit(page, b);
+    await page.getByTestId('req-tab-links').click();
     await expect(page.getByTestId(`req-link-${aSlug}`)).toBeHidden();
     await expect(page.getByTestId('req-links-ft-empty')).toBeVisible();
     await page.getByTestId('requirement-modal-close').click();
@@ -173,6 +177,7 @@ test.describe('T-1502 · E15 PO UX', () => {
 
     // Требование без связей C — явные пустые состояния обеих секций.
     await openEdit(page, c);
+    await page.getByTestId('req-tab-links').click();
     await expect(page.getByTestId('req-links-ft-empty')).toBeVisible();
     await expect(page.getByTestId('req-links-nfr-empty')).toBeVisible();
   });
@@ -220,6 +225,7 @@ test.describe('T-1502 · E15 PO UX', () => {
 
     // Та же реципрокная DEPENDS_ON видна и в карточке НФТ (блок «Связи», T2).
     await openEdit(page, nfr);
+    await page.getByTestId('req-tab-links').click();
     const linkBack = page.getByTestId(`req-link-${ftSlug}`);
     await expect(linkBack).toBeVisible();
     await expect(linkBack).toHaveAttribute('data-link-type', 'DEPENDS_ON');
@@ -228,6 +234,7 @@ test.describe('T-1502 · E15 PO UX', () => {
 
     // И BLOCKED_BY — в карточке ФТ.
     await openEdit(page, ft);
+    await page.getByTestId('req-tab-links').click();
     const linkFwd = page.getByTestId(`req-link-${nfrSlug}`);
     await expect(linkFwd).toBeVisible();
     await expect(linkFwd).toHaveAttribute('data-link-type', 'BLOCKED_BY');

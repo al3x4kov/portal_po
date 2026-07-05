@@ -61,7 +61,7 @@ describe('RequirementModal — AI generation (T-803)', () => {
     expect(screen.getByTestId('ai-gen-setup-link')).toHaveAttribute('href', '/p/p1/ai');
   });
 
-  it('generates a preview and applies it appended on a new line', async () => {
+  it('T4: «Дополнить» appends the preview to the description on a new line', async () => {
     getConfig.mockResolvedValue(CONFIG_READY);
     generateDescription.mockResolvedValue({ description: 'Сгенерированный текст описания.' });
     const user = userEvent.setup();
@@ -86,7 +86,7 @@ describe('RequirementModal — AI generation (T-803)', () => {
       }),
     );
 
-    await user.click(screen.getByTestId('ai-gen-apply'));
+    await user.click(screen.getByTestId('ai-gen-append'));
 
     // Append with a newline, not overwrite.
     expect(screen.getByTestId('req-description')).toHaveValue(
@@ -94,6 +94,22 @@ describe('RequirementModal — AI generation (T-803)', () => {
     );
     // Panel collapses back after apply.
     expect(screen.queryByTestId('ai-gen-preview')).not.toBeInTheDocument();
+  });
+
+  it('T4: «Заменить описание» overwrites the current description', async () => {
+    getConfig.mockResolvedValue(CONFIG_READY);
+    generateDescription.mockResolvedValue({ description: 'Новый текст.' });
+    const user = userEvent.setup();
+    renderModal();
+
+    await user.type(screen.getByTestId('req-name'), 'Требование');
+    await user.type(screen.getByTestId('req-description'), 'Старый текст.');
+    await user.click(await screen.findByTestId('ai-gen-open'));
+    await user.click(screen.getByTestId('ai-gen-submit'));
+    await screen.findByTestId('ai-gen-preview');
+    await user.click(screen.getByTestId('ai-gen-apply'));
+
+    expect(screen.getByTestId('req-description')).toHaveValue('Новый текст.');
   });
 
   it('uses the generated text as-is when the description was empty', async () => {

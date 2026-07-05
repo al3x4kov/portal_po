@@ -41,9 +41,8 @@ test.describe('QA-5 · stale data (edited/deleted by another session)', () => {
     // Now try to save an edit: the stale PUT must fail loudly (NotFound), the
     // modal stays open with a visible error — no silent success.
     await page.getByTestId('req-name').fill(uniqueName('F-stale-renamed'));
+    // T4 (todo_17): save is level-0 friction — the PUT fires immediately, no confirm.
     await page.getByTestId('req-submit').click();
-    await expect(page.getByTestId('req-save-confirm')).toBeVisible();
-    await page.getByTestId('req-save-confirm-confirm').click();
 
     await expect(page.getByTestId('req-error')).toBeVisible();
     await expect(page.getByTestId('requirement-modal')).toBeVisible();

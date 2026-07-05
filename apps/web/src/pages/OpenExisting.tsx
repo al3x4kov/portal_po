@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FolderOpen, Search, Trash2, TriangleAlert } from 'lucide-react';
 import { AuxLayout } from '../components/AuxLayout';
-import { BusyButton } from '../components/BusyButton';
-import { useFocusTrap } from '../hooks/useFocusTrap';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useDeleteProject, useProjects } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import { forgetRecentProject, rememberRecentProject } from '../lib/recentProjects';
@@ -13,9 +12,11 @@ import type { ProjectSummary } from '../api/types';
 const FILTER_THRESHOLD = 8;
 
 /**
- * §2.4-1: deleting a project is confirmed by typing its exact name (friction
- * level 2) — the danger button stays disabled until the input matches.
+ * §2.4-1: deleting a project is confirmed by typing its exact name — the
+ * shared friction-level-2 mode of ConfirmDialog (`typeToConfirm`).
  * §2.4-4: a failed DELETE shows the error INSIDE the dialog and keeps it open.
+ * Texts and data-testid (delete-confirm-input, delete-error, …) are an e2e
+ * contract — keep them stable.
  */
 function DeleteProjectDialog({
   project,
@@ -30,107 +31,28 @@ function DeleteProjectDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }): React.ReactElement {
-  const [confirmName, setConfirmName] = useState('');
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  // The destructive button is guarded by the name check, so the input is the
-  // safe initial focus target.
-  useFocusTrap(dialogRef, { initialFocus: inputRef });
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
-
-  const match = confirmName.trim() === project.name;
-
   return (
-    <div
-      className="fixed inset-0 z-[60] grid place-items-center p-4"
-      style={{ background: 'rgba(15,23,42,.5)' }}
-      data-testid="project-delete-dialog-overlay"
-    >
-      <div
-        ref={dialogRef}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="delete-project-title"
-        className="card w-full max-w-md p-5"
-        data-testid="project-delete-dialog"
-      >
-        <div className="flex items-start gap-3">
-          <span
-            className="grid h-9 w-9 flex-none place-items-center rounded-full"
-            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}
-            aria-hidden="true"
-          >
-            <TriangleAlert className="icon-sm" />
-          </span>
-          <div className="min-w-0">
-            <h2 id="delete-project-title" className="font-bold">
-              Удалить проект «{project.name}»?
-            </h2>
-            <p className="t2 mt-1 text-sm" data-testid="project-delete-dialog-message">
-              Папка проекта и все .md-файлы требований будут удалены с диска безвозвратно.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <label className="label" htmlFor="delete-confirm-name">
-            Введите имя проекта для подтверждения
-          </label>
-          <input
-            id="delete-confirm-name"
-            ref={inputRef}
-            className="input"
-            placeholder={project.name}
-            autoComplete="off"
-            data-testid="delete-confirm-input"
-            value={confirmName}
-            onChange={(e) => setConfirmName(e.target.value)}
-            disabled={busy}
-          />
-        </div>
-
-        {error ? (
-          <div
-            className="mt-3 flex items-start gap-2 rounded-lg px-3 py-2.5 text-sm"
-            role="alert"
-            style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
-            data-testid="delete-error"
-          >
-            <TriangleAlert className="icon-sm mt-0.5 flex-none" aria-hidden="true" />
-            <span>{error}</span>
-          </div>
-        ) : null}
-
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            className="btn btn-secondary"
-            data-testid="project-delete-dialog-cancel"
-            onClick={onCancel}
-          >
-            Отменить
-          </button>
-          <BusyButton
-            className="btn btn-danger"
-            busy={busy}
-            busyLabel="Удаляем…"
-            data-testid="project-delete-dialog-confirm"
-            disabled={!match}
-            onClick={onConfirm}
-          >
-            {error ? 'Повторить удаление' : 'Удалить проект'}
-          </BusyButton>
-        </div>
-        <p className="hint mt-2 text-right">Кнопка активируется при точном совпадении имени</p>
-      </div>
-    </div>
+    <ConfirmDialog
+      testid="project-delete-dialog"
+      danger
+      icon={<TriangleAlert className="icon-sm" aria-hidden="true" />}
+      title={`Удалить проект «${project.name}»?`}
+      message="Папка проекта и все .md-файлы требований будут удалены с диска безвозвратно."
+      typeToConfirm={{
+        expected: project.name,
+        label: 'Введите имя проекта для подтверждения',
+        placeholder: project.name,
+        inputTestid: 'delete-confirm-input',
+        hint: 'Кнопка активируется при точном совпадении имени',
+      }}
+      error={error}
+      errorTestid="delete-error"
+      busy={busy}
+      busyLabel="Удаляем…"
+      confirmLabel={error ? 'Повторить удаление' : 'Удалить проект'}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    />
   );
 }
 

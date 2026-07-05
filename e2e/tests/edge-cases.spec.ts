@@ -155,7 +155,10 @@ test.describe('T-702 edge cases', () => {
     await parentRow.hover();
     await parentRow.locator('[data-testid^="delete-btn-"]').click();
     await expect(page.getByTestId('delete-dialog')).toBeVisible();
-    await expect(page.getByTestId('delete-dialog-note')).toContainText('нет дочерних');
+    // T4 (todo_17): текст заметки по макету confirm-dialog.html.
+    await expect(page.getByTestId('delete-dialog-note')).toContainText(
+      'Вложенных требований нет — удаление безопасно',
+    );
     await page.getByTestId('delete-dialog-confirm').click();
     await expect(page.getByTestId('delete-dialog')).toBeHidden();
     await expect(rowByName(page, parent)).toBeHidden();

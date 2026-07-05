@@ -12,8 +12,12 @@ interface AiGenerationPanelProps {
   currentDescription: string;
   projectName?: string;
   projectDescription?: string;
-  /** Called with the generated text; the parent decides how to merge (append). */
-  onApply: (generated: string) => void;
+  /**
+   * Called with the generated text and the chosen merge mode (§2.10: two
+   * explicit buttons instead of a silent overwrite): 'replace' substitutes the
+   * current description, 'append' adds the text to its end.
+   */
+  onApply: (generated: string, mode: 'replace' | 'append') => void;
 }
 
 /**
@@ -159,7 +163,7 @@ export function AiGenerationPanel({
           >
             {preview}
           </div>
-          <div className="mt-2 flex justify-end gap-2">
+          <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               className="btn btn-secondary text-xs"
@@ -178,16 +182,30 @@ export function AiGenerationPanel({
             </button>
             <button
               type="button"
-              className="btn btn-primary text-xs"
-              data-testid="ai-gen-apply"
+              className="btn btn-secondary text-xs"
+              data-testid="ai-gen-append"
               onClick={() => {
-                onApply(preview);
+                onApply(preview, 'append');
                 reset();
               }}
             >
-              Применить
+              Дополнить
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary text-xs"
+              data-testid="ai-gen-apply"
+              onClick={() => {
+                onApply(preview, 'replace');
+                reset();
+              }}
+            >
+              Заменить описание
             </button>
           </div>
+          <p className="hint mt-1.5 text-right">
+            «Дополнить» добавит текст в конец текущего описания
+          </p>
         </div>
       ) : (
         // ── State 2: hint input ─────────────────────────────────────────────

@@ -1,4 +1,14 @@
 import { useState, useMemo } from 'react';
+import {
+  ArrowLeft,
+  BookOpen,
+  Check,
+  Download,
+  Flame,
+  ListTodo,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
 import type { Requirement } from '@po/core';
 import { Modal } from './Modal';
 import { RequirementPickerModal } from './RequirementPickerModal';
@@ -12,28 +22,98 @@ interface ExportTasksModalProps {
 type Direction = 'tracker' | 'smoke' | 'crit-regression' | 'full';
 type Step = 'choose' | 'select' | 'unimpl-question' | 'preview';
 
-const DIRECTION_INFO: Record<Direction, { title: string; icon: string; description: string }> = {
+const DIRECTION_INFO: Record<
+  Direction,
+  { title: string; icon: LucideIcon; iconColor: string; description: string }
+> = {
   tracker: {
     title: 'Задачи в TaskTracker',
-    icon: '📋',
+    icon: ListTodo,
+    iconColor: 'var(--color-primary)',
     description: 'Выбранные требования как задачи в формате OpenSpec Markdown',
   },
   smoke: {
     title: 'Smoke-модель тестирования',
-    icon: '🔥',
-    description: 'Тест-кейсы для быстрой проверки ключевых функций (BLOCKER/CRITICAL/HIGH + корни)',
+    icon: Flame,
+    iconColor: 'var(--crit-high)',
+    description:
+      'Тест-кейсы быстрой проверки ключевых функций (Блокер/Критическая/Высокая + корни дерева)',
   },
   'crit-regression': {
-    title: 'Крит. регресс-модель',
-    icon: '⚡',
-    description: 'Тест-кейсы для Blocker/Critical ФТ с негативными сценариями',
+    title: 'Критическая регресс-модель',
+    icon: Zap,
+    iconColor: 'var(--crit-critical)',
+    description: 'Тест-кейсы для ФТ уровня Блокер/Критическая с негативными сценариями',
   },
   full: {
     title: 'Полная модель тестирования',
-    icon: '📚',
+    icon: BookOpen,
+    iconColor: 'var(--color-accent)',
     description: 'Тест-кейсы для всех ФТ, порядок по BFS-обходу дерева',
   },
 };
+
+/** §2.15.1 · step indicator «1 Направление → 2 Выбор → 3 Предпросмотр». */
+function StepIndicator({ current }: { current: 1 | 2 | 3 }): React.ReactElement {
+  const steps = [
+    { n: 1 as const, label: 'Направление' },
+    { n: 2 as const, label: 'Выбор' },
+    { n: 3 as const, label: 'Предпросмотр' },
+  ];
+  return (
+    <ol
+      className="flex items-center gap-2 text-sm"
+      aria-label="Шаги генерации"
+      data-testid="gen-steps"
+    >
+      {steps.flatMap((s, i) => {
+        const done = s.n < current;
+        const active = s.n === current;
+        const items: React.ReactElement[] = [];
+        if (i > 0) {
+          items.push(
+            <li
+              key={`sep-${s.n}`}
+              className="w-6 border-t sm:w-8"
+              style={{ borderColor: 'var(--color-border)' }}
+              aria-hidden="true"
+            />,
+          );
+        }
+        items.push(
+          <li
+            key={s.n}
+            className="flex items-center gap-2"
+            aria-current={active ? 'step' : undefined}
+            data-testid={`gen-step-${s.n}`}
+            data-state={done ? 'done' : active ? 'active' : 'todo'}
+          >
+            <span
+              className="grid h-6 w-6 flex-none place-items-center rounded-full text-xs font-bold"
+              style={
+                done
+                  ? { background: 'var(--color-success-bg)', color: 'var(--color-success-fg)' }
+                  : active
+                    ? { background: 'var(--color-primary)', color: '#fff' }
+                    : { background: 'var(--color-surface-2)', color: 'var(--color-text-3)' }
+              }
+              aria-label={done ? `Шаг ${s.n} пройден` : undefined}
+            >
+              {done ? <Check className="h-3 w-3" strokeWidth={3} aria-hidden="true" /> : s.n}
+            </span>
+            <span
+              className={active ? 'font-medium' : 'hidden sm:inline'}
+              style={active ? undefined : { color: 'var(--color-text-3)' }}
+            >
+              {s.label}
+            </span>
+          </li>,
+        );
+        return items;
+      })}
+    </ol>
+  );
+}
 
 // ─── MD generators ─────────────────────────────────────────────────────────
 
@@ -303,6 +383,12 @@ export function ExportTasksModal({
     [requirements],
   );
 
+  // T-532: how many unimplemented FTs the covering question is about.
+  const unimplCount = useMemo(
+    () => requirements.filter((r) => r.type === 'FUNCTION' && !r.implemented).length,
+    [requirements],
+  );
+
   function handleDirection(dir: Direction): void {
     setDirection(dir);
     if (dir === 'tracker') {
@@ -363,15 +449,31 @@ export function ExportTasksModal({
     setStep('preview');
   }
 
+  // §2.15.1: «Назад» from the preview returns to the PREVIOUS step, not always
+  // to the direction choice.
+  function goBackFromPreview(): void {
+    setPreviewMd(null);
+    if (direction === 'tracker') {
+      setStep('select');
+      setShowSelectModal(true);
+    } else if (direction === 'crit-regression' && unimplCount > 0) {
+      setStep('unimpl-question');
+    } else {
+      setStep('choose');
+      setDirection(null);
+    }
+  }
+
   if (showSelectModal && direction === 'tracker') {
     return (
       <RequirementPickerModal
-        title="Выбор ФТ/НФТ для TaskTracker"
+        title="Выбор требований для экспорта"
         requirements={requirements}
         modalTestid="tracker-select-modal"
         confirmLabel="Предпросмотр"
         onClose={() => {
           setShowSelectModal(false);
+          setStep('choose');
           setDirection(null);
         }}
         onConfirm={handleTrackerSelected}
@@ -379,93 +481,106 @@ export function ExportTasksModal({
     );
   }
 
+  const filename = `${direction ?? 'export'}-${new Date().toISOString().slice(0, 10)}.md`;
+
+  const backButton = (testid: string): React.ReactElement => (
+    <button
+      type="button"
+      className="btn btn-secondary"
+      data-testid={testid}
+      onClick={
+        step === 'preview'
+          ? goBackFromPreview
+          : () => {
+              setStep('choose');
+              setDirection(null);
+            }
+      }
+    >
+      <ArrowLeft className="icon-sm" aria-hidden="true" />
+      Назад
+    </button>
+  );
+
   const footer =
     step === 'choose' ? (
       <button type="button" className="btn btn-secondary" onClick={onClose}>
         Закрыть
       </button>
     ) : step === 'unimpl-question' ? (
-      <button
-        type="button"
-        className="btn btn-secondary"
-        onClick={() => {
-          setStep('choose');
-          setDirection(null);
-        }}
-      >
-        ← Назад
-      </button>
+      <div className="mr-auto">{backButton('gen-back-1')}</div>
     ) : (
       <>
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={() => {
-            setStep('choose');
-            setDirection(null);
-            setPreviewMd(null);
-          }}
-        >
-          ← Назад
-        </button>
+        <div className="mr-auto">{backButton('gen-back-2')}</div>
         <button
           type="button"
           className="btn btn-primary"
           data-testid="export-tasks-download"
           onClick={() => {
-            if (previewMd) {
-              const slug = direction ?? 'export';
-              downloadMd(previewMd, `${slug}-${new Date().toISOString().slice(0, 10)}.md`);
-            }
+            if (previewMd) downloadMd(previewMd, filename);
           }}
         >
-          Скачать MD
+          <Download className="icon-sm" aria-hidden="true" />
+          Скачать .md
         </button>
       </>
     );
 
+  const currentStepNo: 1 | 2 | 3 = step === 'choose' ? 1 : step === 'preview' ? 3 : 2;
+
   return (
     <Modal
-      title="Экспорт задач"
+      title="Генерация артефактов"
       onClose={onClose}
       widthClass={step === 'preview' ? 'max-w-4xl' : 'max-w-lg'}
       testid="export-tasks-modal"
       footer={footer}
     >
+      <StepIndicator current={currentStepNo} />
+
       {step === 'choose' ? (
         <div className="space-y-4">
           <p className="text-sm" style={{ color: 'var(--color-text-2)' }}>
-            Выберите тип экспорта:
+            Что сгенерировать из требований проекта?
           </p>
-          {(Object.keys(DIRECTION_INFO) as Direction[]).map((dir) => {
-            const info = DIRECTION_INFO[dir];
-            return (
-              <button
-                key={dir}
-                type="button"
-                className="flex w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors hover:border-[var(--color-primary)]"
-                style={{ borderColor: 'var(--color-border)' }}
-                data-testid={`export-tasks-dir-${dir}`}
-                onClick={() => handleDirection(dir)}
-              >
-                <span className="text-2xl" aria-hidden="true">
-                  {info.icon}
-                </span>
-                <div>
-                  <p className="font-semibold">{info.title}</p>
-                  <p className="mt-0.5 text-sm" style={{ color: 'var(--color-text-3)' }}>
-                    {info.description}
-                  </p>
-                </div>
-              </button>
-            );
-          })}
+          <div className="space-y-2.5">
+            {(Object.keys(DIRECTION_INFO) as Direction[]).map((dir) => {
+              const info = DIRECTION_INFO[dir];
+              const Icon = info.icon;
+              return (
+                <button
+                  key={dir}
+                  type="button"
+                  className="flex w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors hover:border-[var(--color-primary)] hover:bg-[var(--color-primary-soft)]"
+                  style={{ borderColor: 'var(--color-border)' }}
+                  data-testid={`export-tasks-dir-${dir}`}
+                  onClick={() => handleDirection(dir)}
+                >
+                  <Icon
+                    className="icon mt-0.5"
+                    style={{ color: info.iconColor }}
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">{info.title}</span>
+                    <span className="mt-0.5 block text-xs" style={{ color: 'var(--color-text-3)' }}>
+                      {info.description}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : step === 'unimpl-question' ? (
         /* T-532: ask about including unimplemented FTs in crit-regression */
         <div className="space-y-4" data-testid="unimpl-question">
           <p className="text-sm" style={{ color: 'var(--color-text-2)' }}>
-            В проекте есть <strong>нереализованные ФТ</strong>. Включить их в модель тестирования?
+            Направление: <strong>{direction ? DIRECTION_INFO[direction].title : ''}</strong>.
+          </p>
+          <p className="text-sm" style={{ color: 'var(--color-text-2)' }}>
+            Нереализованных ФТ в проекте: <strong>{unimplCount}</strong>. Включить их в модель
+            тестирования?
           </p>
           <div className="flex flex-col gap-2">
             <button
@@ -489,14 +604,18 @@ export function ExportTasksModal({
       ) : (
         /* Preview */
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="font-semibold">{previewTitle}</p>
-            <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
-              Предпросмотр MD-файла
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold">{previewTitle}</p>
+            <span
+              className="text-xs"
+              style={{ color: 'var(--color-text-3)' }}
+              data-testid="export-tasks-filename"
+            >
+              {filename}
             </span>
           </div>
           <div
-            className="max-h-[55vh] overflow-y-auto rounded-lg border p-4 font-mono text-xs leading-relaxed"
+            className="max-h-[50vh] overflow-y-auto rounded-lg border p-4 font-mono text-xs leading-relaxed"
             style={{
               borderColor: 'var(--color-border)',
               background: 'var(--color-surface-2)',

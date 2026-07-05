@@ -497,27 +497,45 @@ export function Main(): React.ReactElement {
           ? (() => {
               const req = modal.requirement;
               const children = childCountOf(req);
-              const note =
-                children > 0
-                  ? {
-                      tone: 'danger' as const,
-                      text: `У требования есть ${children} дочерних элемент(ов). Сначала удалите или перепривяжите их.`,
-                    }
-                  : {
-                      tone: 'warning' as const,
-                      text: 'У требования нет дочерних элементов — удаление безопасно.',
-                    };
+              // §2.13-2: name the blocking children right at the disabled button.
+              const childNames = req.links
+                .filter((l) => l.type === 'PARENT_OF')
+                .map((l) => nameBySlug.get(l.targetSlug) ?? l.targetSlug)
+                .slice(0, 3)
+                .map((n) => `«${n}»`)
+                .join(', ');
               return (
                 <ConfirmDialog
                   testid="delete-dialog"
                   danger
-                  title="Точно удалить требование?"
-                  message={`«${req.name}» будет удалено безвозвратно. Все связи с другими требованиями также будут удалены.`}
-                  note={note}
+                  icon={
+                    children > 0 ? (
+                      <TriangleAlert className="icon-sm" aria-hidden="true" />
+                    ) : undefined
+                  }
+                  iconTone={children > 0 ? 'warning' : 'danger'}
+                  title="Удалить требование?"
+                  message={
+                    children > 0
+                      ? `«${req.name}» содержит вложенные требования.`
+                      : `«${req.name}» будет удалено, связи с другими требованиями — очищены. Действие необратимо.`
+                  }
+                  note={
+                    children > 0
+                      ? undefined
+                      : {
+                          tone: 'success',
+                          text: 'Вложенных требований нет — удаление безопасно.',
+                        }
+                  }
                   error={deleteError}
                   confirmLabel="Удалить"
+                  busyLabel="Удаляем…"
                   busy={deleteMut.isPending}
                   confirmDisabled={children > 0}
+                  confirmDisabledReason={
+                    children > 0 ? `Сначала удалите дочерние: ${childNames}` : undefined
+                  }
                   onCancel={closeModal}
                   onConfirm={async () => {
                     setDeleteError(null);

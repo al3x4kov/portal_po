@@ -93,7 +93,7 @@ describe('RequirementModal (T-1106, FR-6)', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('asks for confirmation before saving an edit (FR-6.5)', async () => {
+  it('T4 (уровень 0): saves an edit WITHOUT confirmation and shows the «Сохранено» toast', async () => {
     update.mockResolvedValueOnce({});
     const onClose = vi.fn();
     const user = userEvent.setup();
@@ -123,11 +123,12 @@ describe('RequirementModal (T-1106, FR-6)', () => {
     );
     await user.click(screen.getByTestId('req-submit'));
 
-    expect(await screen.findByTestId('req-save-confirm')).toBeInTheDocument();
-    await user.click(screen.getByTestId('req-save-confirm-confirm'));
-
+    // No confirm dialog — the save happens right away…
+    expect(screen.queryByTestId('req-save-confirm')).not.toBeInTheDocument();
     await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+    // …and success is acknowledged by a toast instead of a dialog.
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Сохранено');
   });
 
   // ── T2 · links block in edit mode ───────────────────────────────────────────
@@ -153,6 +154,8 @@ describe('RequirementModal (T-1106, FR-6)', () => {
         onClose={vi.fn()}
       />,
     );
+    // T4: links live in the «Связи» tab; the tab shows the total count chip.
+    expect(screen.getByTestId('req-tab-links')).toHaveTextContent('Связи');
     // T-517: links section is split into FT and NFR; without requirementsBySlug all non-hierarchy
     // links fall back to the FT section.
     expect(screen.getByTestId('req-links-ft')).toBeInTheDocument();
@@ -187,6 +190,8 @@ describe('RequirementModal (T-1106, FR-6)', () => {
     // T-517: new requirement has no links block at all (isEdit=false).
     expect(screen.queryByTestId('req-links-ft')).not.toBeInTheDocument();
     expect(screen.queryByTestId('req-links-nfr')).not.toBeInTheDocument();
+    // T4: no «Связи» tab either (the footer hint appears once the form is fillable).
+    expect(screen.queryByTestId('req-tab-links')).not.toBeInTheDocument();
   });
 
   // ── T3 · inline delete of a link ─────────────────────────────────────────────
@@ -209,6 +214,8 @@ describe('RequirementModal (T-1106, FR-6)', () => {
       />,
     );
 
+    // T4: links moved into the «Связи» tab.
+    await user.click(screen.getByTestId('req-tab-links'));
     await user.click(screen.getByTestId('req-link-del-pci'));
     expect(screen.getByTestId('req-link-del-confirm')).toBeInTheDocument();
     await user.click(screen.getByTestId('req-link-del-confirm'));
@@ -240,6 +247,7 @@ describe('RequirementModal (T-1106, FR-6)', () => {
       />,
     );
 
+    await user.click(screen.getByTestId('req-tab-links'));
     await user.click(screen.getByTestId('req-link-del-pci'));
     await user.click(screen.getByTestId('req-link-del-cancel'));
 
@@ -492,9 +500,13 @@ describe('RequirementModal (T-1106, FR-6)', () => {
     await user.click(screen.getByTestId('req-criticality-medium'));
     await user.click(screen.getByTestId('req-implemented-yes'));
 
-    // Ready → hint gone, button enabled.
+    // Ready → hint gone, button enabled; in create mode its place takes the
+    // «links after saving» hint (mockup, вариант «Создание»).
     expect(screen.queryByTestId('req-submit-hint')).not.toBeInTheDocument();
     expect(screen.getByTestId('req-submit')).toBeEnabled();
+    expect(screen.getByTestId('req-create-links-hint')).toHaveTextContent(
+      'Связи можно добавить после сохранения',
+    );
   });
 
   // ── FR-21 fix · «Добавить дочернее требование» (preset CHILD_OF direction) ─────
