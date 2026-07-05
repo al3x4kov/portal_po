@@ -15,7 +15,9 @@ import {
   AiImportService,
   breakParentCycles,
   nextQuarterOf,
+  type AiImportServiceDeps,
 } from '../src/services/AiImportService.js';
+import { CycleError } from '@po/core';
 import type { AiClient } from '../src/services/AiHubService.js';
 import {
   createProjectRepo,
@@ -102,6 +104,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
   function makeService(
     client: AiClient,
     opts: { chunkChars?: number; structureBatch?: number } = {},
+    overrides: Partial<AiImportServiceDeps> = {},
   ): AiImportService {
     const projectRepo = createProjectRepo(ctx);
     return new AiImportService({
@@ -114,6 +117,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       projectExists: (pid) => projectRepo.exists(pid),
       chunkChars: opts.chunkChars,
       structureBatch: opts.structureBatch,
+      ...overrides,
     });
   }
 
@@ -161,6 +165,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       createdNfrs: 1,
       skippedExisting: 0,
       links: 0,
+      relatesLinks: 0,
     });
 
     const { requirements } = await createRequirementService(ctx, PROJECT).list();
@@ -294,6 +299,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       createdNfrs: 1,
       skippedExisting: 0,
       links: 0,
+      relatesLinks: 0,
     });
     expect(
       view.log.some(
@@ -329,6 +335,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       createdNfrs: 0,
       skippedExisting: 1,
       links: 0,
+      relatesLinks: 0,
     });
     expect(view.log.some((l) => l.level === 'warn' && l.message.includes('пропущено'))).toBe(true);
     expect(await fs.readFile(file, 'utf8')).toBe(before);
@@ -578,6 +585,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       createdNfrs: 0,
       skippedExisting: 0,
       links: 0,
+      relatesLinks: 0,
     });
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
     expect(create).toHaveBeenCalledTimes(1);
@@ -830,6 +838,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       createdNfrs: 0,
       skippedExisting: 0,
       links: 1,
+      relatesLinks: 0,
     });
     expect(
       view.log.some(
@@ -1069,6 +1078,418 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     );
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
     expect(create).toHaveBeenCalledTimes(1); // extraction only
+  });
+
+  // ── Task 15: НФТ → ФТ через RELATES_TO ────────────────────────────────────
+
+  it('T15: NFR with relatedFunctions → RELATES_TO pair on both endpoints, counter and log line', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Поиск', source: 'search.md § Поиск' }),
+        record({
+          type: 'NFR',
+          name: 'Время отклика поиска',
+          source: 'search.md § SLA',
+          relatedFunctions: ['Поиск'],
+        }),
+      ]),
+      structure([{ name: 'Поиск' }, { type: 'NFR', name: 'Время отклика поиска' }]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'search.md': 'Поиск отвечает за 200 мс.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result).toEqual({
+      createdFunctions: 1,
+      createdNfrs: 1,
+      skippedExisting: 0,
+      links: 0,
+      relatesLinks: 1,
+    });
+    expect(
+      view.log.some(
+        (l) =>
+          l.level === 'info' &&
+          l.message === 'Связано: НФТ «Время отклика поиска» → ФТ «Поиск» (RELATES_TO).',
+      ),
+    ).toBe(true);
+    // Done summary carries the dedicated counter next to the CHILD_OF one.
+    expect(
+      view.log.some((l) => l.level === 'info' && l.message.includes('связей 0, связей НФТ→ФТ: 1.')),
+    ).toBe(true);
+    // Link parity: RELATES_TO is symmetric, both endpoints carry the pair.
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    const fn = requirements.find((r) => r.name === 'Поиск');
+    const nfr = requirements.find((r) => r.name === 'Время отклика поиска');
+    expect(nfr?.links).toEqual([{ type: 'RELATES_TO', targetSlug: fn?.slug }]);
+    expect(fn?.links).toEqual([{ type: 'RELATES_TO', targetSlug: nfr?.slug }]);
+  });
+
+  it('T15: resolves the related function name case-insensitively (nameKey)', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Поиск', source: 'search.md § Поиск' }),
+        record({
+          type: 'NFR',
+          name: 'SLA поиска',
+          source: 'search.md § SLA',
+          relatedFunctions: ['  ПОИСК '],
+        }),
+      ]),
+      structure([{ name: 'Поиск' }, { type: 'NFR', name: 'SLA поиска' }]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'search.md': 'Поиск.' });
+
+    const jobId = await runToEnd(service, archive);
+    expect(service.getView(jobId).result?.relatesLinks).toBe(1);
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    const nfr = requirements.find((r) => r.name === 'SLA поиска');
+    expect(nfr?.links).toHaveLength(1);
+    expect(nfr?.links[0]?.type).toBe('RELATES_TO');
+  });
+
+  it('T15: links an NFR to a function that ALREADY existed in the project before the import', async () => {
+    const existingFn = await createRequirementService(ctx, PROJECT).create({
+      type: 'FUNCTION',
+      name: 'Поиск',
+      criticality: 'HIGH',
+      implemented: true,
+    });
+    const client = scriptedClient([
+      JSON.stringify([
+        record({
+          type: 'NFR',
+          name: 'SLA поиска',
+          source: 'search.md § SLA',
+          relatedFunctions: ['Поиск'],
+        }),
+      ]),
+      structure([{ type: 'NFR', name: 'SLA поиска' }]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'search.md': 'Поиск отвечает за 200 мс.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.relatesLinks).toBe(1);
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    const nfr = requirements.find((r) => r.name === 'SLA поиска');
+    expect(nfr?.links).toEqual([{ type: 'RELATES_TO', targetSlug: existingFn.slug }]);
+  });
+
+  it('T15: unknown related function → warn, link skipped, job still succeeds', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({
+          type: 'NFR',
+          name: 'SLA поиска',
+          source: 'search.md § SLA',
+          relatedFunctions: ['Несуществующий поиск'],
+        }),
+      ]),
+      structure([{ type: 'NFR', name: 'SLA поиска' }]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'search.md': 'SLA.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.relatesLinks).toBe(0);
+    expect(
+      view.log.some(
+        (l) =>
+          l.level === 'warn' &&
+          l.message ===
+            'НФТ «SLA поиска»: связанная ФТ «Несуществующий поиск» не найдена — связь пропущена.',
+      ),
+    ).toBe(true);
+  });
+
+  it('T15: duplicates of one NFR union their relatedFunctions by case-insensitive name', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Поиск', source: 'a.md § Поиск' }),
+        record({
+          type: 'NFR',
+          name: 'Производительность',
+          source: 'a.md § SLA',
+          relatedFunctions: ['Поиск'],
+        }),
+      ]),
+      JSON.stringify([
+        record({ name: 'Экспорт', source: 'b.md § Экспорт' }),
+        record({
+          type: 'NFR',
+          name: 'ПРОИЗВОДИТЕЛЬНОСТЬ',
+          source: 'b.md § SLA',
+          relatedFunctions: ['Экспорт', 'поиск'],
+        }),
+      ]),
+      structure([
+        { name: 'Поиск' },
+        { name: 'Экспорт' },
+        { type: 'NFR', name: 'Производительность' },
+      ]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Поиск.', 'b.md': 'Экспорт.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    // One NFR survives dedupe, but carries the UNION of related functions.
+    expect(view.result?.createdNfrs).toBe(1);
+    expect(view.result?.relatesLinks).toBe(2);
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    const nfr = requirements.find((r) => r.type === 'NFR');
+    expect(nfr?.links.filter((l) => l.type === 'RELATES_TO')).toHaveLength(2);
+  });
+
+  it('T15: FUNCTION with relatedFunctions → field ignored with a warn, no links', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Экспорт', source: 'a.md § Экспорт' }),
+        record({ relatedFunctions: ['Экспорт'] }), // FUNCTION «Вход по паролю»
+      ]),
+      structure([{ name: 'Экспорт' }, { name: 'Вход по паролю' }]),
+    ]);
+    const service = makeService(client);
+    const archive = await writeZip({ 'a.md': 'Текст.' });
+
+    const jobId = await runToEnd(service, archive);
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.relatesLinks).toBe(0);
+    expect(
+      view.log.some(
+        (l) =>
+          l.level === 'warn' &&
+          l.message ===
+            '«Вход по паролю» (FUNCTION): relatedFunctions игнорируется — привязка допустима только от НФТ.',
+      ),
+    ).toBe(true);
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    for (const req of requirements) {
+      expect(req.links.filter((l) => l.type === 'RELATES_TO')).toHaveLength(0);
+    }
+  });
+
+  it('T15: re-run is idempotent — existing RELATES_TO is not duplicated, missing one is completed', async () => {
+    const answers = [
+      JSON.stringify([
+        record({ name: 'Поиск', source: 'search.md § Поиск' }),
+        record({
+          type: 'NFR',
+          name: 'SLA поиска',
+          source: 'search.md § SLA',
+          relatedFunctions: ['Поиск'],
+        }),
+      ]),
+      structure([{ name: 'Поиск' }, { type: 'NFR', name: 'SLA поиска' }]),
+    ];
+    // First run creates both requirements and the link.
+    const service1 = makeService(scriptedClient(answers));
+    const jobId1 = await runToEnd(service1, await writeZip({ 'search.md': 'Поиск.' }));
+    expect(service1.getView(jobId1).result?.relatesLinks).toBe(1);
+
+    // Second run: both requirements are skipped, the link already exists on
+    // both endpoints → nothing created, nothing duplicated.
+    const service2 = makeService(scriptedClient(answers));
+    const jobId2 = await runToEnd(service2, await writeZip({ 'search.md': 'Поиск.' }));
+    const view2 = service2.getView(jobId2);
+    expect(view2.status).toBe('succeeded');
+    expect(view2.result).toEqual({
+      createdFunctions: 0,
+      createdNfrs: 0,
+      skippedExisting: 2,
+      links: 0,
+      relatesLinks: 0,
+    });
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    const nfr = requirements.find((r) => r.type === 'NFR');
+    const fn = requirements.find((r) => r.type === 'FUNCTION');
+    expect(nfr?.links.filter((l) => l.type === 'RELATES_TO')).toHaveLength(1);
+    expect(fn?.links.filter((l) => l.type === 'RELATES_TO')).toHaveLength(1);
+  });
+
+  it('T15: re-run completes a MISSING RELATES_TO for a skipped existing NFR', async () => {
+    // Both requirements pre-exist WITHOUT the link (e.g. a crash between
+    // requirements and links on a previous run).
+    const reqService = createRequirementService(ctx, PROJECT);
+    const fn = await reqService.create({
+      type: 'FUNCTION',
+      name: 'Поиск',
+      criticality: 'MEDIUM',
+      implemented: true,
+    });
+    await reqService.create({
+      type: 'NFR',
+      name: 'SLA поиска',
+      criticality: 'MEDIUM',
+      implemented: true,
+    });
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Поиск', source: 'search.md § Поиск' }),
+        record({
+          type: 'NFR',
+          name: 'SLA поиска',
+          source: 'search.md § SLA',
+          relatedFunctions: ['Поиск'],
+        }),
+      ]),
+      structure([{ name: 'Поиск' }, { type: 'NFR', name: 'SLA поиска' }]),
+    ]);
+    const service = makeService(client);
+    const jobId = await runToEnd(service, await writeZip({ 'search.md': 'Поиск.' }));
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.skippedExisting).toBe(2);
+    expect(view.result?.relatesLinks).toBe(1);
+    const { requirements } = await createRequirementService(ctx, PROJECT).list();
+    const nfr = requirements.find((r) => r.type === 'NFR');
+    expect(nfr?.links).toEqual([{ type: 'RELATES_TO', targetSlug: fn.slug }]);
+  });
+
+  it('T15 hypothesis: cross RELATES_TO over CHILD_OF hierarchies never trips the cycle check', async () => {
+    // assertNoCycle (LinkService.ts:76) runs for ALL link types, but core
+    // integrity.ts returns early for RELATES_TO (symmetric association, no
+    // ordering). This test pins that: 2 FTs under a common root + 2 NFRs each
+    // related to BOTH FTs (cross) → 4 RELATES_TO links, zero CYCLE warns.
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Корень', source: 'a.md § Корень' }),
+        record({ name: 'Поиск', source: 'a.md § Поиск' }),
+        record({ name: 'Экспорт', source: 'a.md § Экспорт' }),
+        record({
+          type: 'NFR',
+          name: 'Н1',
+          source: 'a.md § Н1',
+          relatedFunctions: ['Поиск', 'Экспорт'],
+        }),
+        record({
+          type: 'NFR',
+          name: 'Н2',
+          source: 'a.md § Н2',
+          relatedFunctions: ['Поиск', 'Экспорт'],
+        }),
+      ]),
+      structure([
+        { name: 'Корень' },
+        { name: 'Поиск', parentName: 'Корень' },
+        { name: 'Экспорт', parentName: 'Корень' },
+        { type: 'NFR', name: 'Н1' },
+        { type: 'NFR', name: 'Н2' },
+      ]),
+    ]);
+    const service = makeService(client);
+    const jobId = await runToEnd(service, await writeZip({ 'a.md': 'Документ.' }));
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.links).toBe(2); // CHILD_OF
+    expect(view.result?.relatesLinks).toBe(4); // full cross NFR→FT
+    expect(view.log.some((l) => l.message.includes('CYCLE'))).toBe(false);
+    expect(view.log.some((l) => l.message.includes('не создана'))).toBe(false);
+  });
+
+  it('T15: a DomainError from RELATES_TO create → warn, job not failed', async () => {
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Поиск', source: 'a.md § Поиск' }),
+        record({
+          type: 'NFR',
+          name: 'Н1',
+          source: 'a.md § Н1',
+          relatedFunctions: ['Поиск'],
+        }),
+      ]),
+      structure([{ name: 'Поиск' }, { type: 'NFR', name: 'Н1' }]),
+    ]);
+    const service = makeService(
+      client,
+      {},
+      {
+        makeLinkService: (pid) => {
+          const real = createLinkService(ctx, pid);
+          return {
+            create: (input: { sourceSlug: string; type: string; targetSlug: string }) => {
+              if (input.type === 'RELATES_TO') throw new CycleError(['a', 'b', 'a']);
+              return real.create(input as Parameters<typeof real.create>[0]);
+            },
+            remove: real.remove.bind(real),
+          } as unknown as ReturnType<typeof createLinkService>;
+        },
+      },
+    );
+    const jobId = await runToEnd(service, await writeZip({ 'a.md': 'Документ.' }));
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    expect(view.result?.relatesLinks).toBe(0);
+    expect(
+      view.log.some(
+        (l) =>
+          l.level === 'warn' &&
+          l.message.startsWith('Связь RELATES_TO «Н1» → «Поиск» не создана (CYCLE):'),
+      ),
+    ).toBe(true);
+  });
+
+  it('T15: cancel between RELATES_TO links → cancelled with partial relatesLinks in the summary', async () => {
+    const cancelTarget: { service?: AiImportService; jobId?: string } = {};
+    const client = scriptedClient([
+      JSON.stringify([
+        record({ name: 'Ф1', source: 'a.md § Ф1' }),
+        record({ name: 'Ф2', source: 'a.md § Ф2' }),
+        record({
+          type: 'NFR',
+          name: 'Н1',
+          source: 'a.md § Н1',
+          relatedFunctions: ['Ф1', 'Ф2'],
+        }),
+      ]),
+      structure([{ name: 'Ф1' }, { name: 'Ф2' }, { type: 'NFR', name: 'Н1' }]),
+    ]);
+    const service = makeService(
+      client,
+      {},
+      {
+        makeLinkService: (pid) => {
+          const real = createLinkService(ctx, pid);
+          return {
+            create: async (input: { sourceSlug: string; type: string; targetSlug: string }) => {
+              await real.create(input as Parameters<typeof real.create>[0]);
+              // Request cancellation right after the FIRST RELATES_TO succeeds.
+              if (input.type === 'RELATES_TO' && cancelTarget.service && cancelTarget.jobId) {
+                cancelTarget.service.cancel(cancelTarget.jobId);
+              }
+            },
+            remove: real.remove.bind(real),
+          } as unknown as ReturnType<typeof createLinkService>;
+        },
+      },
+    );
+    cancelTarget.service = service;
+    const { jobId } = await service.start(PROJECT, await writeZip({ 'a.md': 'Документ.' }));
+    cancelTarget.jobId = jobId;
+    await service.waitForCompletion(jobId);
+
+    const view = service.getView(jobId);
+    expect(view.status).toBe('cancelled');
+    expect(view.result?.relatesLinks).toBe(1);
+    expect(
+      view.log.some(
+        (l) =>
+          l.level === 'warn' &&
+          l.message ===
+            'Автоматизация остановлена пользователем. Создано к моменту остановки: ' +
+              'ФТ 2, НФТ 1, связей 0, связей НФТ→ФТ: 1.',
+      ),
+    ).toBe(true);
   });
 });
 

@@ -58,6 +58,12 @@ import { createServer, type Server } from 'node:http';
  * the exported `structureParentsListOf`. `setStructureExtraNodes` appends
  * arbitrary FOREIGN nodes to every structure answer — the coverage-report
  * scenario of task 14 B5 («посторонних узлов проигнорировано»).
+ *
+ * Task 15 (RELATES_TO НФТ→ФТ): extraction records may now carry an optional
+ * `relatedFunctions: string[]` — tests override the WHOLE extraction fixture
+ * map per test via `setExtractionItems` (same discipline as
+ * `setStructureParents`: `null` restores the constructor default), so the
+ * shared beforeAll fixtures stay untouched.
  */
 
 /** Captured `/chat/completions` request body (openai SDK JSON payload). */
@@ -99,6 +105,12 @@ export interface AiStub {
   readonly extractionRequests: AiChatCompletionCapture[];
   /** Task 11: delay (ms) applied to every extraction reply; 0 disables. */
   setExtractionDelay(ms: number): void;
+  /**
+   * Task 15: replace the extraction fixture map for the NEXT extraction
+   * replies (records may carry `relatedFunctions`); `null` restores the
+   * `extractionItemsByFile` passed to `startAiStub`.
+   */
+  setExtractionItems(map: Record<string, unknown[]> | null): void;
   /** Task 13: only the structure-prompt `/chat/completions` bodies. */
   readonly structureRequests: AiChatCompletionCapture[];
   /** Task 13: parents map for structure answers; `null` restores the default. */
@@ -203,6 +215,7 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
   let extractionDelayMs = 0;
   let structureDelayMs = 0;
   let structureParents: Record<string, string> = opts.structureParents ?? {};
+  let extractionItems: Record<string, unknown[]> = opts.extractionItemsByFile ?? {};
   let structureExtraNodes: Array<Record<string, unknown>> = [];
   let nonJsonExtractionLeft = 0;
   let nonJsonStructureLeft = 0;
@@ -263,9 +276,7 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
           if (forceNonJson) {
             content = NON_JSON_REPLY;
           } else if (isExtraction) {
-            content = JSON.stringify(
-              opts.extractionItemsByFile?.[extractionFileName(body) ?? ''] ?? [],
-            );
+            content = JSON.stringify(extractionItems[extractionFileName(body) ?? ''] ?? []);
           } else if (isStructure) {
             // Echo every BATCH item back (task 14: `TYPE\tимя\tисточник` lines
             // after the «Батч (…)» marker); parents come from the active map,
@@ -322,6 +333,9 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
     extractionRequests,
     setExtractionDelay(ms) {
       extractionDelayMs = ms;
+    },
+    setExtractionItems(map) {
+      extractionItems = map ?? opts.extractionItemsByFile ?? {};
     },
     structureRequests,
     setStructureParents(map) {

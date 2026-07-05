@@ -53,6 +53,7 @@ const FAULT_IDS = [
   'e2e-bad-json',
   'e2e-empty-choices',
   'e2e-structure',
+  'e2e-extraction-related',
 ] as const;
 
 /** Готовое OpenAI-совместимое тело ответа chat.completions. */
@@ -237,9 +238,10 @@ test.describe('AI против реального MockServer', () => {
   });
 
   /* d) AI-импорт документации: extraction+structure моки → требования в
-     дереве; «Источник» пуст, «Реализация» = «Реализовано» (Task 13). */
+     дереве; «Источник» пуст, «Реализация» = «Реализовано» (Task 13);
+     relatedFunctions НФТ → связь RELATES_TO и счётчик (Task 15). */
 
-  test('AI-импорт zip: успех, мок-требования в дереве, «Источник» пуст, «Реализовано»', async ({
+  test('AI-импорт zip: успех, мок-требования в дереве, «Источник» пуст, «Реализовано», связь НФТ→ФТ', async ({
     page,
   }, testInfo) => {
     const id = await projectWithAi(page, 'MS-Imp');
@@ -256,6 +258,43 @@ test.describe('AI против реального MockServer', () => {
     }
     const zipPath = testInfo.outputPath('ms-docs.zip');
     zip.writeZip(zipPath);
+
+    // Task 15: базовый extraction-мок (priority 20 в expectations-init.json)
+    // relatedFunctions не знает → перекрываем его динамическим expectation
+    // (priority 26, матчер по подстроке extraction-промпта): тот же массив
+    // 1 ФТ + 1 НФТ и с теми же source («mock.md § …», их эхает батч
+    // structure-вызова), но у НФТ появляется relatedFunctions=[ФТ] — пайплайн
+    // обязан создать симметричную RELATES_TO НФТ→ФТ.
+    await addExpectation({
+      id: 'e2e-extraction-related',
+      priority: 26,
+      httpRequest: {
+        method: 'POST',
+        path: COMPLETIONS_PATH,
+        body: { type: 'STRING', string: 'экстрактор требований', subString: true },
+      },
+      httpResponse: {
+        statusCode: 200,
+        headers: { 'Content-Type': ['application/json'] },
+        body: chatCompletionBody(
+          JSON.stringify([
+            {
+              type: 'FUNCTION',
+              name: IMP_FUNCTION,
+              description: 'Пользователь входит по логину и паролю (MockServer).',
+              source: 'mock.md § Вход',
+            },
+            {
+              type: 'NFR',
+              name: IMP_NFR,
+              description: 'Интерфейс отвечает не дольше 1 секунды (MockServer).',
+              source: 'mock.md § Производительность',
+              relatedFunctions: [IMP_FUNCTION],
+            },
+          ]),
+        ),
+      },
+    });
 
     // Task 13 B2: пайплайн делает ДОПОЛНИТЕЛЬНЫЙ structure-вызов (system
     // «архитектор дерева требований…»). Базовые expectations MockServer его
@@ -303,6 +342,11 @@ test.describe('AI против реального MockServer', () => {
     await expect(log).toContainText('Дубликатов в извлечении пропущено: 2');
     // Task 13 B2: стадия структуризации прошла через настоящий MockServer.
     await expect(log).toContainText('Построение древовидной структуры ФТ/НФТ через AI hub…');
+    // Task 15: связь НФТ→ФТ из relatedFunctions — счётчик модалки и инфо-лог.
+    await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 1');
+    await expect(log).toContainText(
+      `Связано: НФТ «${IMP_NFR}» → ФТ «${IMP_FUNCTION}» (RELATES_TO).`,
+    );
     await attachShot(page, testInfo, 'ms-import-success');
 
     await page.getByTestId('ai-import-done').click();
@@ -317,11 +361,13 @@ test.describe('AI против реального MockServer', () => {
     expect(res.ok()).toBe(true);
     const { requirements } = (await res.json()) as {
       requirements: Array<{
+        slug: string;
         name: string;
         source?: string;
         implemented?: boolean;
         targetQuarter?: string;
         targetYear?: number;
+        links: Array<{ type: string; targetSlug: string }>;
       }>;
     };
     const byName = new Map(requirements.map((r) => [r.name, r]));
@@ -332,6 +378,14 @@ test.describe('AI против реального MockServer', () => {
       expect(req?.targetQuarter).toBeUndefined();
       expect(req?.targetYear).toBeUndefined();
     }
+
+    // Task 15: RELATES_TO симметрична — запись у НФТ И парная запись у ФТ.
+    const relatesOf = (name: string): string[] =>
+      (byName.get(name)?.links ?? [])
+        .filter((l) => l.type === 'RELATES_TO')
+        .map((l) => l.targetSlug);
+    expect(relatesOf(IMP_NFR)).toEqual([byName.get(IMP_FUNCTION)!.slug]);
+    expect(relatesOf(IMP_FUNCTION)).toEqual([byName.get(IMP_NFR)!.slug]);
 
     // Запросы к апстриму, несущие runId (имена файлов входят и в extraction-
     // сообщение, и в карту архива structure-вызова): 2 extraction + 1 structure.

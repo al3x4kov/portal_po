@@ -397,8 +397,11 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               </div>
               <p className="text-sm">
                 Создано: <b>{result?.createdFunctions ?? 0} ФТ</b> и{' '}
-                <b>{result?.createdNfrs ?? 0} НФТ</b>, связей: <b>{result?.links ?? 0}</b>.
-                Пропущено как существующие: {result?.skippedExisting ?? 0}. Источник каждого
+                <b>{result?.createdNfrs ?? 0} НФТ</b>, связей: <b>{result?.links ?? 0}</b>,{' '}
+                <span data-testid="ai-import-relates-links">
+                  связей НФТ→ФТ: <b>{result?.relatesLinks ?? 0}</b>
+                </span>
+                . Пропущено как существующие: {result?.skippedExisting ?? 0}. Источник каждого
                 требования указан в поле «Источник».
               </p>
             </div>

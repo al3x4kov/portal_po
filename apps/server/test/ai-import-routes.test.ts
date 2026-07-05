@@ -150,6 +150,7 @@ describe('T11 AI import routes (integration, mock client)', () => {
       createdNfrs: 1,
       skippedExisting: 0,
       links: 0,
+      relatesLinks: 0,
     });
 
     const list = await app.inject({ method: 'GET', url: `/api/projects/${PROJECT}/requirements` });

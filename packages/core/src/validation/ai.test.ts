@@ -392,8 +392,10 @@ describe('T11 aiImportResultSchema', () => {
       createdNfrs: 1,
       skippedExisting: 0,
       links: 1,
+      relatesLinks: 3,
     });
     expect(r.createdFunctions).toBe(2);
+    expect(r.relatesLinks).toBe(3);
   });
 
   it('rejects negative or fractional counters', () => {
@@ -403,6 +405,7 @@ describe('T11 aiImportResultSchema', () => {
         createdNfrs: 0,
         skippedExisting: 0,
         links: 0,
+        relatesLinks: 0,
       }).success,
     ).toBe(false);
     expect(
@@ -411,8 +414,25 @@ describe('T11 aiImportResultSchema', () => {
         createdNfrs: 0,
         skippedExisting: 0,
         links: 0,
+        relatesLinks: 0,
       }).success,
     ).toBe(false);
+  });
+
+  it('T15: relatesLinks (НФТ→ФТ RELATES_TO) is a mandatory non-negative integer', () => {
+    // Missing → invalid: the frontend counts on the field always being present.
+    expect(
+      aiImportResultSchema.safeParse({
+        createdFunctions: 0,
+        createdNfrs: 0,
+        skippedExisting: 0,
+        links: 0,
+      }).success,
+    ).toBe(false);
+    const base = { createdFunctions: 0, createdNfrs: 0, skippedExisting: 0, links: 0 };
+    expect(aiImportResultSchema.safeParse({ ...base, relatesLinks: -1 }).success).toBe(false);
+    expect(aiImportResultSchema.safeParse({ ...base, relatesLinks: 1.5 }).success).toBe(false);
+    expect(aiImportResultSchema.parse({ ...base, relatesLinks: 0 }).relatesLinks).toBe(0);
   });
 });
 
@@ -438,7 +458,13 @@ describe('T11 aiImportJobViewSchema', () => {
       status: 'succeeded',
       stage: 'done',
       progress: 100,
-      result: { createdFunctions: 1, createdNfrs: 0, skippedExisting: 2, links: 0 },
+      result: {
+        createdFunctions: 1,
+        createdNfrs: 0,
+        skippedExisting: 2,
+        links: 0,
+        relatesLinks: 0,
+      },
     });
     expect(v.result?.skippedExisting).toBe(2);
   });
@@ -539,5 +565,56 @@ describe('T11 aiExtractedRequirementSchema', () => {
     );
     // Single source of truth: same field validator as requirementCreateShape.
     expect(aiExtractedRequirementSchema.shape.targetYear).toBe(requirementCreateShape.targetYear);
+  });
+
+  describe('T15 relatedFunctions (НФТ → ФТ, RELATES_TO)', () => {
+    it('accepts an NFR with a list of related function names', () => {
+      const r = aiExtractedRequirementSchema.parse({
+        ...minimal,
+        type: 'NFR',
+        relatedFunctions: ['Поиск', 'Вход по паролю'],
+      });
+      expect(r.relatedFunctions).toEqual(['Поиск', 'Вход по паролю']);
+    });
+
+    it('is optional: an absent field stays undefined', () => {
+      expect(aiExtractedRequirementSchema.parse(minimal).relatedFunctions).toBeUndefined();
+    });
+
+    it('is accepted on a FUNCTION record too (server ignores it, not a validation error)', () => {
+      expect(
+        aiExtractedRequirementSchema.safeParse({ ...minimal, relatedFunctions: ['Поиск'] }).success,
+      ).toBe(true);
+    });
+
+    it('rejects empty names, overlong names and more than 20 entries', () => {
+      expect(
+        aiExtractedRequirementSchema.safeParse({ ...minimal, relatedFunctions: [''] }).success,
+      ).toBe(false);
+      expect(
+        aiExtractedRequirementSchema.safeParse({
+          ...minimal,
+          relatedFunctions: ['x'.repeat(201)],
+        }).success,
+      ).toBe(false);
+      expect(
+        aiExtractedRequirementSchema.safeParse({
+          ...minimal,
+          relatedFunctions: Array.from({ length: 21 }, (_, i) => `ФТ ${i}`),
+        }).success,
+      ).toBe(false);
+      expect(
+        aiExtractedRequirementSchema.safeParse({
+          ...minimal,
+          relatedFunctions: Array.from({ length: 20 }, (_, i) => `ФТ ${i}`),
+        }).success,
+      ).toBe(true);
+    });
+
+    it('rejects a non-array value', () => {
+      expect(
+        aiExtractedRequirementSchema.safeParse({ ...minimal, relatedFunctions: 'Поиск' }).success,
+      ).toBe(false);
+    });
   });
 });

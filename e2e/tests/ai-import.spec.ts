@@ -10,6 +10,7 @@ import {
   type AiStub,
 } from './helpers/ai-stub.js';
 import {
+  apiCreateRequirement,
   createProject,
   expandNode,
   openEdit,
@@ -278,6 +279,11 @@ async function listRequirements(page: Page, projectId: string): Promise<ReqDto[]
 /** CHILD_OF target slugs of one requirement (empty array → root). */
 function childOfTargets(req: ReqDto | undefined): string[] {
   return (req?.links ?? []).filter((l) => l.type === 'CHILD_OF').map((l) => l.targetSlug);
+}
+
+/** RELATES_TO target slugs of one requirement (symmetric — paired records). */
+function relatesTargets(req: ReqDto | undefined): string[] {
+  return (req?.links ?? []).filter((l) => l.type === 'RELATES_TO').map((l) => l.targetSlug);
 }
 
 /** Attach a full-page screenshot to the test artifacts (no snapshot compare). */
@@ -1107,6 +1113,248 @@ test.describe('Task 14 · AI-импорт: валидность дерева', (
       await expect(rowByName(page, FOREIGN)).toHaveCount(0);
     } finally {
       stub.setStructureExtraNodes(null);
+    }
+  });
+});
+
+/* ══ Task 15 · связи RELATES_TO НФТ→ФТ из relatedFunctions (extraction) ═════ */
+
+test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
+  /* Локальные фикстуры блока: ФТ «экспорт в PDF» + НФТ, ограничивающая его
+     скорость. Каждый тест подменяет extraction-ответ стаба целиком
+     (setExtractionItems) и обязан вернуть дефолт в finally. */
+
+  const REL_FT = 'Экспорт отчёта в PDF';
+  const REL_NFR = 'Экспорт PDF не дольше 10 секунд';
+
+  const REL_DOCS: Record<string, string> = {
+    'export.md': ['# Экспорт', '', '## PDF', 'Система должна экспортировать отчёт в PDF.', ''].join(
+      '\n',
+    ),
+    'perf-export.md': [
+      '# Ограничения',
+      '',
+      '## Скорость',
+      'Экспорт PDF должен занимать не более 10 секунд.',
+      '',
+    ].join('\n'),
+  };
+
+  /** FUNCTION-запись extraction-ответа для export.md. */
+  function ftRecord(extra?: Record<string, unknown>): Record<string, unknown> {
+    return {
+      type: 'FUNCTION',
+      name: REL_FT,
+      description: 'Система экспортирует отчёт в PDF.',
+      source: 'export.md § PDF',
+      ...extra,
+    };
+  }
+
+  /** NFR-запись extraction-ответа для perf-export.md c relatedFunctions. */
+  function nfrRecord(relatedFunctions: string[]): Record<string, unknown> {
+    return {
+      type: 'NFR',
+      name: REL_NFR,
+      description: 'Экспорт PDF занимает не более 10 секунд.',
+      source: 'perf-export.md § Скорость',
+      relatedFunctions,
+    };
+  }
+
+  /* C5#1: успешный импорт — RELATES_TO на обоих концах, лог, счётчик. */
+
+  test('связь НФТ→ФТ создана: RELATES_TO симметрична, инфо-строка в логе, счётчик в модалке', async ({
+    page,
+  }, testInfo) => {
+    const id = await projectWithAi(page, 'AiImp-Rel');
+
+    stub.setExtractionItems({
+      'export.md': [ftRecord()],
+      'perf-export.md': [nfrRecord([REL_FT])],
+    });
+    try {
+      const zip = makeZip(testInfo, 'docs-relates.zip', REL_DOCS);
+      await openAiImport(page);
+      await chooseFile(page, zip);
+      await startAnalysis(page);
+
+      const success = page.getByTestId('ai-import-success');
+      await expect(success).toBeVisible(JOB_TIMEOUT);
+
+      // Счётчик в модалке — отдельный span внутри success-блока.
+      await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 1');
+
+      // Инфо-строка лога — дословно по контракту Task 15.
+      await expect(page.getByTestId('ai-import-log')).toContainText(
+        `Связано: НФТ «${REL_NFR}» → ФТ «${REL_FT}» (RELATES_TO).`,
+      );
+      await attachShot(page, testInfo, 'relates-success');
+
+      await page.getByTestId('ai-import-done').click();
+      await expect(page.getByTestId('ai-import')).toHaveCount(0);
+      await expect(rowByName(page, REL_FT)).toBeVisible();
+      await expect(rowByName(page, REL_NFR)).toBeVisible();
+
+      // API: связь симметрична — запись у НФТ И парная запись у ФТ.
+      const reqs = await listRequirements(page, id);
+      const byName = new Map(reqs.map((r) => [r.name, r]));
+      const ft = byName.get(REL_FT);
+      const nfr = byName.get(REL_NFR);
+      expect(nfr, 'НФТ создана').toBeDefined();
+      expect(ft, 'ФТ создана').toBeDefined();
+      expect(relatesTargets(nfr)).toEqual([ft!.slug]);
+      expect(relatesTargets(ft)).toEqual([nfr!.slug]);
+    } finally {
+      stub.setExtractionItems(null);
+    }
+  });
+
+  /* C5#2: несуществующая ФТ → warn, job успешен; relatedFunctions у FUNCTION
+     игнорируется со своим warn. relatesLinks = 0. */
+
+  test('несуществующая ФТ и relatedFunctions у FUNCTION: оба warn, job успешен, связей НФТ→ФТ 0', async ({
+    page,
+  }, testInfo) => {
+    const id = await projectWithAi(page, 'AiImp-RelMiss');
+
+    const missingFt = 'Функция, которой нет в проекте';
+    stub.setExtractionItems({
+      // Галлюцинация модели: relatedFunctions на FUNCTION-записи.
+      'export.md': [ftRecord({ relatedFunctions: [REL_NFR] })],
+      'perf-export.md': [nfrRecord([missingFt])],
+    });
+    try {
+      const zip = makeZip(testInfo, 'docs-relates-miss.zip', REL_DOCS);
+      await openAiImport(page);
+      await chooseFile(page, zip);
+      await startAnalysis(page);
+
+      // Job УСПЕШЕН, несмотря на оба отклонения; связей НФТ→ФТ нет.
+      const success = page.getByTestId('ai-import-success');
+      await expect(success).toBeVisible(JOB_TIMEOUT);
+      await expect(success).toContainText('Создано: 1 ФТ и 1 НФТ');
+      await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 0');
+
+      const log = page.getByTestId('ai-import-log');
+      await expect(log).toContainText(
+        `НФТ «${REL_NFR}»: связанная ФТ «${missingFt}» не найдена — связь пропущена.`,
+      );
+      await expect(log).toContainText(
+        `«${REL_FT}» (FUNCTION): relatedFunctions игнорируется — привязка допустима только от НФТ.`,
+      );
+      await attachShot(page, testInfo, 'relates-missing-warn');
+
+      await page.getByTestId('ai-import-done').click();
+      await expect(page.getByTestId('ai-import')).toHaveCount(0);
+
+      // API: ни одной RELATES_TO ни у кого; посторонняя ФТ не создана.
+      const reqs = await listRequirements(page, id);
+      expect(reqs.map((r) => r.name).sort()).toEqual([REL_FT, REL_NFR].sort());
+      for (const req of reqs) expect(relatesTargets(req)).toEqual([]);
+    } finally {
+      stub.setExtractionItems(null);
+    }
+  });
+
+  /* C5#3: идемпотентность — re-run того же архива не дублирует связь,
+     счётчик relatesLinks = 0 на повторе; done-сводка проверяется дословно. */
+
+  test('идемпотентность: повторный импорт не дублирует RELATES_TO, счётчик 0 на re-run', async ({
+    page,
+  }, testInfo) => {
+    const id = await projectWithAi(page, 'AiImp-RelRerun');
+
+    stub.setExtractionItems({
+      'export.md': [ftRecord()],
+      'perf-export.md': [nfrRecord([REL_FT])],
+    });
+    try {
+      const zip = makeZip(testInfo, 'docs-relates-rerun.zip', REL_DOCS);
+
+      // Первый прогон: связь создана.
+      await openAiImport(page);
+      await chooseFile(page, zip);
+      await startAnalysis(page);
+      await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
+      await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 1');
+      await page.getByTestId('ai-import-done').click();
+      await expect(page.getByTestId('ai-import')).toHaveCount(0);
+
+      // Второй прогон ТОГО ЖЕ архива: всё пропущено, связь не дублируется.
+      await openAiImport(page);
+      await chooseFile(page, zip);
+      await startAnalysis(page);
+      const success = page.getByTestId('ai-import-success');
+      await expect(success).toBeVisible(JOB_TIMEOUT);
+      await expect(success).toContainText('Пропущено как существующие: 2');
+      await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 0');
+
+      // Done-сводка re-run — дословно (полнотекстовый контракт Task 15).
+      await expect(page.getByTestId('ai-import-log')).toContainText(
+        'Готово: создано ФТ 0, НФТ 0; пропущено существующих 2; связей 0, связей НФТ→ФТ: 0.',
+      );
+      await attachShot(page, testInfo, 'relates-idempotent-rerun');
+      await page.getByTestId('ai-import-done').click();
+
+      // API: у НФТ РОВНО одна RELATES_TO (и одна парная у ФТ), без дублей.
+      const reqs = await listRequirements(page, id);
+      const byName = new Map(reqs.map((r) => [r.name, r]));
+      const ft = byName.get(REL_FT);
+      const nfr = byName.get(REL_NFR);
+      expect(relatesTargets(nfr)).toEqual([ft!.slug]);
+      expect(relatesTargets(ft)).toEqual([nfr!.slug]);
+    } finally {
+      stub.setExtractionItems(null);
+    }
+  });
+
+  /* C5#4 (бонус спеки): привязка к ФТ, созданной вручную ДО импорта; резолв
+     имени регистронезависимый (relatedFunctions в ВЕРХНЕМ регистре). */
+
+  test('связь с ФТ, существовавшей до импорта: резолв имени регистронезависимый', async ({
+    page,
+  }, testInfo) => {
+    const id = await projectWithAi(page, 'AiImp-RelPre');
+
+    // ФТ заведена вручную через API до какого-либо импорта.
+    const manualFt = 'Ручная функция экспорта';
+    const manualFtSlug = await apiCreateRequirement(page, id, {
+      kind: 'function',
+      name: manualFt,
+    });
+
+    const upperFt = manualFt.toUpperCase();
+    stub.setExtractionItems({
+      'perf-export.md': [nfrRecord([upperFt])], // регистр НЕ совпадает
+    });
+    try {
+      const zip = makeZip(testInfo, 'docs-relates-pre.zip', {
+        'perf-export.md': REL_DOCS['perf-export.md']!,
+      });
+      await openAiImport(page);
+      await chooseFile(page, zip);
+      await startAnalysis(page);
+
+      const success = page.getByTestId('ai-import-success');
+      await expect(success).toBeVisible(JOB_TIMEOUT);
+      await expect(success).toContainText('Создано: 0 ФТ и 1 НФТ');
+      await expect(page.getByTestId('ai-import-relates-links')).toHaveText('связей НФТ→ФТ: 1');
+      await expect(page.getByTestId('ai-import-log')).toContainText(
+        `Связано: НФТ «${REL_NFR}» → ФТ «${upperFt}» (RELATES_TO).`,
+      );
+      await attachShot(page, testInfo, 'relates-preexisting-ft');
+      await page.getByTestId('ai-import-done').click();
+      await expect(page.getByTestId('ai-import')).toHaveCount(0);
+
+      // API: связь ведёт именно на РАНЕЕ созданную ФТ, парная запись у неё.
+      const reqs = await listRequirements(page, id);
+      const byName = new Map(reqs.map((r) => [r.name, r]));
+      const nfr = byName.get(REL_NFR);
+      expect(relatesTargets(nfr)).toEqual([manualFtSlug]);
+      expect(relatesTargets(byName.get(manualFt))).toEqual([nfr!.slug]);
+    } finally {
+      stub.setExtractionItems(null);
     }
   });
 });

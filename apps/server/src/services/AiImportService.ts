@@ -82,6 +82,28 @@ function nameKey(type: string, name: string): string {
 }
 
 /**
+ * Task 15: union of two `relatedFunctions` lists, deduplicated by the
+ * case-insensitive FUNCTION name key. The FIRST encountered formulation of a
+ * name wins (per spec: duplicates of one NFR merge their related functions
+ * while keeping the first-seen wording). Returns `undefined` when both inputs
+ * are empty/absent so the field stays optional.
+ */
+function unionRelatedFunctions(
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+): string[] | undefined {
+  const seen = new Set<string>();
+  const union: string[] = [];
+  for (const name of [...(a ?? []), ...(b ?? [])]) {
+    const key = nameKey('FUNCTION', name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    union.push(name);
+  }
+  return union.length > 0 ? union : undefined;
+}
+
+/**
  * Task 14 B6: deterministically break parent cycles in a child→parent map
  * (keys are {@link nameKey} identities). Chains are walked in map insertion
  * order; when a walk revisits a node of its own path, the parent edge of the
@@ -323,7 +345,8 @@ export class AiImportService {
       job,
       'warn',
       `Автоматизация остановлена пользователем. Создано к моменту остановки: ` +
-        `ФТ ${counters.createdFunctions}, НФТ ${counters.createdNfrs}, связей ${counters.links}.`,
+        `ФТ ${counters.createdFunctions}, НФТ ${counters.createdNfrs}, связей ${counters.links}, ` +
+        `связей НФТ→ФТ: ${counters.relatesLinks}.`,
     );
     this.deps.jobs.finish(job, 'cancelled');
     return true;
@@ -395,6 +418,7 @@ export class AiImportService {
       createdNfrs: 0,
       skippedExisting: 0,
       links: 0,
+      relatesLinks: 0,
     };
     let docsDir: string | undefined;
     try {
@@ -682,8 +706,18 @@ export class AiImportService {
       const duplicateNames: string[] = [];
       for (const record of extracted) {
         const key = nameKey(record.type, record.name);
-        if (byKey.has(key)) duplicateNames.push(record.name.trim());
-        else byKey.set(key, record);
+        const prev = byKey.get(key);
+        if (prev) {
+          duplicateNames.push(record.name.trim());
+          // Task 15: duplicates of one NFR merge their relatedFunctions
+          // (union by case-insensitive name, first formulation kept).
+          const merged = unionRelatedFunctions(prev.relatedFunctions, record.relatedFunctions);
+          if (merged !== prev.relatedFunctions) {
+            byKey.set(key, { ...prev, relatedFunctions: merged });
+          }
+        } else {
+          byKey.set(key, record);
+        }
       }
       if (duplicateNames.length > 0) {
         // Surface silently dropped in-run duplicates (they are NOT counted in
@@ -757,11 +791,24 @@ export class AiImportService {
       for (const req of existing) slugByKey.set(nameKey(req.type, req.name), req.slug);
 
       const linkCandidates: LinkCandidate[] = [];
+      // Task 15: NFRs whose extraction carries relatedFunctions — resolved
+      // into RELATES_TO links after the CHILD_OF pass.
+      const relatesCandidates: LinkCandidate[] = [];
       let processed = 0;
       for (const item of aggregated) {
         const { record } = item;
         const key = nameKey(record.type, record.name);
         processed += 1;
+        if (record.relatedFunctions?.length && record.type !== 'NFR') {
+          // Guard against a hallucinated field on a FUNCTION record (Task 15):
+          // the binding is only meaningful FROM an NFR.
+          this.logLine(
+            job,
+            'warn',
+            `«${record.name}» (${record.type}): relatedFunctions игнорируется — привязка допустима только от НФТ.`,
+          );
+        }
+        const wantsRelates = record.type === 'NFR' && (record.relatedFunctions?.length ?? 0) > 0;
         const existingReq = existingKeys.get(key);
         if (existingReq) {
           counters.skippedExisting += 1;
@@ -773,8 +820,13 @@ export class AiImportService {
           // Re-run survivability: the requirement is not rewritten, but its
           // extracted CHILD_OF is still ensured below when it is missing.
           if (item.parentKey) linkCandidates.push({ item, existingLinks: existingReq.links });
+          // Task 15: same completion semantics for RELATES_TO — the links
+          // snapshot lets the loop below skip already-present pairs (RELATES_TO
+          // is symmetric, so the NFR endpoint always carries its half).
+          if (wantsRelates) relatesCandidates.push({ item, existingLinks: existingReq.links });
           continue;
         }
+        if (wantsRelates) relatesCandidates.push({ item });
 
         const criticality = record.criticality ?? AI_IMPORT_DEFAULT_CRITICALITY;
         const defaults: string[] = [];
@@ -853,6 +905,56 @@ export class AiImportService {
         }
       }
 
+      // Task 15: RELATES_TO links from an NFR to the functions it explicitly
+      // constrains. Targets resolve case-insensitively through slugByKey, so
+      // both functions created by THIS import and ones that already existed in
+      // the project are reachable. For skipped existing NFRs the links snapshot
+      // keeps re-runs idempotent: a present pair (RELATES_TO is symmetric — the
+      // NFR endpoint always stores its half) is never touched or duplicated.
+      for (const { item, existingLinks } of relatesCandidates) {
+        const { record } = item;
+        const sourceSlug = slugByKey.get(nameKey(record.type, record.name));
+        if (!sourceSlug) continue; // the NFR itself failed to create
+        const seenTargets = new Set<string>();
+        for (const fnName of record.relatedFunctions ?? []) {
+          const fnKey = nameKey('FUNCTION', fnName);
+          if (seenTargets.has(fnKey)) continue; // in-record duplicate
+          seenTargets.add(fnKey);
+          if (this.cancelIfRequested(job, counters)) return;
+          const targetSlug = slugByKey.get(fnKey);
+          if (!targetSlug) {
+            this.logLine(
+              job,
+              'warn',
+              `НФТ «${record.name}»: связанная ФТ «${fnName}» не найдена — связь пропущена.`,
+            );
+            continue;
+          }
+          if (existingLinks?.some((l) => l.type === 'RELATES_TO' && l.targetSlug === targetSlug)) {
+            continue; // link already present — existing links are never touched
+          }
+          try {
+            await linkService.create({ sourceSlug, type: 'RELATES_TO', targetSlug });
+            counters.relatesLinks += 1;
+            this.logLine(
+              job,
+              'info',
+              `Связано: НФТ «${record.name}» → ФТ «${fnName}» (RELATES_TO).`,
+            );
+          } catch (err) {
+            if (err instanceof DomainError) {
+              this.logLine(
+                job,
+                'warn',
+                `Связь RELATES_TO «${record.name}» → «${fnName}» не создана (${err.code}): ${err.message}`,
+              );
+            } else {
+              throw err;
+            }
+          }
+        }
+      }
+
       // ── done ────────────────────────────────────────────────────────────
       job.stage = 'done';
       job.progress = 100;
@@ -861,7 +963,8 @@ export class AiImportService {
         job,
         'info',
         `Готово: создано ФТ ${counters.createdFunctions}, НФТ ${counters.createdNfrs}; ` +
-          `пропущено существующих ${counters.skippedExisting}; связей ${counters.links}.`,
+          `пропущено существующих ${counters.skippedExisting}; связей ${counters.links}, ` +
+          `связей НФТ→ФТ: ${counters.relatesLinks}.`,
       );
       this.deps.jobs.finish(job, 'succeeded');
     } finally {

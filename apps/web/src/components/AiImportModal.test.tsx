@@ -53,7 +53,7 @@ const SUCCEEDED_JOB: AiImportJobView = {
   status: 'succeeded',
   stage: 'done',
   progress: 100,
-  result: { createdFunctions: 18, createdNfrs: 6, skippedExisting: 3, links: 9 },
+  result: { createdFunctions: 18, createdNfrs: 6, skippedExisting: 3, links: 9, relatesLinks: 2 },
 };
 
 const FAILED_JOB: AiImportJobView = {
@@ -72,7 +72,7 @@ const CANCELLED_JOB: AiImportJobView = {
   status: 'cancelled',
   stage: 'analyze',
   progress: 55,
-  result: { createdFunctions: 2, createdNfrs: 0, skippedExisting: 0, links: 0 },
+  result: { createdFunctions: 2, createdNfrs: 0, skippedExisting: 0, links: 0, relatesLinks: 0 },
 };
 
 const archive = new File(['dummy-zip-bytes'], 'docs-portal.zip', { type: 'application/zip' });
@@ -329,6 +329,8 @@ describe('AiImportModal (Task 11)', () => {
     expect(success).toHaveTextContent('18 ФТ');
     expect(success).toHaveTextContent('6 НФТ');
     expect(success).toHaveTextContent('связей: 9');
+    // Task 15: NFR→FT RELATES_TO counter next to the links counter.
+    expect(screen.getByTestId('ai-import-relates-links')).toHaveTextContent('связей НФТ→ФТ: 2');
     expect(success).toHaveTextContent('Пропущено как существующие: 3');
 
     await waitFor(() =>

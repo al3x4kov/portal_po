@@ -175,7 +175,10 @@ export const aiImportResultSchema = z.object({
   createdFunctions: z.number().int().min(0),
   createdNfrs: z.number().int().min(0),
   skippedExisting: z.number().int().min(0),
+  /** CHILD_OF links created (hierarchy). Task 15: NOT renamed — see relatesLinks. */
   links: z.number().int().min(0),
+  /** RELATES_TO links created from an NFR to the functions it constrains (Task 15). */
+  relatesLinks: z.number().int().min(0),
 });
 export type AiImportResult = z.infer<typeof aiImportResultSchema>;
 
@@ -216,6 +219,14 @@ export const aiExtractedRequirementSchema = z.object({
   targetQuarter: z.enum(TARGET_QUARTERS).optional(),
   targetYear: requirementCreateShape.targetYear,
   parentName: z.string().optional(),
+  /**
+   * Task 15: names of the FUNCTION requirements this NFR explicitly constrains
+   * (extraction-stage evidence only — the model sees the chunk text). Meaningful
+   * for `type='NFR'` only; the server ignores it on FUNCTION records with a warn
+   * instead of failing validation. Resolved case-insensitively into RELATES_TO
+   * links at populate time.
+   */
+  relatedFunctions: z.array(z.string().min(1).max(200)).max(20).optional(),
 });
 export type AiExtractedRequirement = z.infer<typeof aiExtractedRequirementSchema>;
 

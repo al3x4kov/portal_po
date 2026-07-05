@@ -42,6 +42,19 @@ describe('T11 buildExtractionMessages', () => {
     expect(sys).toContain('NFR');
   });
 
+  it('T15: instructs the model to link NFRs to functions via relatedFunctions — explicit mentions only', () => {
+    const messages = buildExtractionMessages('текст', 'auth.md', { index: 1, total: 1 }, 'auth.md');
+    const sys = messages[0]?.content ?? '';
+    // The rule itself (NFR → explicitly named functions of THIS chunk).
+    expect(sys).toContain('relatedFunctions');
+    expect(sys).toMatch(/явно ограничивает/i);
+    // Anti-hallucination guard: only explicit mentions, otherwise omit the field.
+    expect(sys).toMatch(/не выводи связь из общих соображений/i);
+    expect(sys).toMatch(/не добавляй поле/i);
+    // The JSON answer example includes the new optional field.
+    expect(sys).toMatch(/"relatedFunctions"\?/);
+  });
+
   it('mentions the archive structure usage (source/parentName) without weakening the golden rule', () => {
     const messages = buildExtractionMessages('текст', 'auth.md', { index: 1, total: 1 }, 'auth.md');
     const sys = messages[0]?.content ?? '';
