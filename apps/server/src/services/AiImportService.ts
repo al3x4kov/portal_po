@@ -2,10 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
   AI_IMPORT_MAX_ARCHIVE_BYTES,
-  AI_IMPORT_MAX_TOKENS,
-  AI_IMPORT_RELATE_MAX_TOKENS,
   AI_IMPORT_STRUCTURE_BATCH,
-  AI_IMPORT_STRUCTURE_MAX_TOKENS,
   DomainError,
   resolveModelPreset,
   TARGET_QUARTERS,
@@ -394,8 +391,11 @@ export class AiImportService {
    * is then already finished as cancelled). Upstream/network errors are never
    * retried — the caller decides what they mean for the job.
    *
-   * Task 14: `maxTokens` is per-call (extraction 2000 vs structure 4000, B1);
-   * a `finish_reason === 'length'` answer logs `truncatedWarn` (B2); when
+   * todo_18: import calls request the model's FULL generation budget
+   * (`preset.maxOutputTokens`) as `max_tokens` — thinking models spend part of
+   * that budget on `<think>…</think>` reasoning BEFORE the JSON answer, so a
+   * small per-call cap truncated the reply («ответ обрезан по лимиту токенов»).
+   * A `finish_reason === 'length'` answer still logs `truncatedWarn` (B2); when
    * `parseFinal` is given, it replaces `parse` on the LAST attempt (lenient
    * salvage instead of losing the whole batch, B7).
    */
@@ -406,7 +406,6 @@ export class AiImportService {
     model: string;
     preset: AiModelPreset;
     messages: AiChatMessage[];
-    maxTokens: number;
     parse: (content: string) => T | null;
     /** Lenient parser for the last attempt (Task 14 B7); defaults to `parse`. */
     parseFinal?: (content: string) => T | null;
@@ -420,8 +419,11 @@ export class AiImportService {
           model: args.model,
           messages: args.messages,
           temperature: args.preset.temperature,
-          // todo_18: never ask for more than the model's output budget allows.
-          max_tokens: Math.min(args.maxTokens, args.preset.maxOutputTokens),
+          // todo_18: import calls use the model's FULL generation budget so
+          // thinking models have room for `<think>…</think>` reasoning AND the
+          // JSON answer (a per-call cap truncated the reply). The preset value
+          // is the single knob users raise for thinking models.
+          max_tokens: args.preset.maxOutputTokens,
           ...(args.preset.topP !== undefined ? { top_p: args.preset.topP } : {}),
         });
         content = res.choices?.[0]?.message?.content ?? '';
@@ -509,7 +511,6 @@ export class AiImportService {
       model: args.model,
       preset: args.preset,
       messages: buildRelateMessages(functions.map(toItem), nfrs.map(toItem)),
-      maxTokens: AI_IMPORT_RELATE_MAX_TOKENS,
       parse: (content) => parseRelateResponse(content),
       parseFinal: (content) => parseRelateResponse(content, 'lenient'),
       attemptWarn: (attempt) =>
@@ -755,7 +756,6 @@ export class AiImportService {
             model,
             preset,
             messages,
-            maxTokens: AI_IMPORT_MAX_TOKENS,
             parse: (content) => {
               const parsed = parseExtractionResponse(content);
               if (
@@ -869,7 +869,6 @@ export class AiImportService {
           model,
           preset,
           messages: buildStructureMessages(batches[b]!, archiveMap, structureItems),
-          maxTokens: AI_IMPORT_STRUCTURE_MAX_TOKENS, // Task 14 B1
           parse: (content) => parseStructureResponse(content),
           // Task 14 B7: the LAST attempt keeps valid nodes instead of losing the batch.
           parseFinal: (content) => parseStructureResponse(content, 'lenient'),

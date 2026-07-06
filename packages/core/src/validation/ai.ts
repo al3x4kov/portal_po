@@ -39,6 +39,13 @@ export type AiModelReasoning = (typeof AI_MODEL_REASONING_MODES)[number];
  * `reasoning` (`none` keeps the answer verbatim — Coder-Next compatibility;
  * `strip` removes `<think>…</think>` wrappers of thinking models), optional
  * `topP` (0..1, nucleus sampling — passed only when set).
+ *
+ * todo_18: `maxOutputTokens` is the FULL generation budget of one IMPORT call
+ * (`max_tokens` sent as-is), i.e. it must cover the JSON answer AND, for
+ * thinking models, the `<think>…</think>` reasoning that precedes it — set it
+ * too low and the reply is truncated («ответ обрезан по лимиту токенов»). For
+ * the chat widget and description generation it is only an UPPER bound (those
+ * calls clamp their own small budget against it).
  */
 export const aiModelPresetSchema = z.object({
   temperature: z.number().min(0).max(2),
@@ -75,13 +82,17 @@ export const AI_MODEL_PRESET_DEFAULTS: Record<string, AiModelPreset> = {
   },
   'Qwen/Qwen3.5-397B-A17B': {
     temperature: 0.2,
-    maxOutputTokens: 8000,
+    // todo_18: full IMPORT generation budget — a thinking model spends part of
+    // it on `<think>…</think>` reasoning before the JSON answer, so it must be
+    // large enough for reasoning + answer or the reply is truncated.
+    maxOutputTokens: 16_000,
     chunkChars: 24_000,
     reasoning: 'strip',
   },
   'Qwen/Qwen3.6-27B': {
     temperature: 0.2,
-    maxOutputTokens: 6000,
+    // todo_18: full IMPORT generation budget — see Qwen3.5 note above.
+    maxOutputTokens: 12_000,
     chunkChars: 16_000,
     reasoning: 'strip',
   },

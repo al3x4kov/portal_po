@@ -157,10 +157,11 @@ describe('T11 AI import routes (integration, mock client)', () => {
     expect(list.statusCode).toBe(200);
     const { requirements } = list.json() as { requirements: Array<Record<string, unknown>> };
     expect(requirements.map((r) => r.name).sort()).toEqual(['Время отклика', 'Вход по паролю']);
-    // The mock uses the extraction parameters from the core contract.
+    // todo_18: import calls send the model's full generation budget as
+    // max_tokens; 'Qwen-Coder-Next' has no dedicated preset → generic 4000.
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
     expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ temperature: 0.2, max_tokens: 2000, model: 'Qwen-Coder-Next' }),
+      expect.objectContaining({ temperature: 0.2, max_tokens: 4000, model: 'Qwen-Coder-Next' }),
     );
   });
 

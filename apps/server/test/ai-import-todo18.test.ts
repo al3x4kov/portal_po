@@ -169,11 +169,39 @@ describe('todo_18: reasoning-strip + смысловые связи в импор
     });
     const { service, jobId } = await runImport(client);
     expect(service.getView(jobId).status).toBe('succeeded');
-    // Qwen/Qwen3.6-27B preset: temperature 0.2, maxOutputTokens 6000.
-    // extraction desired 2000 → min(2000,6000)=2000; structure desired 4000 → 4000.
+    // todo_18: Qwen/Qwen3.6-27B is a thinking model; its default preset now
+    // carries the FULL import budget (maxOutputTokens 12000) so reasoning +
+    // answer fit. Every import call (extraction, structure) sends it verbatim.
     expect(seen[0]!.temperature).toBe(0.2);
-    expect(seen[0]!.max_tokens).toBe(2000);
-    expect(seen[1]!.max_tokens).toBe(4000);
+    expect(seen[0]!.max_tokens).toBe(12_000);
+    expect(seen[1]!.max_tokens).toBe(12_000);
+  });
+
+  it('import max_tokens is the full preset budget: default 12000, user override wins (min→direct)', async () => {
+    // Default (no override): thinking model gets its full 12000 budget.
+    const seenDefault: AiChatCompletionParams[] = [];
+    const clientDefault = respondingClient(({ index, params }) => {
+      seenDefault.push(params);
+      return index === 0 ? thinking(EXTRACTION) : thinking(STRUCTURE);
+    });
+    const runDefault = await runImport(clientDefault);
+    expect(runDefault.service.getView(runDefault.jobId).status).toBe('succeeded');
+    expect(seenDefault.map((p) => p.max_tokens)).toEqual([12_000, 12_000]);
+
+    // A user override of 3000 REALLY lowers the budget (formula is a direct
+    // budget now, not Math.min against a per-call constant): 3000 < old 4000.
+    await configRepo.update({
+      projectId: PROJECT,
+      modelPresets: { 'Qwen/Qwen3.6-27B': { maxOutputTokens: 3000 } },
+    });
+    const seenOverride: AiChatCompletionParams[] = [];
+    const clientOverride = respondingClient(({ index, params }) => {
+      seenOverride.push(params);
+      return index === 0 ? thinking(EXTRACTION) : thinking(STRUCTURE);
+    });
+    const runOverride = await runImport(clientOverride);
+    expect(runOverride.service.getView(runOverride.jobId).status).toBe('succeeded');
+    expect(seenOverride.map((p) => p.max_tokens)).toEqual([3000, 3000]);
   });
 
   it('relate returns a VALID empty array → status done + explicit «не нашла пар» log line (not silent)', async () => {

@@ -677,13 +677,13 @@ describe('todo_18 AI_MODEL_PRESET_DEFAULTS', () => {
     });
     expect(AI_MODEL_PRESET_DEFAULTS['Qwen/Qwen3.5-397B-A17B']).toEqual({
       temperature: 0.2,
-      maxOutputTokens: 8000,
+      maxOutputTokens: 16_000,
       chunkChars: 24_000,
       reasoning: 'strip',
     });
     expect(AI_MODEL_PRESET_DEFAULTS['Qwen/Qwen3.6-27B']).toEqual({
       temperature: 0.2,
-      maxOutputTokens: 6000,
+      maxOutputTokens: 12_000,
       chunkChars: 16_000,
       reasoning: 'strip',
     });
@@ -703,7 +703,7 @@ describe('todo_18 resolveModelPreset (override ← default-by-id ← generic)', 
   it('returns the exact default for a known id when there is no override', () => {
     expect(resolveModelPreset('Qwen/Qwen3.5-397B-A17B')).toEqual({
       temperature: 0.2,
-      maxOutputTokens: 8000,
+      maxOutputTokens: 16_000,
       chunkChars: 24_000,
       reasoning: 'strip',
     });
@@ -719,7 +719,7 @@ describe('todo_18 resolveModelPreset (override ← default-by-id ← generic)', 
     const eff = resolveModelPreset('Qwen/Qwen3.6-27B', { temperature: 0.7, topP: 0.8 });
     expect(eff).toEqual({
       temperature: 0.7,
-      maxOutputTokens: 6000,
+      maxOutputTokens: 12_000,
       chunkChars: 16_000,
       reasoning: 'strip',
       topP: 0.8,

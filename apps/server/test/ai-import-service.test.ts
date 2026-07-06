@@ -6,7 +6,7 @@ import AdmZip from 'adm-zip';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AiConfigRepo } from '../src/repositories/AiConfigRepo.js';
 import { AiImportJobs } from '../src/services/AiImportJobs.js';
-import { AI_IMPORT_MAX_TOKENS, AI_IMPORT_STRUCTURE_MAX_TOKENS } from '@po/core';
+import { resolveModelPreset } from '@po/core';
 import {
   AI_IMPORT_HINT_CONFIGURE,
   AI_IMPORT_HINT_NO_DOCS,
@@ -776,7 +776,7 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
 
   // ── Task 14: tree validity of the AI import ───────────────────────────────
 
-  it('T14 B1: structure calls use their own 4000-token budget; extraction keeps 2000', async () => {
+  it('todo_18: every import call sends the model preset budget as max_tokens', async () => {
     const client = scriptedClient([
       JSON.stringify([record()]),
       structure([{ name: 'Вход по паролю' }]),
@@ -787,7 +787,11 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     await runToEnd(service, archive);
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
     const budgets = create.mock.calls.map((c) => (c[0] as { max_tokens: number }).max_tokens);
-    expect(budgets).toEqual([AI_IMPORT_MAX_TOKENS, AI_IMPORT_STRUCTURE_MAX_TOKENS]);
+    // Model 'Qwen-Coder-Next' has no dedicated preset → generic budget 4000,
+    // sent verbatim (no per-call Math.min cap) for extraction AND structure.
+    const budget = resolveModelPreset('Qwen-Coder-Next').maxOutputTokens;
+    expect(budget).toBe(4000);
+    expect(budgets).toEqual([budget, budget]);
   });
 
   it('T14 B2: finish_reason=length → truncation warn, salvaged array still used', async () => {

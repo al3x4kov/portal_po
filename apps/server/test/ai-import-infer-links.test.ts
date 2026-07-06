@@ -4,7 +4,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import AdmZip from 'adm-zip';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AI_IMPORT_RELATE_MAX_TOKENS, type Requirement } from '@po/core';
+import { resolveModelPreset, type Requirement } from '@po/core';
 import { AiConfigRepo } from '../src/repositories/AiConfigRepo.js';
 import { AiImportJobs } from '../src/services/AiImportJobs.js';
 import { AiImportService } from '../src/services/AiImportService.js';
@@ -196,7 +196,9 @@ describe('todo_16 B2: optional inferLinks step (relate ФТ↔НФТ, mock AI cl
     expect(statusAtRelate).toBe('running');
     expect(stageAtRelate).toBe('populate');
     expect(relateAtRelate).toEqual({ status: 'running', created: 0 });
-    expect(relateMaxTokens).toBe(AI_IMPORT_RELATE_MAX_TOKENS);
+    // todo_18: the relate call sends the model's full preset budget as
+    // max_tokens ('Qwen-Coder-Next' has no dedicated preset → generic 4000).
+    expect(relateMaxTokens).toBe(resolveModelPreset('Qwen-Coder-Next').maxOutputTokens);
     // Final step outcome.
     expect(view.relate).toEqual({ status: 'done', created: 1 });
     // The step never creates/changes requirements; existing counters untouched.
