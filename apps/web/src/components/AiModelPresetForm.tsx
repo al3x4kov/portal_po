@@ -39,6 +39,45 @@ const REASONING_LABELS: Record<AiModelReasoning, string> = {
   strip: 'Вырезать рассуждения <think> (strip)',
 };
 
+/** Human names of the three AI features these presets influence. */
+const FEATURE = {
+  import: 'AI-генерация ФТ/НФТ по архиву',
+  chat: 'виджет чата',
+  desc: 'генерация описания в карточке ФТ/НФТ',
+} as const;
+
+/**
+ * Plain-language «what is this / what does it affect» help under a field.
+ * `param` yields a stable `ai-preset-help-<param>` testid for e2e; `impact`
+ * spells out which product AI-features the parameter really touches (verified
+ * against the server, not guessed).
+ */
+function FieldHelp({
+  param,
+  what,
+  impact,
+  hint,
+}: {
+  param: string;
+  what: React.ReactNode;
+  impact: React.ReactNode;
+  hint?: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div className="mt-1 space-y-0.5" data-testid={`ai-preset-help-${param}`}>
+      <p className="hint">{what}</p>
+      <p className="hint">
+        <span style={{ color: 'var(--color-text-2)' }}>Влияет на:</span> {impact}
+      </p>
+      {hint ? (
+        <p className="hint" style={{ color: 'var(--color-text-3)' }}>
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 type Status = { kind: 'success'; text: string } | { kind: 'error'; text: string } | null;
 
 interface AiModelPresetFormProps {
@@ -171,6 +210,11 @@ export function AiModelPresetForm({
       <div>
         <h2 className="text-base font-bold">Параметры модели (best practices)</h2>
         <p className="mt-1 text-sm" style={{ color: 'var(--color-text-3)' }}>
+          Здесь настраивается поведение выбранной модели для AI-функций портала: «AI-генерация
+          ФТ/НФТ по архиву» (импорт), «виджет чата» и «генерация описания в карточке ФТ/НФТ». У
+          каждого параметра ниже указано, что он делает простыми словами и на какие функции влияет.
+        </p>
+        <p className="mt-1 text-sm" style={{ color: 'var(--color-text-3)' }}>
           Значения по умолчанию подобраны под каждую модель. Показаны эффективные значения — то, что
           реально применится (дефолт модели + ваши переопределения).
         </p>
@@ -219,7 +263,16 @@ export function AiModelPresetForm({
               data-testid="ai-preset-temperature"
               {...register('temperature', { valueAsNumber: true })}
             />
-            <p className="hint mt-1">0–2. Ниже — стабильнее, выше — разнообразнее.</p>
+            <FieldHelp
+              param="temperature"
+              what="Насколько «творчески» и вариативно отвечает модель. Ниже — точнее и стабильнее, выше — разнообразнее (0–2)."
+              impact={
+                <>
+                  только «{FEATURE.import}». Чат и генерация описания используют свои встроенные
+                  настройки и этот параметр их не меняет.
+                </>
+              }
+            />
             {errors.temperature ? (
               <p className="mt-1 text-xs" style={{ color: 'var(--color-danger-fg)' }} role="alert">
                 Значение должно быть числом от 0 до 2.
@@ -249,7 +302,11 @@ export function AiModelPresetForm({
                   v === '' || v === null || v === undefined ? undefined : Number(v),
               })}
             />
-            <p className="hint mt-1">0–1. Оставьте пустым, чтобы не передавать.</p>
+            <FieldHelp
+              param="topP"
+              what="Альтернатива температуре: ограничивает выбор слов по суммарной вероятности (0–1). Обычно оставляют пустым — тогда параметр не передаётся."
+              impact={<>все AI-функции (импорт, чат, генерация описания), если значение задано.</>}
+            />
             {errors.topP ? (
               <p className="mt-1 text-xs" style={{ color: 'var(--color-danger-fg)' }} role="alert">
                 Значение должно быть числом от 0 до 1.
@@ -274,7 +331,17 @@ export function AiModelPresetForm({
               data-testid="ai-preset-maxOutputTokens"
               {...register('maxOutputTokens', { valueAsNumber: true })}
             />
-            <p className="hint mt-1">Целое ≥ 1. Верхняя граница ответа модели.</p>
+            <FieldHelp
+              param="maxOutputTokens"
+              what="Максимум токенов в одном ответе модели, включая «размышления» reasoning-моделей. Если мало — ответ обрежется (в логе импорта «ответ обрезан по лимиту токенов»). Целое ≥ 1."
+              impact={
+                <>
+                  прежде всего «{FEATURE.import}» — здесь это полный бюджет ответа (его повышают,
+                  когда ответ обрезается). Для чата и генерации описания — только верхняя граница, у
+                  них свой небольшой бюджет.
+                </>
+              }
+            />
             {errors.maxOutputTokens ? (
               <p className="mt-1 text-xs" style={{ color: 'var(--color-danger-fg)' }} role="alert">
                 Введите целое число ≥ 1.
@@ -299,7 +366,11 @@ export function AiModelPresetForm({
               data-testid="ai-preset-chunkChars"
               {...register('chunkChars', { valueAsNumber: true })}
             />
-            <p className="hint mt-1">Целое ≥ 1000. Подгоняется под окно контекста модели.</p>
+            <FieldHelp
+              param="chunkChars"
+              what="Сколько символов документации отправляется за один запрос при разборе архива. Меньше — короче ответы и надёжнее, но больше запросов. Целое ≥ 1000."
+              impact={<>только «{FEATURE.import}».</>}
+            />
             {errors.chunkChars ? (
               <p className="mt-1 text-xs" style={{ color: 'var(--color-danger-fg)' }} role="alert">
                 Введите целое число ≥ 1000.
@@ -327,9 +398,17 @@ export function AiModelPresetForm({
                 </option>
               ))}
             </select>
-            <p className="hint mt-1">
-              «strip» вырезает служебные блоки <code>&lt;think&gt;…&lt;/think&gt;</code> из ответа.
-            </p>
+            <FieldHelp
+              param="reasoning"
+              what={
+                <>
+                  Как обрабатывать «думающие» модели: «strip» вырезает блок{' '}
+                  <code>&lt;think&gt;…&lt;/think&gt;</code> из ответа; «none» — не трогает (для
+                  обычных моделей вроде Coder-Next).
+                </>
+              }
+              impact={<>все AI-функции: импорт, чат и генерация описания.</>}
+            />
           </div>
         </div>
 

@@ -13,8 +13,10 @@ vi.mock('../api/endpoints', () => ({
   },
 }));
 
-const CODER = 'Qwen/Qwen3-Coder-Next'; // defaults: 0.2 / 4000 / 12000 / none
-const SMALL = 'Qwen/Qwen3.6-27B'; // defaults: 0.2 / 6000 / 16000 / strip
+// defaults (temperature / maxOutputTokens / chunkChars / reasoning) come from
+// @po/core AI_MODEL_PRESET_DEFAULTS — kept in sync via resolveModelPreset below.
+const CODER = 'Qwen/Qwen3-Coder-Next'; // 0.2 / 4000 / 12000 / none
+const SMALL = 'Qwen/Qwen3.6-27B'; // 0.2 / 12000 / 16000 / strip
 const MODELS = [CODER, SMALL];
 
 function renderForm(
@@ -121,6 +123,41 @@ describe('AiModelPresetForm (todo_18)', () => {
 
     expect(await screen.findByText(/от 0 до 2/)).toBeInTheDocument();
     expect(saveConfig).not.toHaveBeenCalled();
+  });
+
+  it('explains every parameter in plain language and tags which AI-feature it affects', () => {
+    renderForm();
+
+    // Intro names all three AI-features these presets influence.
+    const section = screen.getByTestId('ai-preset-section');
+    expect(section).toHaveTextContent(/AI-генерация ФТ\/НФТ по архиву/);
+    expect(section).toHaveTextContent(/виджет чата/);
+    expect(section).toHaveTextContent(/генерация описания в карточке/);
+
+    // Each parameter has a plain-language help block with an «Влияет на:» tag.
+    for (const param of [
+      'temperature',
+      'topP',
+      'maxOutputTokens',
+      'chunkChars',
+      'reasoning',
+    ] as const) {
+      const help = screen.getByTestId(`ai-preset-help-${param}`);
+      expect(help).toHaveTextContent(/Влияет на:/);
+    }
+
+    // Impact map is truthful: temperature/chunkChars are import-only; reasoning
+    // hits all three features.
+    expect(screen.getByTestId('ai-preset-help-temperature')).toHaveTextContent(
+      /только «AI-генерация ФТ\/НФТ по архиву»/,
+    );
+    expect(screen.getByTestId('ai-preset-help-chunkChars')).toHaveTextContent(
+      /только «AI-генерация ФТ\/НФТ по архиву»/,
+    );
+    expect(screen.getByTestId('ai-preset-help-reasoning')).toHaveTextContent(/все AI-функции/);
+    expect(screen.getByTestId('ai-preset-help-maxOutputTokens')).toHaveTextContent(
+      /полный бюджет ответа/,
+    );
   });
 
   it('renders an empty-state hint when there is no model to configure yet', () => {
