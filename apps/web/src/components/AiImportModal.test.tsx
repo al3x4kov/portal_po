@@ -373,9 +373,10 @@ describe('AiImportModal (Task 11)', () => {
     expect(rows[1]).toHaveTextContent('Создано нефункциональных требований');
     expect(rows[1]).toHaveTextContent('6');
     expect(rows[2]).toHaveTextContent('Создано связей в дереве');
-    expect(rows[2]).toHaveTextContent('9');
-    expect(rows[3]).toHaveTextContent('Найдено связей НФТ с ФТ');
-    // Task 15: NFR→FT RELATES_TO counter keeps its own testid.
+    expect(screen.getByTestId('ai-import-tree-links')).toHaveTextContent('9');
+    expect(rows[3]).toHaveTextContent('Смысловые связи НФТ↔ФТ');
+    // Task 15 / todo_18: NFR↔FT RELATES_TO counter keeps its own testid.
+    // Without a relate step it equals the extraction-time count (2 + 0).
     expect(screen.getByTestId('ai-import-relates-links')).toHaveTextContent('2');
     expect(rows[4]).toHaveTextContent('Пропущено');
     expect(rows[4]).toHaveTextContent('уже существовали в проекте');
@@ -552,6 +553,23 @@ describe('AiImportModal (Task 11)', () => {
       expect(screen.getByTestId('ai-import-relate-status')).toHaveTextContent(
         'Проставление связей ФТ↔НФТ: создано связей: 4',
       );
+    });
+
+    it('done relate: semantic НФТ↔ФТ counter sums extraction + relate step', async () => {
+      // result.relatesLinks (2, from extraction) + relate.created (4) = 6.
+      getJob.mockResolvedValue({
+        ...SUCCEEDED_JOB,
+        relate: { status: 'done', created: 4 },
+      } satisfies AiImportJobView);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await startJob(user);
+
+      await screen.findByTestId('ai-import-success');
+      // Tree links (CHILD_OF) stay separate; the semantic total is combined.
+      expect(screen.getByTestId('ai-import-tree-links')).toHaveTextContent('9');
+      expect(screen.getByTestId('ai-import-relates-links')).toHaveTextContent('6');
     });
 
     it('partial relate: «создано N, часть не создана»', async () => {

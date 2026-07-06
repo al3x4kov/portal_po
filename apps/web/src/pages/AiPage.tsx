@@ -19,6 +19,7 @@ import { Sidebar } from '../components/Sidebar';
 import { PathHeader } from '../components/PathHeader';
 import { useUiStore } from '../store/ui';
 import { RequirementModal } from '../components/RequirementModal';
+import { AiModelPresetForm } from '../components/AiModelPresetForm';
 import { ExportModal } from '../components/ExportModal';
 import { ExportTasksModal } from '../components/ExportTasksModal';
 
@@ -486,6 +487,14 @@ export function AiPage(): React.ReactElement {
               </ol>
             </section>
           </div>
+
+          {/* todo_18: per-model best-practice parameters (temperature, token
+              limits, chunk size, reasoning handling). */}
+          <AiModelPresetForm
+            models={modelOptions}
+            presets={config?.modelPresets ?? {}}
+            defaultModel={model}
+          />
         </main>
 
         {confirmDeleteKey ? (

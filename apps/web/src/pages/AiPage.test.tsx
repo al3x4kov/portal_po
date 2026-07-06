@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { AiPage } from './AiPage';
@@ -262,7 +262,8 @@ describe('AiPage (T-803)', () => {
       expect(listModels).not.toHaveBeenCalled();
 
       await user.click(screen.getByTestId('ai-models-refresh'));
-      await screen.findByRole('option', { name: 'GigaChat-2-Pro' });
+      // Scope to the connection select — the preset section lists models too.
+      await within(select).findByRole('option', { name: 'GigaChat-2-Pro' });
       expect(listModels).toHaveBeenCalledTimes(1);
       // The stored selection survives the refresh; no notice is shown.
       expect(select).toHaveValue('GigaChat-2');

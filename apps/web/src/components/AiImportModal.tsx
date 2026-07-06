@@ -37,9 +37,16 @@ export const AI_IMPORT_STAGE_LABELS: Record<AiImportStage, string> = {
 
 const MODEL_HINT = 'Задайте API-ключ на экране AI (меню проекта → AI), затем выберите модель.';
 
-/** §2.18.4: human wording of the opt-in AI relate step (no internal terms). */
-const INFER_LINKS_LABEL = 'Найти смысловые связи НФТ с ФТ (AI)';
-const INFER_LINKS_HINT = 'Возможны неточные связи; новые требования не добавляются';
+/**
+ * §2.18.4 + todo_18: human wording of the opt-in AI relate step. The import
+ * always builds the ФТ tree and the НФТ tree (CHILD_OF); this checkbox adds the
+ * third kind of analysis — meaningful cross-links between НФТ and ФТ
+ * (RELATES_TO). No internal terms.
+ */
+const INFER_LINKS_LABEL = 'Находить смысловые связи между НФТ и ФТ (AI)';
+const INFER_LINKS_HINT =
+  'Деревья ФТ и НФТ строятся всегда; эта опция дополнительно связывает НФТ ' +
+  'с ФТ по смыслу. Возможны неточные связи; новые требования не добавляются.';
 
 /** Name of the optional relate step shown in the progress/result view. */
 const RELATE_STEP_LABEL = 'Проставление связей ФТ↔НФТ';
@@ -317,6 +324,10 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   const result = job?.result;
   // B2: present only when the import was started with inferLinks (absent → no block).
   const relate = job?.relate;
+  // todo_18: total meaningful НФТ↔ФТ links (RELATES_TO) = links found during
+  // extraction (`result.relatesLinks`) + links added by the optional relate step
+  // (`relate.created`, non-zero only when the step actually ran).
+  const relatesTotal = (result?.relatesLinks ?? 0) + (relate?.created ?? 0);
   // Ф6: while the AI relate call runs the job formally sits on `populate` —
   // show the relate step in the «Этап:» line so the user sees what is going on.
   const currentStepLabel = relate?.status === 'running' ? RELATE_STEP_LABEL : stageLabel;
@@ -559,8 +570,14 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                   <tr className="border-b" style={{ borderColor: 'var(--color-border)' }}>
                     <th scope="row" className="px-4 py-3 text-left font-medium">
                       Создано связей в дереве
+                      <span className="hint block font-normal">
+                        иерархия CHILD_OF: дерево ФТ и дерево НФТ
+                      </span>
                     </th>
-                    <td className="px-4 py-3 text-right text-2xl font-bold tabular-nums">
+                    <td
+                      className="px-4 py-3 text-right text-2xl font-bold tabular-nums"
+                      data-testid="ai-import-tree-links"
+                    >
                       {result?.links ?? 0}
                     </td>
                   </tr>
@@ -572,14 +589,19 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                     }}
                   >
                     <th scope="row" className="px-4 py-3 text-left font-medium">
-                      Найдено связей НФТ с ФТ
+                      Смысловые связи НФТ↔ФТ
+                      <span className="hint block font-normal">
+                        {relate
+                          ? 'RELATES_TO: из текста + шаг «связи ФТ↔НФТ»'
+                          : 'RELATES_TO: связи по смыслу между НФТ и ФТ'}
+                      </span>
                     </th>
                     <td
                       className="px-4 py-3 text-right text-2xl font-bold tabular-nums"
                       style={{ color: 'var(--color-success-fg)' }}
                       data-testid="ai-import-relates-links"
                     >
-                      {result?.relatesLinks ?? 0}
+                      {relatesTotal}
                     </td>
                   </tr>
                   <tr>
