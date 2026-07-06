@@ -42,6 +42,20 @@
   (RELATES_TO). В блоке результата связи дерева (`result.links`) и смысловые связи
   (`result.relatesLinks` + `job.relate.created`) разнесены и подписаны наглядно.
 
+### E2E (`e2e/`)
+- **Пресеты модели (`ai-presets.spec.ts`).** Сценарий на экране настроек AI: выбор модели в
+  `ai-preset-model-select`, правка `temperature`/`maxOutputTokens`/`chunkChars`/`reasoning`/`topP`,
+  «Сохранить» → перечитывание конфига (reload): значения сохранились, бейджи полей помечены
+  `data-overridden="true"`; «Сбросить к дефолту» → поля вернулись к дефолтным
+  (`data-overridden="false"`), сброс переживает reload.
+- **Импорт «думающей» моделью (`ai-presets.spec.ts`).** Стаб AI Hub оборачивает КАЖДЫЙ ответ в
+  `<think>…</think>` (новый opt-in `setThinkWrap` в `helpers/ai-stub.ts`); модель `Qwen/Qwen3.6-27B`
+  (`reasoning:'strip'` по дефолту). AI-импорт архива с `inferLinks` завершается успехом:
+  `ai-import-tree-links` > 0 (CHILD_OF) и `ai-import-relates-links` > 0 (extraction + relate-шаг),
+  RELATES_TO симметричны по API — баг «0 связей на думающих моделях» подтверждённо устранён.
+- Хелпер `expectAiImportSummary` синхронизирован с новой сводкой todo_18: строка переименована в
+  «Смысловые связи НФТ↔ФТ», а её число — суммарное (`result.relatesLinks` + `relate.created`).
+
 ## 2026-07-05 — Дизайн v2: внедрение переработанных экранов (todo_17)
 
 ### T1 — Дизайн-фундамент: токены v2 и общие примитивы

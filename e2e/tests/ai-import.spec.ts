@@ -1276,7 +1276,7 @@ test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
 
-      // Счётчик в сводке-таблице — числовая ячейка «Найдено связей НФТ с ФТ».
+      // Счётчик в сводке-таблице — числовая ячейка «Смысловые связи НФТ↔ФТ».
       await expectAiImportSummary(page, {
         functions: 1,
         nfrs: 1,
@@ -1644,15 +1644,16 @@ test.describe('todo_16 · AI-импорт: обновление списка м�
         JOB_TIMEOUT,
       );
 
-      // Импорт завершён; итог шага — «создано связей: 1». Сводка-таблица:
-      // relate-шаг НЕ входит в «Найдено связей НФТ с ФТ» (отдельный счётчик).
+      // Импорт завершён; итог шага — «создано связей: 1». Сводка-таблица
+      // (todo_18): «Смысловые связи НФТ↔ФТ» суммирует extraction (0) + relate-шаг
+      // (1) = 1 — счётчик стал совокупным.
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
       await expectAiImportSummary(page, {
         functions: 2,
         nfrs: 1,
         treeLinks: 1,
-        relatesLinks: 0,
+        relatesLinks: 1,
         skipped: 0,
       });
       await expect(relateStatus).toHaveText('Проставление связей ФТ↔НФТ: создано связей: 1');

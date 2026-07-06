@@ -123,6 +123,15 @@ export interface AiStub {
    * by every test of the spec file.
    */
   setModels(models: string[] | null): void;
+  /**
+   * todo_18: when enabled, every model answer is wrapped in a LEADING
+   * `<think>…</think>` reasoning block around the real JSON/text payload —
+   * emulating a «thinking» model (Qwen3.5/3.6). Lets E2E prove the server's
+   * reasoning-strip (`reasoning: 'strip'`) unblocks JSON extraction, relate and
+   * structure stages. Opt-in and OFF by default, so no other spec is affected;
+   * always restore with `setThinkWrap(false)` in `finally`.
+   */
+  setThinkWrap(enabled: boolean): void;
   /** All captured `/chat/completions` bodies, in arrival order. */
   readonly chatRequests: AiChatCompletionCapture[];
   lastChatRequest(): AiChatCompletionCapture | undefined;
@@ -300,6 +309,7 @@ export function relateListsOf(body: AiChatCompletionCapture | undefined): Relate
 /** Start the stub on an ephemeral 127.0.0.1 port. Call `close()` in afterAll. */
 export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
   let chatMode: 'ok' | 'error' = 'ok';
+  let thinkWrap = false;
   let models: string[] = opts.models;
   let extractionDelayMs = 0;
   let structureDelayMs = 0;
@@ -407,6 +417,15 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
           } else {
             content = opts.reply;
           }
+          // todo_18: emulate a «thinking» model — wrap the real payload in a
+          // leading `<think>…</think>` reasoning block. A non-thinking (forced
+          // non-JSON) fault is left verbatim.
+          if (thinkWrap && !forceNonJson) {
+            content =
+              '<think>\nСначала рассуждаю над требованиями и связями между ФТ и НФТ, ' +
+              'затем отвечаю строгим JSON. Этот блок должен быть вырезан сервером.\n' +
+              `</think>\n${content}`;
+          }
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(
             JSON.stringify({
@@ -443,6 +462,9 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
     },
     setModels(next) {
       models = next ?? opts.models;
+    },
+    setThinkWrap(enabled) {
+      thinkWrap = enabled;
     },
     chatRequests,
     lastChatRequest() {
