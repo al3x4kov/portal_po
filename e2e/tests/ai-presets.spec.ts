@@ -21,7 +21,12 @@ import { expectAiImportSummary } from './helpers/ai-import.js';
  * resets the key in `afterAll` — the same discipline as ai-import.spec.ts.
  */
 
-/* «Думающая» модель: дефолтный пресет reasoning='strip', chunk 16000, maxOut 6000. */
+/*
+ * «Думающая» модель: дефолтный пресет reasoning='strip', chunk 16000,
+ * maxOut 12000. todo_18/58b7342: бюджет думающей модели поднят 6000→12000,
+ * потому что в пайплайне ИМПОРТА max_tokens = preset.maxOutputTokens (полный
+ * бюджет), и reasoning-блок `<think>…</think>` не должен съедать место до JSON.
+ */
 const THINKING_MODEL = 'Qwen/Qwen3.6-27B';
 const STUB_MODELS = [THINKING_MODEL, 'Qwen/Qwen3-Coder-Next', 'GigaChat-2-Pro'];
 const JOB_TIMEOUT = { timeout: 30_000 } as const;
@@ -29,11 +34,14 @@ const JOB_TIMEOUT = { timeout: 30_000 } as const;
 /** Дефолты пресета для THINKING_MODEL (packages/core/src/validation/ai.ts). */
 const DEFAULTS = {
   temperature: '0.2',
-  maxOutputTokens: '6000',
+  maxOutputTokens: '12000',
   chunkChars: '16000',
   reasoning: 'strip',
   topP: '',
 } as const;
+
+/** Точная строка лога усечения ответа (AiImportService.chatWithJsonRetries). */
+const TRUNCATED_LOG_MARKER = 'обрезан по лимиту токенов';
 
 let stub: AiStub;
 
@@ -176,6 +184,29 @@ test.describe('todo_18 · пресеты модели в настройках AI
       'false',
     );
   });
+
+  test('справка по параметрам: вводный абзац секции и блоки «Влияет на:» у каждого поля', async ({
+    page,
+  }) => {
+    await createProject(page, uniqueName('AiPresetHelp'));
+    const id = projectIdFromUrl(page);
+    await configureAi(page, id, THINKING_MODEL);
+
+    await page.goto(`/p/${id}/ai`);
+    const section = page.getByTestId('ai-preset-section');
+    await expect(section).toBeVisible();
+    await page.getByTestId('ai-preset-model-select').selectOption(THINKING_MODEL);
+
+    // Вводный абзац объясняет назначение параметров и привязку к AI-функциям.
+    await expect(section).toContainText('что он делает простыми словами и на какие функции влияет');
+
+    // У каждого параметра есть блок пояснения с привязкой «Влияет на:».
+    for (const param of ['temperature', 'maxOutputTokens', 'chunkChars', 'reasoning', 'topP']) {
+      const help = page.getByTestId(`ai-preset-help-${param}`);
+      await expect(help).toBeVisible();
+      await expect(help).toContainText('Влияет на:');
+    }
+  });
 });
 
 /* ══ 2 · Импорт «думающей» моделью: дерево + смысловые связи (reasoning-strip) ═ */
@@ -278,6 +309,17 @@ test.describe('todo_18 · AI-импорт думающей моделью со �
       const relatesLinks = Number(await page.getByTestId('ai-import-relates-links').innerText());
       expect(treeLinks).toBeGreaterThan(0);
       expect(relatesLinks).toBeGreaterThan(0);
+
+      // Регресс бага «ответ обрезан по лимиту токенов» (todo_18/58b7342): при
+      // дефолтном бюджете думающей модели (12000) и max_tokens = полный бюджет
+      // reasoning-обёртка `<think>…</think>` помещается ЦЕЛИКОМ, ответ модели не
+      // усекается. Наблюдаемый инвариант успешного импорта думающей моделью — в
+      // журнале анализа НЕТ ни одной строки об усечении по лимиту токенов (её
+      // сервер пишет только на finish_reason === 'length', и на всех этапах:
+      // извлечение, структуризация, связи ФТ↔НФТ).
+      const log = page.getByTestId('ai-import-log');
+      await expect(log).toBeVisible();
+      await expect(log).not.toContainText(TRUNCATED_LOG_MARKER);
 
       // Шаг «связи ФТ↔НФТ» реально отработал (relate-ответ тоже был в <think>).
       await expect(page.getByTestId('ai-import-relate-status')).toHaveText(

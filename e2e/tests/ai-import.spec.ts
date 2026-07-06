@@ -419,13 +419,15 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await expect(log).toContainText(`Создано: «${REQ_LOGIN}» (FUNCTION).`);
     await attachShot(page, testInfo, 'success');
 
-    // The stub saw one extraction call per doc file, with the project model;
-    // extraction keeps max_tokens 2000 (Task 14 B1 raises only structure).
+    // The stub saw one extraction call per doc file, with the project model.
+    // todo_18 (58b7342): import calls now request the model's FULL generation
+    // budget (`preset.maxOutputTokens`) instead of a per-call cap — 'Qwen-Coder-Next'
+    // has no explicit preset, so it resolves to __default__ (maxOutputTokens 4000).
     const calls = stub.extractionRequests.slice(callsBefore);
     expect(calls).toHaveLength(2);
     for (const call of calls) {
       expect(call.model).toBe('Qwen-Coder-Next');
-      expect(call['max_tokens']).toBe(2000);
+      expect(call['max_tokens']).toBe(4000);
     }
 
     // «Готово» → modal gone, tree already refreshed.
