@@ -1,19 +1,19 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import {
-  AI_IMPORT_CHUNK_CHARS,
   AI_IMPORT_MAX_ARCHIVE_BYTES,
   AI_IMPORT_MAX_TOKENS,
   AI_IMPORT_RELATE_MAX_TOKENS,
   AI_IMPORT_STRUCTURE_BATCH,
   AI_IMPORT_STRUCTURE_MAX_TOKENS,
-  AI_IMPORT_TEMPERATURE,
   DomainError,
+  resolveModelPreset,
   TARGET_QUARTERS,
   type AiExtractedRequirement,
   type AiImportJobView,
   type AiImportResult,
   type AiImportStartResponse,
+  type AiModelPreset,
   type Link,
   type Requirement,
   type TargetQuarter,
@@ -42,6 +42,7 @@ import {
   type RelateItem,
   type StructureItem,
 } from './aiImportPrompt.js';
+import { stripReasoning } from './aiReasoning.js';
 
 /* Mandatory user-facing texts (spec §4): readable message + "what to do next". */
 export const AI_IMPORT_HINT_ARCHIVE =
@@ -251,6 +252,9 @@ export class AiImportService {
       throw new BadRequestError(AI_IMPORT_HINT_CONFIGURE);
     }
     const apiKey = cfg.apiKey; // narrowed const — usable inside the catch closure
+    // todo_18: effective per-model preset (generic ← default-by-id ← override).
+    // Drives temperature / token clamp / input chunking / reasoning for the whole run.
+    const preset = resolveModelPreset(model, cfg.modelPresets?.[model]);
 
     const stat = await fs.stat(archivePath);
     if (stat.size > AI_IMPORT_MAX_ARCHIVE_BYTES) {
@@ -259,7 +263,16 @@ export class AiImportService {
 
     const job = this.deps.jobs.create(projectId); // ConflictError (409) when running
 
-    const run = this.run(job, archivePath, model, apiKey, cfg.baseURL, inferLinks, stat.size)
+    const run = this.run(
+      job,
+      archivePath,
+      model,
+      apiKey,
+      cfg.baseURL,
+      preset,
+      inferLinks,
+      stat.size,
+    )
       .catch((err: unknown) => {
         // Belt-and-braces: run() handles its own failures; this guards a bug in
         // run() itself. todo_16 Ф4: the raw error text goes to the LOG only
@@ -391,6 +404,7 @@ export class AiImportService {
     counters: AiImportResult;
     client: AiClient;
     model: string;
+    preset: AiModelPreset;
     messages: AiChatMessage[];
     maxTokens: number;
     parse: (content: string) => T | null;
@@ -405,10 +419,16 @@ export class AiImportService {
         const res = await args.client.chat.completions.create({
           model: args.model,
           messages: args.messages,
-          temperature: AI_IMPORT_TEMPERATURE,
-          max_tokens: args.maxTokens,
+          temperature: args.preset.temperature,
+          // todo_18: never ask for more than the model's output budget allows.
+          max_tokens: Math.min(args.maxTokens, args.preset.maxOutputTokens),
+          ...(args.preset.topP !== undefined ? { top_p: args.preset.topP } : {}),
         });
         content = res.choices?.[0]?.message?.content ?? '';
+        // todo_18: cut <think>…</think> reasoning wrappers (any position) BEFORE
+        // JSON extraction — otherwise brackets inside the reasoning defeat the
+        // parser and «thinking» models silently yield 0 pairs. `none` = verbatim.
+        if (args.preset.reasoning === 'strip') content = stripReasoning(content);
         if (res.choices?.[0]?.finish_reason === 'length') {
           this.logLine(args.job, 'warn', args.truncatedWarn(attempt));
         }
@@ -448,6 +468,7 @@ export class AiImportService {
     counters: AiImportResult;
     client: AiClient;
     model: string;
+    preset: AiModelPreset;
     apiKey: string;
     requirementService: RequirementService;
     linkService: LinkService;
@@ -486,6 +507,7 @@ export class AiImportService {
       counters,
       client: args.client,
       model: args.model,
+      preset: args.preset,
       messages: buildRelateMessages(functions.map(toItem), nfrs.map(toItem)),
       maxTokens: AI_IMPORT_RELATE_MAX_TOKENS,
       parse: (content) => parseRelateResponse(content),
@@ -528,6 +550,13 @@ export class AiImportService {
         'warn',
         `Проставление связей ФТ↔НФТ: принято ${total - droppedInvalid} из ${total} пар, невалидных отброшено ${droppedInvalid}.`,
       );
+    }
+    // todo_18: a VALID empty answer is a real outcome, not a silent skip — say
+    // it explicitly so the user sees the model ran and found nothing confident.
+    if (pairs.length === 0) {
+      this.logLine(job, 'info', 'Модель не нашла уверенных смысловых пар ФТ↔НФТ.');
+      job.relate = { status: 'done', created: 0 };
+      return false;
     }
     // Role-typed lookups: a pair is only valid FROM an existing NFR TO an
     // existing FUNCTION — anything else counts as a fabricated id.
@@ -619,6 +648,7 @@ export class AiImportService {
     model: string,
     apiKey: string,
     baseURL: string,
+    preset: AiModelPreset,
     inferLinks = false,
     archiveBytes = 0,
   ): Promise<void> {
@@ -672,7 +702,7 @@ export class AiImportService {
       job.stage = 'analyze';
       // todo_16 Ф2: reading/chunking many files is not instant — say so.
       this.logLine(job, 'info', 'Чтение и подготовка файлов документации…');
-      const chunkChars = this.deps.chunkChars ?? AI_IMPORT_CHUNK_CHARS;
+      const chunkChars = this.deps.chunkChars ?? preset.chunkChars;
       const chunksByFile: Array<{ file: string; chunks: string[] }> = [];
       let totalChunks = 0;
       for (const file of files) {
@@ -723,6 +753,7 @@ export class AiImportService {
             counters,
             client,
             model,
+            preset,
             messages,
             maxTokens: AI_IMPORT_MAX_TOKENS,
             parse: (content) => {
@@ -836,6 +867,7 @@ export class AiImportService {
           counters,
           client,
           model,
+          preset,
           messages: buildStructureMessages(batches[b]!, archiveMap, structureItems),
           maxTokens: AI_IMPORT_STRUCTURE_MAX_TOKENS, // Task 14 B1
           parse: (content) => parseStructureResponse(content),
@@ -1103,8 +1135,13 @@ export class AiImportService {
         const sourceSlug = slugByKey.get(nameKey(item.record.type, item.record.name));
         const targetSlug = slugByKey.get(item.parentKey);
         if (!sourceSlug || !targetSlug) continue;
-        if (existingLinks?.some((l) => l.type === 'CHILD_OF' && l.targetSlug === targetSlug)) {
-          continue; // link already present — existing links are never touched
+        // PO decision §3 (todo_18): on an EXISTING requirement the hierarchy is
+        // only GAP-FILLED — a node that already has a CHILD_OF parent (manual or
+        // prior) is NEVER reparented. We add CHILD_OF only where the existing
+        // node is still a root (no parent at all). Freshly-created records have
+        // no existingLinks and always get their resolved parent.
+        if (existingLinks?.some((l) => l.type === 'CHILD_OF')) {
+          continue; // existing parent/hierarchy left intact
         }
         try {
           await linkService.create({ sourceSlug, type: 'CHILD_OF', targetSlug });
@@ -1188,6 +1225,7 @@ export class AiImportService {
           counters,
           client,
           model,
+          preset,
           apiKey,
           requirementService,
           linkService,

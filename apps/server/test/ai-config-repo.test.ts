@@ -121,4 +121,61 @@ describe('T-802 AiConfigRepo', () => {
     const cfg = await repo.read();
     expect(cfg).toEqual({ baseURL: AI_DEFAULT_BASE_URL, modelByProject: {} });
   });
+
+  // ── todo_18: per-model preset overrides ────────────────────────────────────
+  it('update() stores per-model preset OVERRIDES only (round-trip)', async () => {
+    await repo.update({
+      apiKey: 'k',
+      modelPresets: { 'Qwen/Qwen3.6-27B': { temperature: 0.5, chunkChars: 20_000 } },
+    });
+    const cfg = await repo.read();
+    expect(cfg.modelPresets).toEqual({
+      'Qwen/Qwen3.6-27B': { temperature: 0.5, chunkChars: 20_000 },
+    });
+    // getView exposes the overrides, never the key.
+    const view = await repo.getView();
+    expect(view.modelPresets).toEqual({
+      'Qwen/Qwen3.6-27B': { temperature: 0.5, chunkChars: 20_000 },
+    });
+    expect(view).not.toHaveProperty('apiKey');
+  });
+
+  it('update() merges preset overrides per model id', async () => {
+    await repo.update({ modelPresets: { A: { temperature: 0.3 } } });
+    await repo.update({ modelPresets: { B: { maxOutputTokens: 5000 } } });
+    const cfg = await repo.read();
+    expect(cfg.modelPresets).toEqual({
+      A: { temperature: 0.3 },
+      B: { maxOutputTokens: 5000 },
+    });
+  });
+
+  it('update() with an empty override object resets that model to defaults (drops the key)', async () => {
+    await repo.update({ modelPresets: { A: { temperature: 0.3 }, B: { topP: 0.9 } } });
+    await repo.update({ modelPresets: { A: {} } });
+    const cfg = await repo.read();
+    expect(cfg.modelPresets).toEqual({ B: { topP: 0.9 } });
+  });
+
+  it('read()/getView() omit modelPresets entirely when none are stored', async () => {
+    await repo.update({ apiKey: 'k', projectId: 'Demo', model: 'M' });
+    const cfg = await repo.read();
+    expect(cfg).not.toHaveProperty('modelPresets');
+    const view = await repo.getView('Demo');
+    expect(view).toEqual({ baseURL: AI_DEFAULT_BASE_URL, hasApiKey: true, model: 'M' });
+  });
+
+  it('read() drops invalid/empty preset entries from a hand-edited file', async () => {
+    await fs.writeFile(
+      path.join(root, AI_CONFIG_FILENAME),
+      JSON.stringify({
+        baseURL: AI_DEFAULT_BASE_URL,
+        modelByProject: {},
+        modelPresets: { Good: { temperature: 0.4 }, Bad: { temperature: 9 }, Empty: {} },
+      }),
+      'utf8',
+    );
+    const cfg = await repo.read();
+    expect(cfg.modelPresets).toEqual({ Good: { temperature: 0.4 } });
+  });
 });

@@ -618,3 +618,154 @@ describe('T11 aiExtractedRequirementSchema', () => {
     });
   });
 });
+
+// ── todo_18: per-model best-practice presets ─────────────────────────────────
+import {
+  AI_MODEL_PRESET_DEFAULTS,
+  AI_MODEL_PRESET_GENERIC_KEY,
+  AI_MODEL_REASONING_MODES,
+  aiModelPresetOverrideSchema,
+  aiModelPresetSchema,
+  resolveModelPreset,
+} from './ai.js';
+
+describe('todo_18 aiModelPresetSchema', () => {
+  const full = {
+    temperature: 0.2,
+    maxOutputTokens: 4000,
+    chunkChars: 12_000,
+    reasoning: 'strip' as const,
+  };
+
+  it('accepts a full valid preset (topP optional)', () => {
+    expect(aiModelPresetSchema.parse(full)).toEqual(full);
+    expect(aiModelPresetSchema.parse({ ...full, topP: 0.9 }).topP).toBe(0.9);
+  });
+
+  it('bounds temperature to 0..2', () => {
+    expect(aiModelPresetSchema.safeParse({ ...full, temperature: -0.1 }).success).toBe(false);
+    expect(aiModelPresetSchema.safeParse({ ...full, temperature: 2.1 }).success).toBe(false);
+    expect(aiModelPresetSchema.safeParse({ ...full, temperature: 2 }).success).toBe(true);
+  });
+
+  it('requires integer maxOutputTokens >= 1 and chunkChars >= 1000', () => {
+    expect(aiModelPresetSchema.safeParse({ ...full, maxOutputTokens: 0 }).success).toBe(false);
+    expect(aiModelPresetSchema.safeParse({ ...full, maxOutputTokens: 1.5 }).success).toBe(false);
+    expect(aiModelPresetSchema.safeParse({ ...full, chunkChars: 999 }).success).toBe(false);
+    expect(aiModelPresetSchema.safeParse({ ...full, chunkChars: 1000 }).success).toBe(true);
+  });
+
+  it('bounds topP to 0..1 and reasoning to the enum', () => {
+    expect(aiModelPresetSchema.safeParse({ ...full, topP: 1.1 }).success).toBe(false);
+    expect(aiModelPresetSchema.safeParse({ ...full, reasoning: 'think' }).success).toBe(false);
+    expect(AI_MODEL_REASONING_MODES).toEqual(['none', 'strip']);
+  });
+
+  it('override schema is a partial (empty object = reset)', () => {
+    expect(aiModelPresetOverrideSchema.parse({})).toEqual({});
+    expect(aiModelPresetOverrideSchema.parse({ temperature: 0.5 })).toEqual({ temperature: 0.5 });
+  });
+});
+
+describe('todo_18 AI_MODEL_PRESET_DEFAULTS', () => {
+  it('carries the PO-decided defaults for the three real Qwen ids', () => {
+    expect(AI_MODEL_PRESET_DEFAULTS['Qwen/Qwen3-Coder-Next']).toEqual({
+      temperature: 0.2,
+      maxOutputTokens: 4000,
+      chunkChars: 12_000,
+      reasoning: 'none',
+    });
+    expect(AI_MODEL_PRESET_DEFAULTS['Qwen/Qwen3.5-397B-A17B']).toEqual({
+      temperature: 0.2,
+      maxOutputTokens: 8000,
+      chunkChars: 24_000,
+      reasoning: 'strip',
+    });
+    expect(AI_MODEL_PRESET_DEFAULTS['Qwen/Qwen3.6-27B']).toEqual({
+      temperature: 0.2,
+      maxOutputTokens: 6000,
+      chunkChars: 16_000,
+      reasoning: 'strip',
+    });
+  });
+
+  it('has a generic fallback preset', () => {
+    expect(AI_MODEL_PRESET_DEFAULTS[AI_MODEL_PRESET_GENERIC_KEY]).toEqual({
+      temperature: 0.2,
+      maxOutputTokens: 4000,
+      chunkChars: 12_000,
+      reasoning: 'strip',
+    });
+  });
+});
+
+describe('todo_18 resolveModelPreset (override ← default-by-id ← generic)', () => {
+  it('returns the exact default for a known id when there is no override', () => {
+    expect(resolveModelPreset('Qwen/Qwen3.5-397B-A17B')).toEqual({
+      temperature: 0.2,
+      maxOutputTokens: 8000,
+      chunkChars: 24_000,
+      reasoning: 'strip',
+    });
+  });
+
+  it('falls back to the generic preset for an unknown id', () => {
+    expect(resolveModelPreset('Some/Unknown-Model')).toEqual(
+      AI_MODEL_PRESET_DEFAULTS[AI_MODEL_PRESET_GENERIC_KEY],
+    );
+  });
+
+  it('applies a partial override on top of the default-by-id', () => {
+    const eff = resolveModelPreset('Qwen/Qwen3.6-27B', { temperature: 0.7, topP: 0.8 });
+    expect(eff).toEqual({
+      temperature: 0.7,
+      maxOutputTokens: 6000,
+      chunkChars: 16_000,
+      reasoning: 'strip',
+      topP: 0.8,
+    });
+  });
+
+  it('override wins over default which wins over generic (full precedence)', () => {
+    const eff = resolveModelPreset('Unknown/Model', { reasoning: 'none', maxOutputTokens: 12_000 });
+    expect(eff.reasoning).toBe('none');
+    expect(eff.maxOutputTokens).toBe(12_000);
+    // untouched fields keep the generic fallback values
+    expect(eff.temperature).toBe(0.2);
+    expect(eff.chunkChars).toBe(12_000);
+  });
+
+  it('ignores undefined-valued override fields (never blanks a resolved field)', () => {
+    const eff = resolveModelPreset('Qwen/Qwen3-Coder-Next', {
+      temperature: undefined,
+      maxOutputTokens: undefined,
+    });
+    expect(eff).toEqual(AI_MODEL_PRESET_DEFAULTS['Qwen/Qwen3-Coder-Next']);
+  });
+});
+
+describe('todo_18 aiConfigViewSchema / aiConfigUpdateSchema with modelPresets', () => {
+  it('view accepts modelPresets as a map of partial overrides', () => {
+    const v = aiConfigViewSchema.parse({
+      baseURL: AI_DEFAULT_BASE_URL,
+      hasApiKey: true,
+      modelPresets: { 'Qwen/Qwen3.6-27B': { temperature: 0.5 } },
+    });
+    expect(v.modelPresets?.['Qwen/Qwen3.6-27B']).toEqual({ temperature: 0.5 });
+  });
+
+  it('view stays valid without modelPresets (present only when stored)', () => {
+    const v = aiConfigViewSchema.parse({ baseURL: AI_DEFAULT_BASE_URL, hasApiKey: false });
+    expect(v.modelPresets).toBeUndefined();
+  });
+
+  it('update accepts modelPresets and rejects an out-of-range override', () => {
+    const parsed = aiConfigUpdateSchema.parse({
+      modelPresets: { 'Qwen/Qwen3.6-27B': { chunkChars: 20_000 } },
+    });
+    expect(parsed.modelPresets?.['Qwen/Qwen3.6-27B']).toEqual({ chunkChars: 20_000 });
+    expect(
+      aiConfigUpdateSchema.safeParse({ modelPresets: { M: { temperature: 9 } } }).success,
+    ).toBe(false);
+  });
+});

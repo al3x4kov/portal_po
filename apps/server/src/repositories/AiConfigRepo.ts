@@ -1,6 +1,12 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { AI_DEFAULT_BASE_URL, type AiConfigUpdate, type AiConfigView } from '@po/core';
+import {
+  AI_DEFAULT_BASE_URL,
+  aiModelPresetOverrideSchema,
+  type AiConfigUpdate,
+  type AiConfigView,
+  type AiModelPresetOverride,
+} from '@po/core';
 import { atomicWrite } from '../lib/atomicWrite.js';
 
 /** On-disk shape of `<PROJECTS_ROOT>/.ai-config.json` (plaintext, gitignored). */
@@ -10,6 +16,24 @@ export interface AiConfigFile {
   apiKey?: string;
   /** Per-project selected model, keyed by projectId (kept out of Projects/<id>/). */
   modelByProject: Record<string, string>;
+  /**
+   * Per-model best-practice OVERRIDES, keyed by model id (todo_18). Only the
+   * fields the user changed are stored — defaults are never materialised. Absent
+   * when nothing is overridden; the effective preset is computed via
+   * `resolveModelPreset(model, modelPresets[model])`.
+   */
+  modelPresets?: Record<string, AiModelPresetOverride>;
+}
+
+/** Keep only valid, non-empty per-model overrides (defensive against hand edits). */
+function sanitizePresets(input: unknown): Record<string, AiModelPresetOverride> | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const out: Record<string, AiModelPresetOverride> = {};
+  for (const [model, raw] of Object.entries(input as Record<string, unknown>)) {
+    const parsed = aiModelPresetOverrideSchema.safeParse(raw);
+    if (parsed.success && Object.keys(parsed.data).length > 0) out[model] = parsed.data;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Fixed filename for the global AI config, resolved against the projects root. */
@@ -42,11 +66,13 @@ export class AiConfigRepo {
       return { baseURL: AI_DEFAULT_BASE_URL, modelByProject: {} };
     }
     const obj = (parsed ?? {}) as Partial<AiConfigFile>;
+    const presets = sanitizePresets(obj.modelPresets);
     return {
       baseURL: typeof obj.baseURL === 'string' && obj.baseURL ? obj.baseURL : AI_DEFAULT_BASE_URL,
       apiKey: typeof obj.apiKey === 'string' && obj.apiKey.length > 0 ? obj.apiKey : undefined,
       modelByProject:
         obj.modelByProject && typeof obj.modelByProject === 'object' ? obj.modelByProject : {},
+      ...(presets ? { modelPresets: presets } : {}),
     };
   }
 
@@ -61,6 +87,7 @@ export class AiConfigRepo {
       baseURL: cfg.baseURL,
       hasApiKey: Boolean(cfg.apiKey),
       ...(model ? { model } : {}),
+      ...(cfg.modelPresets ? { modelPresets: cfg.modelPresets } : {}),
     };
   }
 
@@ -78,6 +105,24 @@ export class AiConfigRepo {
     if (patch.apiKey === null) delete cfg.apiKey;
     else if (patch.apiKey && patch.apiKey.trim().length > 0) cfg.apiKey = patch.apiKey;
     if (patch.projectId && patch.model) cfg.modelByProject[patch.projectId] = patch.model;
+
+    // Merge per-model preset overrides (todo_18): a non-empty override object is
+    // stored, an empty `{}` resets that model to its defaults (drops the key so
+    // defaults are never materialised on disk).
+    if (patch.modelPresets) {
+      const merged: Record<string, AiModelPresetOverride> = { ...(cfg.modelPresets ?? {}) };
+      for (const [model, override] of Object.entries(patch.modelPresets)) {
+        const parsed = aiModelPresetOverrideSchema.parse(override);
+        const defined: AiModelPresetOverride = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          if (v !== undefined) (defined as Record<string, unknown>)[k] = v;
+        }
+        if (Object.keys(defined).length === 0) delete merged[model];
+        else merged[model] = defined;
+      }
+      if (Object.keys(merged).length > 0) cfg.modelPresets = merged;
+      else delete cfg.modelPresets;
+    }
 
     await atomicWrite(this.file, JSON.stringify(cfg, null, 2));
     return this.getView(patch.projectId);

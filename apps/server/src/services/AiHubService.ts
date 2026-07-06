@@ -3,13 +3,16 @@ import {
   AI_CHAT_TEMPERATURE,
   AI_GEN_MAX_TOKENS,
   AI_GEN_TEMPERATURE,
+  resolveModelPreset,
   type AiChatRequest,
+  type AiModelPreset,
   type GenerateDescriptionRequest,
 } from '@po/core';
 import type { AiConfigRepo } from '../repositories/AiConfigRepo.js';
 import { AiUpstreamError, BadRequestError } from '../lib/errors.js';
 import type { OpLogger } from '../lib/logger.js';
 import { buildChatMessages, buildDescriptionMessages, type AiChatMessage } from './aiPrompt.js';
+import { stripReasoning } from './aiReasoning.js';
 
 /** Parameters passed to a chat completion (subset we rely on). */
 export interface AiChatCompletionParams {
@@ -17,6 +20,8 @@ export interface AiChatCompletionParams {
   messages: AiChatMessage[];
   temperature: number;
   max_tokens: number;
+  /** Nucleus sampling — sent only when the effective model preset defines it (todo_18). */
+  top_p?: number;
 }
 
 /** Minimal OpenAI-compatible client surface used by the service. */
@@ -128,6 +133,9 @@ export class AiHubService {
 
     const client = this.makeClient(cfg.apiKey, cfg.baseURL);
     const messages = buildDescriptionMessages(input);
+    // todo_18: keep the generation-specific temperature, but clamp the token
+    // budget to the model preset and honour its reasoning/topP.
+    const preset = resolveModelPreset(model, cfg.modelPresets?.[model]);
 
     let content: string | null;
     try {
@@ -135,7 +143,8 @@ export class AiHubService {
         model,
         messages,
         temperature: AI_GEN_TEMPERATURE,
-        max_tokens: AI_GEN_MAX_TOKENS,
+        max_tokens: Math.min(AI_GEN_MAX_TOKENS, preset.maxOutputTokens),
+        ...(preset.topP !== undefined ? { top_p: preset.topP } : {}),
       });
       content = res.choices?.[0]?.message?.content ?? null;
     } catch (err) {
@@ -144,7 +153,7 @@ export class AiHubService {
       );
     }
 
-    const text = (content ?? '').trim();
+    const text = this.cleanAnswer(content, preset);
     if (!text) {
       throw new AiUpstreamError('AI Hub returned an empty description.');
     }
@@ -171,6 +180,7 @@ export class AiHubService {
 
     const client = this.makeClient(cfg.apiKey, cfg.baseURL);
     const messages = buildChatMessages(input);
+    const preset = resolveModelPreset(model, cfg.modelPresets?.[model]);
 
     let content: string | null;
     try {
@@ -178,17 +188,28 @@ export class AiHubService {
         model,
         messages,
         temperature: AI_CHAT_TEMPERATURE,
-        max_tokens: AI_CHAT_MAX_TOKENS,
+        max_tokens: Math.min(AI_CHAT_MAX_TOKENS, preset.maxOutputTokens),
+        ...(preset.topP !== undefined ? { top_p: preset.topP } : {}),
       });
       content = res.choices?.[0]?.message?.content ?? null;
     } catch (err) {
       throw new AiUpstreamError(sanitize(`AI Hub chat failed: ${describeError(err)}`, cfg.apiKey));
     }
 
-    const text = (content ?? '').trim();
+    const text = this.cleanAnswer(content, preset);
     if (!text) {
       throw new AiUpstreamError('AI Hub returned an empty chat response.');
     }
     return text;
+  }
+
+  /**
+   * Post-process a model answer per the effective preset: strip
+   * `<think>…</think>` reasoning wrappers when `reasoning === 'strip'` (todo_18),
+   * then trim. `reasoning === 'none'` returns the answer verbatim (Coder-Next).
+   */
+  private cleanAnswer(content: string | null, preset: AiModelPreset): string {
+    const raw = content ?? '';
+    return (preset.reasoning === 'strip' ? stripReasoning(raw) : raw).trim();
   }
 }

@@ -19,14 +19,116 @@ export const AI_GEN_TEMPERATURE = 0.4;
 /** Token budget for description generation (PO decision §7). */
 export const AI_GEN_MAX_TOKENS = 700;
 
+/*
+ * ── todo_18 · per-model best-practice presets ──────────────────────────────
+ * Each AI model has a best-practice set of request/response parameters (its
+ * context window differs for input vs output). The presets ship as sensible
+ * defaults keyed by the real model id and are editable in the AI settings UI:
+ * the user stores only the OVERRIDES they change (defaults are NEVER
+ * materialised on disk). The effective preset for a call is
+ * {@link resolveModelPreset}: generic fallback ← default-by-id ← user override.
+ */
+
+/** How to treat a model's chain-of-thought «reasoning»: keep it or strip `<think>…</think>`. */
+export const AI_MODEL_REASONING_MODES = ['none', 'strip'] as const;
+export type AiModelReasoning = (typeof AI_MODEL_REASONING_MODES)[number];
+
+/**
+ * A full per-model preset. `temperature` (0..2), `maxOutputTokens` (≥1),
+ * `chunkChars` (≥1000, input-side chunking for the import pipeline),
+ * `reasoning` (`none` keeps the answer verbatim — Coder-Next compatibility;
+ * `strip` removes `<think>…</think>` wrappers of thinking models), optional
+ * `topP` (0..1, nucleus sampling — passed only when set).
+ */
+export const aiModelPresetSchema = z.object({
+  temperature: z.number().min(0).max(2),
+  maxOutputTokens: z.number().int().min(1),
+  chunkChars: z.number().int().min(1000),
+  reasoning: z.enum(AI_MODEL_REASONING_MODES),
+  topP: z.number().min(0).max(1).optional(),
+});
+export type AiModelPreset = z.infer<typeof aiModelPresetSchema>;
+
+/**
+ * A partial preset: exactly the fields a user overrides for one model. Empty
+ * `{}` means «use the defaults» (reset). This is the on-disk / API shape — full
+ * defaults are never stored, only these overrides.
+ */
+export const aiModelPresetOverrideSchema = aiModelPresetSchema.partial();
+export type AiModelPresetOverride = z.infer<typeof aiModelPresetOverrideSchema>;
+
+/** Key of the generic fallback preset inside {@link AI_MODEL_PRESET_DEFAULTS}. */
+export const AI_MODEL_PRESET_GENERIC_KEY = '__default__';
+
+/**
+ * Best-practice defaults per real model id (todo_18). Values follow each
+ * model's published guidance (context window differs for send vs receive).
+ * The generic {@link AI_MODEL_PRESET_GENERIC_KEY} fallback covers any model
+ * without a dedicated entry.
+ */
+export const AI_MODEL_PRESET_DEFAULTS: Record<string, AiModelPreset> = {
+  'Qwen/Qwen3-Coder-Next': {
+    temperature: 0.2,
+    maxOutputTokens: 4000,
+    chunkChars: 12_000,
+    reasoning: 'none',
+  },
+  'Qwen/Qwen3.5-397B-A17B': {
+    temperature: 0.2,
+    maxOutputTokens: 8000,
+    chunkChars: 24_000,
+    reasoning: 'strip',
+  },
+  'Qwen/Qwen3.6-27B': {
+    temperature: 0.2,
+    maxOutputTokens: 6000,
+    chunkChars: 16_000,
+    reasoning: 'strip',
+  },
+  [AI_MODEL_PRESET_GENERIC_KEY]: {
+    temperature: 0.2,
+    maxOutputTokens: 4000,
+    chunkChars: 12_000,
+    reasoning: 'strip',
+  },
+};
+
+/** Drop `undefined`-valued keys so a partial override never blanks a resolved field. */
+function definedOnly(override: AiModelPresetOverride | undefined): AiModelPresetOverride {
+  if (!override) return {};
+  const out: AiModelPresetOverride = {};
+  for (const [k, v] of Object.entries(override)) {
+    if (v !== undefined) (out as Record<string, unknown>)[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Effective preset for a model: generic fallback ← default-by-id ← user
+ * override (each layer overrides only the fields it defines). A model without a
+ * dedicated default still gets a complete preset from the generic fallback.
+ */
+export function resolveModelPreset(
+  modelId: string,
+  overrides?: AiModelPresetOverride,
+): AiModelPreset {
+  const generic = AI_MODEL_PRESET_DEFAULTS[AI_MODEL_PRESET_GENERIC_KEY]!;
+  const byId = AI_MODEL_PRESET_DEFAULTS[modelId];
+  return { ...generic, ...(byId ?? {}), ...definedOnly(overrides) };
+}
+
 /**
  * Response of `GET /api/ai/config`. Deliberately omits `apiKey`; the presence of
- * a stored key is signalled by `hasApiKey`, and `model` is the per-project model.
+ * a stored key is signalled by `hasApiKey`, `model` is the per-project model,
+ * and `modelPresets` carries the stored per-model OVERRIDES (defaults are not
+ * echoed — the client merges them via {@link resolveModelPreset}). The field is
+ * present only when at least one override is stored.
  */
 export const aiConfigViewSchema = z.object({
   baseURL: z.string(),
   hasApiKey: z.boolean(),
   model: z.string().optional(),
+  modelPresets: z.record(z.string(), aiModelPresetOverrideSchema).optional(),
 });
 export type AiConfigView = z.infer<typeof aiConfigViewSchema>;
 
@@ -35,13 +137,15 @@ export type AiConfigView = z.infer<typeof aiConfigViewSchema>;
  * key is only persisted when passed non-empty; `''`/omitted keep the existing
  * key, while an explicit `null` deletes the stored key (Task 10). The model is
  * stored under `modelByProject[projectId]`, so `projectId` is required to set
- * a model.
+ * a model. `modelPresets` merges per model id: a non-empty override object is
+ * stored, an empty `{}` resets that model to its defaults (removes the override).
  */
 export const aiConfigUpdateSchema = z.object({
   baseURL: z.string().url().optional(),
   apiKey: z.string().nullable().optional(),
   projectId: z.string().min(1).optional(),
   model: z.string().optional(),
+  modelPresets: z.record(z.string(), aiModelPresetOverrideSchema).optional(),
 });
 export type AiConfigUpdate = z.infer<typeof aiConfigUpdateSchema>;
 
