@@ -46,6 +46,17 @@ export interface RequirementCreateInput {
 /** Body for PUT /api/projects/:id/requirements/:rid (type is immutable). */
 export type RequirementUpdateInput = Omit<RequirementCreateInput, 'type'>;
 
+/**
+ * Response of DELETE /api/projects/:id/requirements/:rid?cascade=true (UX-2):
+ * the node and its whole subtree are removed atomically. `deleted` is the total
+ * number removed (node + descendants); `slugs` lists every removed slug. A
+ * childless delete returns 204 (no body), so callers see `null` in that case.
+ */
+export interface DeleteRequirementResult {
+  deleted: number;
+  slugs: string[];
+}
+
 /** Body for POST/DELETE /api/projects/:id/links. */
 export interface LinkInput {
   sourceSlug: string;

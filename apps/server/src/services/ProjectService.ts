@@ -2,8 +2,9 @@ import { REQUIREMENT_FOLDER, serialize, type ExportOptionalField } from '@po/cor
 import { withProjectLock } from '../lib/projectLock.js';
 import { sanitizeProjectName } from '../lib/projectName.js';
 import { withOpLog, type OpLogger } from '../lib/logger.js';
+import { InvariantError } from '../lib/errors.js';
 import { ExcelExportService, XLSX_CONTENT_TYPE } from './ExcelExportService.js';
-import type { ArchiveRepo } from '../repositories/ArchiveRepo.js';
+import type { ProjectServicePort } from './ports.js';
 import type {
   ArchiveFormat,
   ArchivePort,
@@ -38,7 +39,7 @@ export interface ProjectServiceDeps {
  * archive import/export (FR-3 / FR-10). Thin orchestration over the injected
  * repository + archive ports (BE-1) — it constructs none of its collaborators.
  */
-export class ProjectService {
+export class ProjectService implements ProjectServicePort {
   private readonly projectsRoot: string;
   private readonly repo: ProjectRepo;
   private readonly archive: ArchivePort;
@@ -125,7 +126,7 @@ export class ProjectService {
       const project = await this.repo.get(id); // 404 when missing
       if (format === 'xlsx') {
         if (!this.makeRequirementRepo) {
-          throw new Error('makeRequirementRepo is required to export xlsx.');
+          throw new InvariantError('makeRequirementRepo is required to export xlsx.');
         }
         const { requirements } = await this.makeRequirementRepo(project.id).loadAll();
         const selected = new Set(slugs);
@@ -133,10 +134,8 @@ export class ProjectService {
         const body = await ExcelExportService.buildWorkbook(included, fields);
         return { body, filename: `${project.id}.xlsx`, contentType: XLSX_CONTENT_TYPE };
       }
-      // ArchivePort doesn't declare exportSelected — call through the concrete type.
-      const archiveRepo = this.archive as ArchiveRepo;
       if (fields === undefined) {
-        return archiveRepo.exportSelected(project.mainPath, slugs, format, project.id);
+        return this.archive.exportSelected(project.mainPath, slugs, format, project.id);
       }
       return this.exportReserialized(
         project,
@@ -161,7 +160,7 @@ export class ProjectService {
     baseName: string,
   ): Promise<ExportResult> {
     if (!this.makeRequirementRepo) {
-      throw new Error('makeRequirementRepo is required to export with a field mask.');
+      throw new InvariantError('makeRequirementRepo is required to export with a field mask.');
     }
     const { requirements } = await this.makeRequirementRepo(project.id).loadAll();
     const included = slugFilter ? requirements.filter((r) => slugFilter.has(r.slug)) : requirements;
@@ -175,8 +174,7 @@ export class ProjectService {
       ),
     }));
 
-    const archiveRepo = this.archive as ArchiveRepo;
-    return archiveRepo.packReserialized(files, project.mainPath, format, baseName);
+    return this.archive.packReserialized(files, project.mainPath, format, baseName);
   }
 
   /** Import an archive as a new project; returns the opened project summary.

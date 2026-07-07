@@ -1,6 +1,18 @@
 import type { OpenAPIV3 } from 'openapi-types';
 import { z } from 'zod';
-import { linkSchema, requirementSchema } from '@po/core';
+import {
+  aiChatRequestSchema,
+  aiChatResponseSchema,
+  aiConfigUpdateSchema,
+  aiConfigViewSchema,
+  aiImportJobViewSchema,
+  aiImportStartResponseSchema,
+  aiModelsViewSchema,
+  generateDescriptionRequestSchema,
+  generateDescriptionResponseSchema,
+  linkSchema,
+  requirementSchema,
+} from '@po/core';
 import { createBody, updateBody } from '../routes/requirements.js';
 import { linkBody } from '../routes/links.js';
 
@@ -49,6 +61,17 @@ const slugParam = {
   schema: { type: 'string' },
 } as const;
 
+/** Path parameter object for the AI-import `:jobId`. */
+const jobIdParam = {
+  name: 'jobId',
+  in: 'path',
+  required: true,
+  description:
+    'Идентификатор задания AI-импорта, возвращённый `POST /api/projects/{id}/ai-import` (202). ' +
+    'Реестр заданий живёт в памяти процесса: после рестарта сервера или истечения TTL задание не найти (404).',
+  schema: { type: 'string' },
+} as const;
+
 const jsonBody = (schemaName: string, required = true): Record<string, unknown> => ({
   required,
   content: { 'application/json': { schema: ref(schemaName) } },
@@ -92,6 +115,18 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
         },
       },
     },
+    // AI Hub (Task 8–11): schemas derived from the same @po/core zod contracts
+    // the /api/ai/* routes validate against. AiConfigView deliberately omits the
+    // API key — only `hasApiKey` is exposed (security invariant).
+    AiConfigView: toSchema(aiConfigViewSchema),
+    AiConfigUpdate: toSchema(aiConfigUpdateSchema),
+    AiModelsView: toSchema(aiModelsViewSchema),
+    AiChatRequest: toSchema(aiChatRequestSchema),
+    AiChatResponse: toSchema(aiChatResponseSchema),
+    GenerateDescriptionRequest: toSchema(generateDescriptionRequestSchema),
+    GenerateDescriptionResponse: toSchema(generateDescriptionResponseSchema),
+    AiImportJobView: toSchema(aiImportJobViewSchema),
+    AiImportStartResponse: toSchema(aiImportStartResponseSchema),
     Error: {
       type: 'object',
       required: ['code', 'message'],
@@ -348,11 +383,53 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
       delete: {
         tags: ['requirements'],
         summary: 'Удалить требование (каскадно снимает связи)',
-        parameters: [idParam, slugParam],
+        description:
+          'По умолчанию удаляет один узел и снимает все ссылки на него у остальных требований; ' +
+          'узел с дочерними при этом отклоняется (409 HAS_CHILDREN). При `cascade=true` удаляет узел ' +
+          'вместе со всем поддеревом потомков атомарно и возвращает 200 с числом удалённых узлов.',
+        parameters: [
+          idParam,
+          slugParam,
+          {
+            name: 'cascade',
+            in: 'query',
+            required: false,
+            description:
+              'Каскадное удаление поддерева (UX-2). `true` — удалить узел со всеми потомками (ответ 200 ' +
+              'с `{ deleted, slugs }`). Отсутствует или `false` — безопасное поведение по умолчанию: узел ' +
+              'с дочерними отклоняется (409). Иное значение — 422.',
+            schema: { type: 'string', enum: ['true', 'false'] },
+          },
+        ],
         responses: {
-          204: { description: 'Требование удалено.' },
+          200: {
+            description: 'Поддерево удалено каскадно (`cascade=true`).',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['deleted', 'slugs'],
+                  properties: {
+                    deleted: {
+                      type: 'integer',
+                      description: 'Число удалённых требований (узел + все потомки).',
+                    },
+                    slugs: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description: 'Slug-и удалённых требований (целевой узел первым).',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          204: { description: 'Требование удалено (без каскада).' },
           404: errorResponse('Проект или требование не найдены.'),
-          409: errorResponse('Требование нельзя удалить (например, есть дочерние).'),
+          409: errorResponse(
+            'Требование нельзя удалить без каскада (есть дочерние, HAS_CHILDREN).',
+          ),
+          422: errorResponse('Недопустимое значение параметра cascade.'),
         },
       },
     },
@@ -402,6 +479,143 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
         },
       },
     },
+    '/api/ai/config': {
+      get: {
+        tags: ['ai'],
+        summary: 'Прочитать конфигурацию AI-хаба',
+        description:
+          'Ключ API НИКОГДА не возвращается — его наличие сигнализируется полем `hasApiKey`.',
+        parameters: [
+          {
+            name: 'projectId',
+            in: 'query',
+            required: false,
+            description: 'Проект, для которого вернуть выбранную модель (`model`).',
+            schema: { type: 'string' },
+          },
+        ],
+        responses: {
+          200: jsonResponse('Текущая конфигурация AI-хаба (без ключа API).', 'AiConfigView'),
+          400: errorResponse('Некорректные параметры запроса.'),
+        },
+      },
+      put: {
+        tags: ['ai'],
+        summary: 'Обновить конфигурацию AI-хаба',
+        description:
+          'Частичное обновление. `apiKey`: непустая строка сохраняет ключ, `null` удаляет его, ' +
+          'пропуск/пустая строка сохраняют текущий. Ключ в ответе не возвращается.',
+        requestBody: jsonBody('AiConfigUpdate'),
+        responses: {
+          200: jsonResponse('Обновлённая конфигурация (без ключа API).', 'AiConfigView'),
+          400: errorResponse('Ошибка валидации тела запроса.'),
+        },
+      },
+    },
+    '/api/ai/models': {
+      get: {
+        tags: ['ai'],
+        summary: 'Список доступных моделей AI-хаба',
+        responses: {
+          200: jsonResponse('Идентификаторы моделей, доступных на хабе.', 'AiModelsView'),
+          400: errorResponse('AI-хаб не настроен или недоступен.'),
+        },
+      },
+    },
+    '/api/ai/chat': {
+      post: {
+        tags: ['ai'],
+        summary: 'Отправить сообщение ассистенту',
+        description:
+          'Роль `system` от клиента не принимается — серверный системный промпт добавляется сам. ' +
+          'Модель берётся из `model`, иначе из проекта по `projectId`.',
+        requestBody: jsonBody('AiChatRequest'),
+        responses: {
+          200: jsonResponse('Ответ ассистента (одно сообщение роли assistant).', 'AiChatResponse'),
+          400: errorResponse('Ошибка валидации тела или не выбрана модель.'),
+        },
+      },
+    },
+    '/api/ai/generate-description': {
+      post: {
+        tags: ['ai'],
+        summary: 'Сгенерировать описание требования',
+        requestBody: jsonBody('GenerateDescriptionRequest'),
+        responses: {
+          200: jsonResponse('Сгенерированный текст описания.', 'GenerateDescriptionResponse'),
+          400: errorResponse('Ошибка валидации тела запроса.'),
+        },
+      },
+    },
+    '/api/projects/{id}/ai-import': {
+      post: {
+        tags: ['ai'],
+        summary: 'Запустить AI-импорт ФТ/НФТ из архива документации',
+        description:
+          'Асинхронно: возвращает `jobId` (202), прогресс опрашивается через `GET /api/ai-import/{jobId}`.',
+        parameters: [idParam],
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                required: ['file'],
+                properties: {
+                  file: {
+                    type: 'string',
+                    format: 'binary',
+                    description: 'Архив документации (.zip или .tar.gz).',
+                  },
+                  model: {
+                    type: 'string',
+                    description: 'Необязательная модель-переопределение для этого импорта.',
+                  },
+                  inferLinks: {
+                    type: 'string',
+                    enum: ['true', 'false'],
+                    description: 'Опциональный шаг простановки связей ФТ↔НФТ (по умолчанию false).',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          202: jsonResponse('Задание импорта поставлено в очередь.', 'AiImportStartResponse'),
+          400: errorResponse('Файл не передан, архив повреждён или AI-хаб не настроен.'),
+          404: errorResponse('Проект не найден.'),
+          413: errorResponse('Архив превышает лимит размера.'),
+        },
+      },
+    },
+    '/api/ai-import/{jobId}': {
+      get: {
+        tags: ['ai'],
+        summary: 'Статус задания AI-импорта',
+        parameters: [jobIdParam],
+        responses: {
+          200: jsonResponse(
+            'Текущее состояние задания (статус, прогресс, лог, результат).',
+            'AiImportJobView',
+          ),
+          400: errorResponse('Некорректный jobId.'),
+          404: errorResponse('Задание не найдено (истёк TTL или сервер был перезапущен).'),
+        },
+      },
+    },
+    '/api/ai-import/{jobId}/cancel': {
+      post: {
+        tags: ['ai'],
+        summary: 'Отменить задание AI-импорта',
+        parameters: [jobIdParam],
+        responses: {
+          200: jsonResponse('Задание отменено; в ответе — частичный результат.', 'AiImportJobView'),
+          400: errorResponse('Некорректный jobId.'),
+          404: errorResponse('Задание не найдено (истёк TTL или сервер был перезапущен).'),
+        },
+      },
+    },
   };
 
   // The document is assembled from plain object literals (schemas derived from
@@ -422,6 +636,11 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
       { name: 'projects', description: 'Проекты: список, создание, открытие, импорт/экспорт.' },
       { name: 'requirements', description: 'Требования: CRUD и проверка имени.' },
       { name: 'links', description: 'Связи между требованиями.' },
+      {
+        name: 'ai',
+        description:
+          'AI-хаб: конфигурация (ключ не возвращается), модели, чат, генерация описаний и AI-импорт из архива документации.',
+      },
     ],
     paths,
     components: { schemas },

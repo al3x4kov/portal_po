@@ -9,6 +9,7 @@ import { makeReq } from '../test/fixtures';
 
 const getProject = vi.fn();
 const listRequirements = vi.fn();
+const removeRequirement = vi.fn();
 const exportArchive = vi.fn();
 const exportXlsx = vi.fn();
 
@@ -24,7 +25,7 @@ vi.mock('../api/endpoints', () => ({
     checkName: vi.fn().mockResolvedValue({ available: true, slug: 'x' }),
     create: vi.fn(),
     update: vi.fn(),
-    remove: vi.fn(),
+    remove: (...a: unknown[]) => removeRequirement(...a),
   },
   linksApi: { create: vi.fn(), remove: vi.fn() },
   // Task 11: the AI-import modal reads the AI config/models once opened.
@@ -68,6 +69,8 @@ describe('Main page (E11 integration)', () => {
   beforeEach(() => {
     getProject.mockReset();
     listRequirements.mockReset();
+    removeRequirement.mockReset();
+    removeRequirement.mockResolvedValue(null);
     exportArchive.mockReset();
     exportXlsx.mockReset();
     getProject.mockResolvedValue({
@@ -173,33 +176,59 @@ describe('Main page (E11 integration)', () => {
     expect(await screen.findByTestId('tree-row-pay')).toBeInTheDocument();
   });
 
-  it('UX-3/T-509: delete button is disabled for a requirement that has children', async () => {
+  it('UX-2: node with children offers a reinforced cascade delete (button enabled)', async () => {
+    const user = userEvent.setup();
     renderMain();
     await screen.findByTestId('tree-row-pay');
     const payRow = screen.getByTestId('tree-row-pay');
     const deleteBtn = payRow.querySelector('[data-testid="delete-btn-pay"]') as HTMLElement;
-    // T-509: the button itself is disabled when the node has children
-    expect(deleteBtn).toBeDisabled();
-    expect(deleteBtn).toHaveAttribute('aria-label', 'Удалить (недоступно: есть дочерние)');
-    // §2.5: причина недоступности — в title обёртки (title у disabled-кнопки не всплывает).
-    expect(deleteBtn.closest('span')).toHaveAttribute(
-      'title',
-      'Сначала удалите дочерние требования',
+    // UX-2: the button is now enabled — deletion is allowed via cascade.
+    expect(deleteBtn).not.toBeDisabled();
+    expect(deleteBtn).toHaveAttribute('aria-label', 'Удалить требование со вложенными');
+    await user.click(deleteBtn);
+    // Cascade dialog: shows N (1 nested → total 2) and requires typing the name.
+    const dialog = await screen.findByTestId('delete-dialog');
+    expect(screen.getByTestId('delete-dialog-cascade')).toHaveTextContent(
+      '«Платежи» содержит 1 требование во вложениях',
     );
-    // No dialog should appear since the button is disabled
-    expect(screen.queryByTestId('delete-dialog-confirm')).not.toBeInTheDocument();
+    const confirm = screen.getByTestId('delete-dialog-confirm');
+    expect(confirm).toHaveTextContent('Удалить 2 требования');
+    // Confirm stays disabled until the exact name is typed.
+    expect(confirm).toBeDisabled();
+    await user.type(screen.getByTestId('delete-dialog-input'), 'Платежи');
+    expect(confirm).not.toBeDisabled();
+    await user.click(confirm);
+    await waitFor(() => expect(removeRequirement).toHaveBeenCalledWith('proj-1', 'pay', true));
+    expect(dialog).toBeDefined();
   });
 
-  it('UX-2: shows a success toast after deleting a leaf requirement', async () => {
+  it('UX-2: cascade delete toast echoes the server `deleted` count and closes the dialog', async () => {
+    const user = userEvent.setup();
+    removeRequirement.mockResolvedValueOnce({ deleted: 3, slugs: ['pay', 'token', 'x'] });
+    renderMain();
+    await screen.findByTestId('tree-row-pay');
+    const payRow = screen.getByTestId('tree-row-pay');
+    await user.click(payRow.querySelector('[data-testid="delete-btn-pay"]') as HTMLElement);
+    await screen.findByTestId('delete-dialog');
+    await user.type(screen.getByTestId('delete-dialog-input'), 'Платежи');
+    await user.click(screen.getByTestId('delete-dialog-confirm'));
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Удалено 3 требования');
+    await waitFor(() => expect(screen.queryByTestId('delete-dialog')).not.toBeInTheDocument());
+  });
+
+  it('UX-2: leaf requirement deletes without cascade and shows a success toast', async () => {
     const user = userEvent.setup();
     renderMain();
     await screen.findByTestId('tree-row-sla');
     const slaRow = screen.getByTestId('tree-row-sla');
     await user.click(slaRow.querySelector('[data-testid="delete-btn-sla"]') as HTMLElement);
     const confirm = await screen.findByTestId('delete-dialog-confirm');
+    // No type-to-confirm for a leaf: the button is active immediately.
+    expect(screen.queryByTestId('delete-dialog-input')).not.toBeInTheDocument();
     expect(confirm).not.toBeDisabled();
     await user.click(confirm);
-    expect(await screen.findByTestId('toast')).toHaveTextContent('Требование удалено');
+    await waitFor(() => expect(removeRequirement).toHaveBeenCalledWith('proj-1', 'sla', false));
+    expect(await screen.findByTestId('toast')).toHaveTextContent('Удалено 1 требование');
   });
 
   it('Task 11: «AI подгрузка из документации» footer button opens the AI-import modal', async () => {
@@ -213,6 +242,115 @@ describe('Main page (E11 integration)', () => {
     // Idle → the ✕ closes without any confirmation.
     await user.click(screen.getByTestId('ai-import-close'));
     await waitFor(() => expect(screen.queryByTestId('ai-import')).not.toBeInTheDocument());
+  });
+
+  it('UX-10: clicking a requirement name opens the edit modal (onEdit)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await screen.findByTestId('tree-row-pay');
+    await user.click(screen.getByTestId('req-name-pay'));
+    const modal = await screen.findByTestId('requirement-modal');
+    // Editing an existing requirement prefills its name.
+    expect(modal).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Платежи')).toBeInTheDocument();
+  });
+
+  it('row link button opens the LinkModal for that requirement (onLink)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    const row = await screen.findByTestId('tree-row-pay');
+    await user.click(row.querySelector('[data-testid="link-btn-pay"]') as HTMLElement);
+    expect(await screen.findByTestId('link-modal')).toBeInTheDocument();
+  });
+
+  it('T3: "+ Описание" on an empty cell opens the modal focused on the description (onAddDesc)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    // sla (NFR) has no description → the row renders a «+ Описание» button.
+    const row = await screen.findByTestId('tree-row-sla');
+    await user.click(row.querySelector('[data-testid="desc-add"]') as HTMLElement);
+    const modal = await screen.findByTestId('requirement-modal');
+    expect(modal).toBeInTheDocument();
+    // focusField='description' keeps the description tab active with its textarea visible.
+    expect(screen.getByTestId('req-description')).toBeVisible();
+  });
+
+  it('T4: shield-plus on a functional row opens a pre-linked NFR create modal (onAddNfr)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    const row = await screen.findByTestId('tree-row-pay');
+    await user.click(row.querySelector('[data-testid="row-add-nfr"]') as HTMLElement);
+    const modal = await screen.findByTestId('requirement-modal');
+    // A create modal (no prefilled name) targeting an NFR.
+    expect(modal).toBeInTheDocument();
+    expect((screen.getByTestId('req-name') as HTMLInputElement).value).toBe('');
+  });
+
+  it('T-509: git-branch-plus on a functional row opens the add-child modal (handleAddChild)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    const row = await screen.findByTestId('tree-row-pay');
+    await user.click(row.querySelector('[data-testid="row-add-child"]') as HTMLElement);
+    expect(await screen.findByTestId('requirement-modal')).toBeInTheDocument();
+    expect((screen.getByTestId('req-name') as HTMLInputElement).value).toBe('');
+  });
+
+  it('section header "+ Функция" button opens a FUNCTION create modal (TreeTable onAdd)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await user.click(await screen.findByTestId('add-function'));
+    expect(await screen.findByTestId('requirement-modal')).toBeInTheDocument();
+  });
+
+  it('section header "+ НФТ" button opens an NFR create modal (TreeTable onAdd)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await user.click(await screen.findByTestId('add-nfr'));
+    expect(await screen.findByTestId('requirement-modal')).toBeInTheDocument();
+  });
+
+  it('footer "+ Функция" and "+ НФТ" buttons open the matching create modals', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await user.click(await screen.findByTestId('footer-add-function'));
+    expect(await screen.findByTestId('requirement-modal')).toBeInTheDocument();
+    // Close and open the NFR one from the footer.
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByTestId('requirement-modal')).not.toBeInTheDocument());
+    await user.click(screen.getByTestId('footer-add-nfr'));
+    expect(await screen.findByTestId('requirement-modal')).toBeInTheDocument();
+  });
+
+  it('sidebar "Генерация задач" opens the ExportTasksModal (onOpenTasks)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await user.click(await screen.findByTestId('sidebar-open-tasks'));
+    expect(await screen.findByTestId('export-tasks-modal')).toBeInTheDocument();
+  });
+
+  it('search-empty state clears the query and restores the tree (onClick search reset)', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await screen.findByTestId('section-function');
+    await user.type(screen.getByTestId('search-input'), 'блокчейн');
+    const empty = await screen.findByTestId('search-empty');
+    // The empty state offers a reset button that clears the search.
+    const reset = empty.querySelector('button') as HTMLElement;
+    await user.click(reset);
+    expect(await screen.findByTestId('tree-row-pay')).toBeInTheDocument();
+  });
+
+  it('onAddLink: editing → "+ Связать с ФТ" swaps the edit modal for the LinkModal', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await screen.findByTestId('tree-row-pay');
+    await user.click(screen.getByTestId('req-name-pay'));
+    await screen.findByTestId('requirement-modal');
+    await user.click(screen.getByTestId('req-tab-links'));
+    await user.click(await screen.findByTestId('req-links-add-ft'));
+    // The requirement modal closes and a LinkModal opens for the same source.
+    expect(await screen.findByTestId('link-modal')).toBeInTheDocument();
+    expect(screen.queryByTestId('requirement-modal')).not.toBeInTheDocument();
   });
 
   it('opens the description drawer on demand and closes it (T-1104)', async () => {

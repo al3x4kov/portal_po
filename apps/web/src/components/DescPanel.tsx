@@ -89,9 +89,11 @@ export function DescPanel({
   const visibleChips = allChips ? chips : chips.slice(0, MAX_CHIPS);
   const hiddenChipCount = chips.length - visibleChips.length;
 
-  const deleteDisabled = childCount > 0;
-  const deleteReason = deleteDisabled
-    ? `Удаление недоступно: сначала удалите дочерние (${childCount} ${plural(childCount, 'вложенное', 'вложенных', 'вложенных')}).`
+  // UX-2: a node with children is deletable via a reinforced cascade (the
+  // confirm dialog handles it); the panel button only opens that dialog.
+  const cascadeDelete = childCount > 0;
+  const deleteHint = cascadeDelete
+    ? `Удалит требование и всё вложенное (${childCount} ${plural(childCount, 'вложенное', 'вложенных', 'вложенных')}) — потребуется подтверждение.`
     : undefined;
 
   const description = requirement.description?.trim() ?? '';
@@ -225,20 +227,17 @@ export function DescPanel({
         {/* Футер: Редактировать + Удалить с видимой причиной disabled (§2.7) */}
         <footer className="border-t px-5 py-4" style={{ borderColor: 'var(--color-border)' }}>
           <div className="flex items-center justify-end gap-2">
-            <span title={deleteReason}>
-              <button
-                type="button"
-                className="btn btn-danger text-sm"
-                disabled={deleteDisabled}
-                aria-disabled={deleteDisabled || undefined}
-                aria-describedby={deleteDisabled ? 'desc-panel-delete-reason' : undefined}
-                data-testid="desc-panel-delete"
-                onClick={() => onDelete(requirement)}
-              >
-                <Trash2 className="icon-sm" aria-hidden="true" />
-                Удалить
-              </button>
-            </span>
+            <button
+              type="button"
+              className="btn btn-danger text-sm"
+              title={deleteHint}
+              aria-describedby={cascadeDelete ? 'desc-panel-delete-reason' : undefined}
+              data-testid="desc-panel-delete"
+              onClick={() => onDelete(requirement)}
+            >
+              <Trash2 className="icon-sm" aria-hidden="true" />
+              Удалить
+            </button>
             <button
               type="button"
               className="btn btn-primary text-sm"
@@ -249,13 +248,13 @@ export function DescPanel({
               Редактировать
             </button>
           </div>
-          {deleteReason ? (
+          {deleteHint ? (
             <p
               className="hint mt-2 text-right"
               id="desc-panel-delete-reason"
               data-testid="desc-panel-delete-reason"
             >
-              {deleteReason}
+              {deleteHint}
             </p>
           ) : null}
         </footer>

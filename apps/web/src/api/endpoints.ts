@@ -15,6 +15,7 @@ import type {
 import { apiDownload, apiRequest } from './client';
 import type {
   CheckNameResult,
+  DeleteRequirementResult,
   LinkInput,
   ProjectSummary,
   RequirementCreateInput,
@@ -123,9 +124,21 @@ export const requirementsApi = {
         body: input,
       },
     ),
-  remove: (projectId: string, slug: string): Promise<null> =>
+  /**
+   * UX-2: delete a requirement. Without `cascade` a leaf/childless node answers
+   * 204 (→ `null`); a node with children answers 409 HAS_CHILDREN. With
+   * `cascade=true` the whole subtree is removed atomically and the server
+   * answers 200 `{ deleted, slugs }`.
+   */
+  remove: (
+    projectId: string,
+    slug: string,
+    cascade = false,
+  ): Promise<DeleteRequirementResult | null> =>
     apiRequest(
-      `/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(slug)}`,
+      `/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(slug)}${
+        cascade ? '?cascade=true' : ''
+      }`,
       {
         method: 'DELETE',
       },

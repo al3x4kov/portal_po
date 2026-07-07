@@ -5,34 +5,16 @@ import { randomBytes } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import {
-  aiImportInferLinksFieldSchema,
-  DomainError,
-  formatZodError,
-  type AiImportJobView,
-} from '@po/core';
-import {
-  createAiConfigRepo,
-  createLinkService,
-  createProjectRepo,
-  createRequirementService,
-  type ServiceContext,
-} from '../factory.js';
-import { createOpenAiClientFactory } from '../services/openaiClient.js';
+import { aiImportInferLinksFieldSchema, DomainError, type AiImportJobView } from '@po/core';
+import { createAiImportService, type ServiceContext } from '../factory.js';
 import { AiImportJobs } from '../services/AiImportJobs.js';
-import { AiImportService } from '../services/AiImportService.js';
 import { BadRequestError } from '../lib/errors.js';
+import { parseInput } from '../lib/parseInput.js';
+import { MAX_UPLOAD_BYTES } from '../lib/limits.js';
 import type { AppDeps } from './deps.js';
 
 const idParams = z.object({ id: z.string().min(1) });
 const jobParams = z.object({ jobId: z.string().min(1) });
-
-/** safeParse-then-throw-400 helper (as routes/ai.ts). */
-function parse400<T>(schema: z.ZodType<T>, data: unknown): T {
-  const res = schema.safeParse(data);
-  if (!res.success) throw new BadRequestError(formatZodError(res.error));
-  return res.data;
-}
 
 /**
  * AI-import routes (Task 11): start a documentation-import job (multipart
@@ -47,20 +29,10 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
     log: deps.log,
     makeAiClient: deps.makeAiClient,
   };
-  const projectRepo = createProjectRepo(ctx);
   const jobs = new AiImportJobs(deps.now);
-  const service = new AiImportService({
-    now: deps.now,
-    jobs,
-    configRepo: createAiConfigRepo(ctx),
-    makeAiClient: deps.makeAiClient ?? createOpenAiClientFactory(),
-    makeRequirementService: (projectId) => createRequirementService(ctx, projectId),
-    makeLinkService: (projectId) => createLinkService(ctx, projectId),
-    projectExists: (projectId) => projectRepo.exists(projectId),
-    log: deps.log,
-  });
+  const service = createAiImportService(ctx, jobs);
   app.post('/api/projects/:id/ai-import', async (req, reply) => {
-    const { id } = parse400(idParams, req.params);
+    const { id } = parseInput(idParams, req.params);
 
     let uploadPath: string | undefined;
     let model: string | undefined;
@@ -75,6 +47,14 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
             `po-ai-import-upload-${randomBytes(8).toString('hex')}`,
           );
           await pipeline(part.file, createWriteStream(uploadPath));
+          // ARCH-6: reject at the stream boundary. multipart truncates the file
+          // at MAX_UPLOAD_BYTES; if it did, the archive is over the product limit
+          // and nothing more should be written to tmp than the cap.
+          if (part.file.truncated) {
+            throw new BadRequestError(
+              `Архив превышает лимит ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} МБ.`,
+            );
+          }
         } else if (part.fieldname === 'model') {
           const value = String(part.value).trim();
           if (value.length > 0) model = value;
@@ -113,12 +93,12 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
   });
 
   app.get('/api/ai-import/:jobId', async (req): Promise<AiImportJobView> => {
-    const { jobId } = parse400(jobParams, req.params);
+    const { jobId } = parseInput(jobParams, req.params);
     return service.getView(jobId);
   });
 
   app.post('/api/ai-import/:jobId/cancel', async (req): Promise<AiImportJobView> => {
-    const { jobId } = parse400(jobParams, req.params);
+    const { jobId } = parseInput(jobParams, req.params);
     return service.cancel(jobId);
   });
 }

@@ -5,6 +5,7 @@ import { HasChildrenError, UniquenessError, ValidationError } from '@po/core';
 import { FsProjectRepo } from '../src/repositories/FsProjectRepo.js';
 import { FsRequirementRepo } from '../src/repositories/FsRequirementRepo.js';
 import { RequirementService } from '../src/services/RequirementService.js';
+import { LinkService } from '../src/services/LinkService.js';
 import { NotFoundError } from '../src/lib/errors.js';
 import { cleanup, fixedNow, makeTmpRoot, reqInput } from './helpers.js';
 
@@ -153,5 +154,81 @@ describe('T-804/T-805 requirements repo + service (OpenSpec layout)', () => {
 
   it('rejects a slug with path traversal at the repo boundary (S21)', async () => {
     await expect(repo.delete('FUNCTION', '../evil')).rejects.toBeTruthy();
+  });
+
+  describe('UX-2 cascade delete', () => {
+    let links: LinkService;
+    beforeEach(() => {
+      links = new LinkService(repo, fixedNow);
+    });
+
+    /** Build R -> {C1 -> G1, C2}, plus EXT that RELATES_TO G1 and KEEP. */
+    const buildTree = async () => {
+      const root = await service.create(reqInput({ name: 'Root' }));
+      const c1 = await service.create(reqInput({ name: 'Child One' }));
+      const g1 = await service.create(reqInput({ name: 'Grand One' }));
+      const c2 = await service.create(reqInput({ name: 'Child Two' }));
+      const ext = await service.create(reqInput({ name: 'External' }));
+      const keep = await service.create(reqInput({ name: 'Keeper' }));
+      await links.create({ sourceSlug: c1.slug, type: 'CHILD_OF', targetSlug: root.slug });
+      await links.create({ sourceSlug: c2.slug, type: 'CHILD_OF', targetSlug: root.slug });
+      await links.create({ sourceSlug: g1.slug, type: 'CHILD_OF', targetSlug: c1.slug });
+      await links.create({ sourceSlug: ext.slug, type: 'RELATES_TO', targetSlug: g1.slug });
+      await links.create({ sourceSlug: ext.slug, type: 'RELATES_TO', targetSlug: keep.slug });
+      return { root, c1, g1, c2, ext, keep };
+    };
+
+    const exists = async (slug: string): Promise<boolean> =>
+      fs
+        .stat(path.join(fnDir, `${slug}.md`))
+        .then(() => true)
+        .catch(() => false);
+
+    it('without cascade, deleting a node with children still throws (FR-9.3)', async () => {
+      const { root } = await buildTree();
+      await expect(service.delete(root.slug)).rejects.toBeInstanceOf(HasChildrenError);
+      expect(await exists(root.slug)).toBe(true);
+    });
+
+    it('removes the whole subtree atomically and cleans up back-references', async () => {
+      const { root, c1, g1, c2, ext, keep } = await buildTree();
+
+      const result = await service.delete(root.slug, { cascade: true });
+      expect([...result.deleted].sort()).toEqual([c1.slug, c2.slug, g1.slug, root.slug].sort());
+
+      // Every subtree file is gone; unrelated files survive.
+      for (const s of [root.slug, c1.slug, g1.slug, c2.slug]) {
+        expect(await exists(s)).toBe(false);
+      }
+      expect(await exists(ext.slug)).toBe(true);
+      expect(await exists(keep.slug)).toBe(true);
+
+      const { requirements, broken } = await repo.loadAll();
+      expect(requirements.map((r) => r.slug).sort()).toEqual([ext.slug, keep.slug].sort());
+      // No dangling reference to any removed node remains.
+      const removedSet = new Set(result.deleted);
+      const dangling = requirements
+        .flatMap((r) => r.links)
+        .filter((l) => removedSet.has(l.targetSlug));
+      expect(dangling).toEqual([]);
+      // EXT kept only its link to KEEP.
+      expect(requirements.find((r) => r.slug === ext.slug)!.links).toEqual([
+        { type: 'RELATES_TO', targetSlug: keep.slug },
+      ]);
+      expect(broken).toEqual([]);
+    });
+
+    it('cascade on a leaf removes just that leaf', async () => {
+      const leaf = await service.create(reqInput({ name: 'Solo' }));
+      const result = await service.delete(leaf.slug, { cascade: true });
+      expect(result.deleted).toEqual([leaf.slug]);
+      expect(await exists(leaf.slug)).toBe(false);
+    });
+
+    it('non-cascade leaf delete reports the single removed slug', async () => {
+      const leaf = await service.create(reqInput({ name: 'Lone' }));
+      const result = await service.delete(leaf.slug);
+      expect(result.deleted).toEqual([leaf.slug]);
+    });
   });
 });

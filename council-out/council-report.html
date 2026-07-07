@@ -1,0 +1,1461 @@
+<title>Совет экспертов — ревью project_po</title>
+<style>
+  :root {
+    --paper: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #fbfcfd;
+    --ink: #191d26;
+    --ink-soft: #58616f;
+    --ink-faint: #8b95a3;
+    --line: #e4e8ee;
+    --line-strong: #d3d9e2;
+    --accent: #1f6f7a;
+    --accent-soft: #e5f0f1;
+    --sev-blocker: #b3261e;
+    --sev-high: #c2610c;
+    --sev-medium: #9a7500;
+    --sev-low: #6b7280;
+    --sev-blocker-bg: #fbeae8;
+    --sev-high-bg: #fbeee2;
+    --sev-medium-bg: #f7f0da;
+    --sev-low-bg: #eef0f3;
+    --shadow: 0 1px 2px rgba(20, 28, 44, 0.04), 0 6px 20px rgba(20, 28, 44, 0.05);
+    --radius: 12px;
+    --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    --sans:
+      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0e1116;
+      --surface: #161b22;
+      --surface-2: #1a2029;
+      --ink: #e7ebf1;
+      --ink-soft: #a3adbb;
+      --ink-faint: #6d7787;
+      --line: #242b36;
+      --line-strong: #333c49;
+      --accent: #52c7d4;
+      --accent-soft: #123137;
+      --sev-blocker: #f0857b;
+      --sev-high: #e6a562;
+      --sev-medium: #d9be6a;
+      --sev-low: #9aa4b2;
+      --sev-blocker-bg: #2a1815;
+      --sev-high-bg: #29200f;
+      --sev-medium-bg: #262009;
+      --sev-low-bg: #1d232c;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 22px rgba(0, 0, 0, 0.35);
+    }
+  }
+  :root[data-theme='light'] {
+    --paper: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #fbfcfd;
+    --ink: #191d26;
+    --ink-soft: #58616f;
+    --ink-faint: #8b95a3;
+    --line: #e4e8ee;
+    --line-strong: #d3d9e2;
+    --accent: #1f6f7a;
+    --accent-soft: #e5f0f1;
+    --sev-blocker: #b3261e;
+    --sev-high: #c2610c;
+    --sev-medium: #9a7500;
+    --sev-low: #6b7280;
+    --sev-blocker-bg: #fbeae8;
+    --sev-high-bg: #fbeee2;
+    --sev-medium-bg: #f7f0da;
+    --sev-low-bg: #eef0f3;
+    --shadow: 0 1px 2px rgba(20, 28, 44, 0.04), 0 6px 20px rgba(20, 28, 44, 0.05);
+  }
+  :root[data-theme='dark'] {
+    --paper: #0e1116;
+    --surface: #161b22;
+    --surface-2: #1a2029;
+    --ink: #e7ebf1;
+    --ink-soft: #a3adbb;
+    --ink-faint: #6d7787;
+    --line: #242b36;
+    --line-strong: #333c49;
+    --accent: #52c7d4;
+    --accent-soft: #123137;
+    --sev-blocker: #f0857b;
+    --sev-high: #e6a562;
+    --sev-medium: #d9be6a;
+    --sev-low: #9aa4b2;
+    --sev-blocker-bg: #2a1815;
+    --sev-high-bg: #29200f;
+    --sev-medium-bg: #262009;
+    --sev-low-bg: #1d232c;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 22px rgba(0, 0, 0, 0.35);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+  }
+  .page {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding: 0 20px 80px;
+  }
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+
+  /* ---- header ---- */
+  header.masthead {
+    padding: 44px 0 26px;
+    border-bottom: 1px solid var(--line);
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .eyebrow::before {
+    content: '';
+    width: 26px;
+    height: 2px;
+    background: var(--accent);
+    display: inline-block;
+  }
+  h1 {
+    font-size: clamp(28px, 4.4vw, 44px);
+    line-height: 1.08;
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+    font-weight: 800;
+    text-wrap: balance;
+    max-width: 20ch;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .meta b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .meta .dot {
+    color: var(--line-strong);
+  }
+
+  /* ---- verdict banner ---- */
+  .verdict {
+    margin: 28px 0 34px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--sev-blocker);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 22px 24px;
+    display: grid;
+    gap: 10px;
+  }
+  .verdict .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    align-self: start;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--sev-blocker);
+    background: var(--sev-blocker-bg);
+    padding: 4px 10px;
+    border-radius: 100px;
+    font-weight: 600;
+  }
+  .verdict h2 {
+    margin: 2px 0 0;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .verdict p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 15px;
+    max-width: 78ch;
+  }
+  .verdict .roots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .verdict .roots span {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 6px;
+    background: var(--sev-blocker-bg);
+    color: var(--sev-blocker);
+    border: 1px solid color-mix(in srgb, var(--sev-blocker) 25%, transparent);
+  }
+
+  /* ---- section titles ---- */
+  .sec-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 40px 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .sec-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  /* ---- stat tiles ---- */
+  .tiles {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr 1fr 1fr 1fr;
+    gap: 12px;
+  }
+  .tile {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 16px 14px;
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    color: inherit;
+    position: relative;
+    overflow: hidden;
+    transition:
+      border-color 0.15s,
+      transform 0.12s;
+  }
+  .tile:hover {
+    border-color: var(--line-strong);
+    transform: translateY(-2px);
+  }
+  .tile:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .tile.active {
+    border-color: currentColor;
+  }
+  .tile .num {
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--mono);
+  }
+  .tile .lbl {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    margin-top: 8px;
+    letter-spacing: 0.01em;
+  }
+  .tile .bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 3px;
+    width: 100%;
+    background: var(--accent);
+  }
+  .tile[data-sev='blocker'] {
+    color: var(--sev-blocker);
+  }
+  .tile[data-sev='high'] {
+    color: var(--sev-high);
+  }
+  .tile[data-sev='medium'] {
+    color: var(--sev-medium);
+  }
+  .tile[data-sev='low'] {
+    color: var(--sev-low);
+  }
+  .tile[data-sev='blocker'] .bar {
+    background: var(--sev-blocker);
+  }
+  .tile[data-sev='high'] .bar {
+    background: var(--sev-high);
+  }
+  .tile[data-sev='medium'] .bar {
+    background: var(--sev-medium);
+  }
+  .tile[data-sev='low'] .bar {
+    background: var(--sev-low);
+  }
+  .tile[data-sev='all'] .bar {
+    background: var(--accent);
+  }
+  .tile .num,
+  .tile[data-sev='all'] .lbl b {
+    color: var(--ink);
+  }
+  .tile[data-sev] .lbl {
+    color: var(--ink-soft);
+  }
+
+  /* ---- discipline breakdown ---- */
+  .disc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 26px;
+  }
+  .disc-row {
+    display: grid;
+    grid-template-columns: 148px 1fr 34px;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .disc-row .name {
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .disc-row .name small {
+    display: block;
+    color: var(--ink-faint);
+    font-weight: 400;
+    font-size: 11.5px;
+  }
+  .disc-row .track {
+    display: flex;
+    height: 9px;
+    border-radius: 100px;
+    overflow: hidden;
+    background: var(--line);
+  }
+  .disc-row .track i {
+    display: block;
+    height: 100%;
+  }
+  .disc-row .track i[data-sev='blocker'] {
+    background: var(--sev-blocker);
+  }
+  .disc-row .track i[data-sev='high'] {
+    background: var(--sev-high);
+  }
+  .disc-row .track i[data-sev='medium'] {
+    background: var(--sev-medium);
+  }
+  .disc-row .track i[data-sev='low'] {
+    background: var(--sev-low);
+  }
+  .disc-row .cnt {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- toolbar ---- */
+  .toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--paper);
+    padding: 14px 0 12px;
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    border-bottom: 1px solid var(--line);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .chip {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 6px 13px;
+    border-radius: 100px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--ink-soft);
+    transition: all 0.13s;
+  }
+  .chip:hover {
+    border-color: var(--accent);
+    color: var(--ink);
+  }
+  .chip:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .chip.active {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+  }
+  .chip[data-sev='blocker'].active {
+    background: var(--sev-blocker);
+    border-color: var(--sev-blocker);
+    color: #fff;
+  }
+  .chip[data-sev='high'].active {
+    background: var(--sev-high);
+    border-color: var(--sev-high);
+    color: #fff;
+  }
+  .chip[data-sev='medium'].active {
+    background: var(--sev-medium);
+    border-color: var(--sev-medium);
+    color: #fff;
+  }
+  .chip[data-sev='low'].active {
+    background: var(--sev-low);
+    border-color: var(--sev-low);
+    color: #fff;
+  }
+  .spacer {
+    flex: 1 1 24px;
+  }
+  select,
+  .search input {
+    font-family: inherit;
+    font-size: 13.5px;
+    color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    padding: 7px 11px;
+  }
+  select:focus-visible,
+  .search input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .search input {
+    width: 190px;
+  }
+  .count {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- task cards ---- */
+  .tasks {
+    display: grid;
+    gap: 12px;
+    margin-top: 20px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px 20px 18px 22px;
+    position: relative;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: 4px 0 0 4px;
+  }
+  .card[data-sev='blocker']::before {
+    background: var(--sev-blocker);
+  }
+  .card[data-sev='high']::before {
+    background: var(--sev-high);
+  }
+  .card[data-sev='medium']::before {
+    background: var(--sev-medium);
+  }
+  .card[data-sev='low']::before {
+    background: var(--sev-low);
+  }
+  .card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .id {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.01em;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    padding: 3px 9px;
+    border-radius: 6px;
+  }
+  .pill {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 100px;
+  }
+  .pill[data-sev='blocker'] {
+    color: var(--sev-blocker);
+    background: var(--sev-blocker-bg);
+  }
+  .pill[data-sev='high'] {
+    color: var(--sev-high);
+    background: var(--sev-high-bg);
+  }
+  .pill[data-sev='medium'] {
+    color: var(--sev-medium);
+    background: var(--sev-medium-bg);
+  }
+  .pill[data-sev='low'] {
+    color: var(--sev-low);
+    background: var(--sev-low-bg);
+  }
+  .disc-tag {
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .disc-tag b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .est {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--ink-faint);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 2px 7px;
+  }
+  .root-chip {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 3px 8px;
+    border-radius: 100px;
+  }
+  .card h3 {
+    margin: 0 0 12px;
+    font-size: 16.5px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+  }
+  .card .kv {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 12px;
+    font-size: 14px;
+  }
+  .card .kv .k {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    padding-top: 3px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .card .kv .v {
+    color: var(--ink-soft);
+    margin: 0;
+  }
+  .card .kv .v.risk {
+    color: var(--ink);
+  }
+  .card .kv .risk-k {
+    color: var(--sev-high);
+  }
+  .empty {
+    text-align: center;
+    color: var(--ink-faint);
+    padding: 50px 0;
+    font-size: 15px;
+  }
+
+  /* ---- waves ---- */
+  .waves {
+    display: grid;
+    gap: 12px;
+    margin-top: 20px;
+  }
+  .wave {
+    display: grid;
+    grid-template-columns: 46px 1fr;
+    gap: 16px;
+    align-items: start;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+  }
+  .wave .n {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 10px;
+    height: 46px;
+    display: grid;
+    place-items: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .wave h4 {
+    margin: 2px 0 6px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .wave p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 13.5px;
+  }
+  .wave code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    padding: 1px 5px;
+    border-radius: 5px;
+    color: var(--ink);
+  }
+
+  footer.foot {
+    margin-top: 48px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-faint);
+    font-size: 13px;
+  }
+  footer.foot code {
+    font-family: var(--mono);
+    color: var(--ink-soft);
+  }
+
+  @media (max-width: 720px) {
+    .tiles {
+      grid-template-columns: 1fr 1fr;
+    }
+    .disc-grid {
+      grid-template-columns: 1fr;
+    }
+    .disc-row {
+      grid-template-columns: 130px 1fr 30px;
+    }
+    .search input {
+      width: 140px;
+    }
+    h1 {
+      max-width: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      transition: none !important;
+    }
+  }
+</style>
+
+<div class="page">
+  <div class="wrap">
+    <header class="masthead">
+      <p class="eyebrow">Коллегиальное ревью · Совет из 7 экспертов</p>
+      <h1>Аудит проекта «Управление требованиями для PO»</h1>
+      <div class="meta">
+        <span><b>Дата:</b> 7 июля 2026</span><span class="dot">·</span>
+        <span><b>Область:</b> весь проект — ТЗ, архитектура, код, тесты, UX, продукт</span
+        ><span class="dot">·</span>
+        <span><b>Задач:</b> 55</span>
+      </div>
+    </header>
+
+    <div class="verdict">
+      <span class="tag">Главный вывод</span>
+      <h2>
+        AI-подсистема уже в проде — но её нет в ТЗ и она нарушает границу «локального приложения»
+      </h2>
+      <p>
+        Инженерия, тесты и UX проекта — зрелые, это отметили все семь экспертов. Единственный
+        системный разрыв: целая AI-подсистема (внешний LLM, AI-импорт из документации, чат,
+        генерация описаний, хранение API-ключа) поставлена в продакшн, но отсутствует в источнике
+        истины и противоречит заявленным NFR-1/NFR-2 «без внешних зависимостей». Это независимо
+        увидели 5 из 7 экспертов. Все три блокера — про этот один корень.
+      </p>
+      <div class="roots"><span>BA-1</span><span>PO-1</span><span>SA-1</span></div>
+    </div>
+
+    <p class="sec-title">Сводка по критичности</p>
+    <div class="tiles" id="tiles">
+      <button class="tile active" data-sev="all">
+        <span class="bar"></span>
+        <div class="num">55</div>
+        <div class="lbl"><b>Всего задач</b> · 7 направлений</div>
+      </button>
+      <button class="tile" data-sev="blocker">
+        <span class="bar"></span>
+        <div class="num">3</div>
+        <div class="lbl">Blocker</div>
+      </button>
+      <button class="tile" data-sev="high">
+        <span class="bar"></span>
+        <div class="num">13</div>
+        <div class="lbl">High</div>
+      </button>
+      <button class="tile" data-sev="medium">
+        <span class="bar"></span>
+        <div class="num">22</div>
+        <div class="lbl">Medium</div>
+      </button>
+      <button class="tile" data-sev="low">
+        <span class="bar"></span>
+        <div class="num">17</div>
+        <div class="lbl">Low</div>
+      </button>
+    </div>
+
+    <p class="sec-title">Разбивка по направлениям</p>
+    <div class="disc-grid" id="discGrid"></div>
+
+    <p class="sec-title">Пул задач</p>
+    <div class="toolbar">
+      <div class="chips" id="sevChips">
+        <button class="chip active" data-sev="all">Все</button>
+        <button class="chip" data-sev="blocker">Blocker</button>
+        <button class="chip" data-sev="high">High</button>
+        <button class="chip" data-sev="medium">Medium</button>
+        <button class="chip" data-sev="low">Low</button>
+      </div>
+      <div class="spacer"></div>
+      <select id="discSel" aria-label="Фильтр по направлению">
+        <option value="all">Все направления</option>
+      </select>
+      <div class="search">
+        <input id="search" type="search" placeholder="Поиск по задачам…" aria-label="Поиск" />
+      </div>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="tasks" id="tasks"></div>
+
+    <p class="sec-title">Рекомендованный порядок — волны внедрения</p>
+    <div class="waves" id="waves"></div>
+
+    <footer class="foot">
+      Сформировано советом экспертов: Норман (UI/UX) · Вигерс (бизнес-анализ) · Uncle Bob (бэкенд) ·
+      Хопе (архитектура) · Пихлер (продукт) · Робертсон (системный анализ) · Криспин (QA).<br />
+      Полные формулировки с критериями приёмки — <code>council-out/COUNCIL-2026-07-07.md</code>.
+      Страница выводов — <code>council-out/SUMMARY-2026-07-07.md</code>.
+    </footer>
+  </div>
+</div>
+
+<script>
+  const DISC = {
+    UX: { label: 'UI/UX', expert: 'Норман' },
+    BA: { label: 'Бизнес-анализ', expert: 'Вигерс' },
+    BE: { label: 'Бэкенд', expert: 'Uncle Bob' },
+    ARCH: { label: 'Архитектура', expert: 'Хопе' },
+    PO: { label: 'Продукт', expert: 'Пихлер' },
+    SA: { label: 'Системный анализ', expert: 'Робертсон' },
+    QA: { label: 'Тестирование', expert: 'Криспин' },
+  };
+  const SEV_ORDER = { blocker: 0, high: 1, medium: 2, low: 3 };
+  const SEV_LABEL = { blocker: 'Blocker', high: 'High', medium: 'Medium', low: 'Low' };
+
+  const T = [
+    // BLOCKERS (общий корень AI)
+    {
+      id: 'PO-1',
+      sev: 'blocker',
+      disc: 'PO',
+      est: 'L',
+      root: true,
+      title: 'Синхронизировать видение/ТЗ с реально построенным продуктом (AI)',
+      todo: 'Принять продуктовое решение (нужна ли AI в MVP), затем внести AI в источник истины: FR/NFR, актор «внешний LLM», обновить MoSCoW/MVP и §1.4, сквозная трассировка.',
+      risk: '«Слепой» неуправляемый scope: значимая часть продукта развивается без критериев приёмки и оценки ценности; DoD «все FR реализованы» ложно-зелёный.',
+    },
+    {
+      id: 'BA-1',
+      sev: 'blocker',
+      disc: 'BA',
+      est: 'L',
+      root: true,
+      title: 'Специфицировать AI-подсистему как требования',
+      todo: 'Ввести FR на конфиг/чат/импорт/пресеты; NFR по сети/приватности/ключу; актора в context.md; MoSCoW+MVP; трассировку FR→задача→тест.',
+      risk: 'Существенное поведение с сетевым вызовом внешнего API — без единого требования, границ scope и критериев приёмки. Разработка и приёмка неуправляемы.',
+    },
+    {
+      id: 'SA-1',
+      sev: 'blocker',
+      disc: 'SA',
+      est: 'L',
+      root: true,
+      title: 'Внести AI-подсистему в scope, контекст и требования',
+      todo: 'Добавить актора «внешний LLM-провайдер» и потоки в context diagram; FR с трассировкой на тесты; привести §1.4/context в соответствие (в scope или feature-flag off by default).',
+      risk: 'Самая крупная функциональность вне ТЗ и в противоречии с локальной границей системы → неуправляемый scope drift, релиз непроверенной по требованиям функции.',
+    },
+
+    // HIGH
+    {
+      id: 'ARCH-2',
+      sev: 'high',
+      disc: 'ARCH',
+      est: 'S',
+      title: 'Включить проверку TLS для AI Hub по умолчанию (secure-by-default)',
+      todo: 'Верификация TLS включена по умолчанию; внутренний CA через AI_HUB_CA_CERT; отключение только явным AI_HUB_INSECURE_TLS=1 с предупреждением в лог.',
+      risk: 'MITM: API-ключ и всё содержимое требований отправляются на внешний хост без верификации сертификата. Утечка ключа и данных.',
+    },
+    {
+      id: 'SA-2',
+      sev: 'high',
+      disc: 'SA',
+      est: 'M',
+      title: 'NFR безопасности/приватности и fit-критерии для внешнего канала и ключа',
+      todo: 'NFR «конфиденциальность» (ключ не в логах/ответах/экспорте; .ai-config.json вне архива) и «устойчивость» (таймаут, ошибки в UI без падения, отмена джобы); нотис пользователю.',
+      risk: 'API-ключ хранится открытым текстом; чувствительные требования уходят третьей стороне; поведение при сбое провайдера не определено — неизмеримая зона риска.',
+    },
+    {
+      id: 'UX-1',
+      sev: 'high',
+      disc: 'UX',
+      est: 'L',
+      title: 'Сделать дерево требований управляемым с клавиатуры',
+      todo: 'Семантика treegrid (aria-level/expanded), навигация ↑/↓/→/←/Enter (roving tabindex), axe без serious/critical, e2e-проходка ≥3 уровней.',
+      risk: 'Нарушение NFR-7 / WCAG 2.1.1 на главной рабочей поверхности: PO с клавиатурой или скринридером не может работать с сотнями требований.',
+    },
+    {
+      id: 'QA-1',
+      sev: 'high',
+      disc: 'QA',
+      est: 'M',
+      title: 'Тест реальной кросс-процессной конкуренции (MCP + REST)',
+      todo: 'Интеграционный тест: два процесса на общий PROJECTS_ROOT, N параллельных create/update; проверка целостности, точного числа и уникальности slug; кейс параллельный import+create.',
+      risk: 'Единственная гарантия целостности (proper-lockfile) валидирована лишь в одном процессе. Регрессия даст потерю обновлений/дубли slug в самом вероятном сценарии — и её никто не поймает.',
+    },
+    {
+      id: 'BE-1',
+      sev: 'high',
+      disc: 'BE',
+      est: 'L',
+      title: 'Разбить god-класс/god-метод AiImportService',
+      todo: 'Выделить стадии (unpack/analyze/structure/aggregate/populate/relate) в отдельные объекты; run() ≤~50 строк; изолированные юнит-тесты стадий; вынести логи из алгоритмов.',
+      risk: '1251 строка, метод run() ~600 строк. Непокрываемость юнит-тестами, запредельная когнитивная нагрузка, высокий риск регрессий при любой правке.',
+    },
+    {
+      id: 'ARCH-1',
+      sev: 'high',
+      disc: 'ARCH',
+      est: 'M',
+      title: 'Задокументировать контур AI Hub (ADR-007 + arch.md)',
+      todo: 'ADR-007 «AI Hub как внешняя интеграция»: границы, деградация, хранение ключа, что уходит наружу. Дополнить схему и таблицу роутов /api/ai/*, /api/…/ai-import.',
+      risk: '«Пентхаус» (arch.md/ADR) разошёлся с «машинным отделением» (код): слепые зоны в границах, точках отказа и модели секрета; ревью и эволюция швов вслепую.',
+    },
+    {
+      id: 'BA-2',
+      sev: 'high',
+      disc: 'BA',
+      est: 'M',
+      title: 'Устранить ложную трассировку правила 2.4.9 (минимальная проверяемость)',
+      todo: 'Либо enforced (guard + S-строка + unit-тест «пустое требование без описания и сценария → отклоняется»), либо переформулировать 2.4.9/DoD §6.2 без ложного покрытия.',
+      risk: 'Ключевой инвариант «каждое требование проверяемо» декларирован и «подтверждён» DoD, но не выполняется. В хранилище попадают непроверяемые требования — подрыв главной ценности.',
+    },
+    {
+      id: 'BA-3',
+      sev: 'high',
+      disc: 'BA',
+      est: 'S',
+      title: 'Дать критерий и трассировку требованию о «просроченном плановом сроке» (§2.2)',
+      todo: 'Сформулировать измеримый fit-критерий + строку S + тест (форма показывает предупреждение, запись сохраняется), либо явно пометить «не реализовано / вне MVP».',
+      risk: 'Требование подано как принятое, но не проверяемо и, судя по коду, не реализовано — при приёмке его нельзя ни проверить, ни доказать.',
+    },
+    {
+      id: 'SA-3',
+      sev: 'high',
+      disc: 'SA',
+      est: 'M',
+      title: 'Определить реакцию на импорт архива с нарушенной целостностью связей',
+      todo: 'Зафиксировать поведение (рекомендация — reject с перечнем нарушений, каталог не создаётся); тест-ситуации на цикл / висячий targetSlug / второй родитель.',
+      risk: 'Незакрытый краевой сценарий на входной границе: пользователь/агент может импортировать граф, который сам продукт запрещает создавать — противоречие инвариантам целостности.',
+    },
+    {
+      id: 'PO-2',
+      sev: 'high',
+      disc: 'PO',
+      est: 'M',
+      title: 'Оформить Product Vision Board с уточнённым ценностным предложением',
+      todo: 'Заполнить Vision Board (Vision/Target/Needs/Product/Business Goals); явно назвать актуальный дифференциатор (AI-authoring vs AI-consumable output) и главную гипотезу ценности.',
+      risk: 'Без ясного «зачем и для кого» приоритизация и решения о scope делаются ad hoc; команда не отличает ценные инкременты от «фич ради фич».',
+    },
+    {
+      id: 'PO-3',
+      sev: 'high',
+      disc: 'PO',
+      est: 'M',
+      title: 'Ввести цель-ориентированную дорожную карту (GO Roadmap)',
+      todo: 'Собрать GO Roadmap: релизы с Goal/Metrics/Features/Date; привязать эпики к целям релизов; отделить роадмап от бэклога задач.',
+      risk: 'Релизы не связаны с outcome; нельзя ответить «какую продуктовую цель закрывает следующий релиз и как поймём успех».',
+    },
+    {
+      id: 'PO-4',
+      sev: 'high',
+      disc: 'PO',
+      est: 'M',
+      title: 'Определить метрики успеха и петлю обратной связи (в т.ч. для AI)',
+      todo: 'KPI по группам (активация/удержание PO, acceptance-rate AI, использование MCP); для каждой AI-фичи измеримая метрика и порог «оправдана/нет»; способ сбора фидбека.',
+      risk: 'Нельзя понять, работает ли продукт и оправданы ли дорогие/рисковые AI-вложения; главная гипотеза ценности остаётся непроверенной.',
+    },
+    {
+      id: 'PO-5',
+      sev: 'high',
+      disc: 'PO',
+      est: 'M',
+      title: 'Приоритизировать AI-фичи по ценности/риску и задать MVP-границы',
+      todo: 'Провести AI через MoSCoW/MVP с обоснованием; риск-план для AI-импорта (измеримый критерий качества извлечения, порог выпуска); явные границы MVP AI.',
+      risk: 'Самая ценная и самая рисковая фича строится без de-risking; ресурс уходит в полировку параметров вместо валидации ядра ценности.',
+    },
+
+    // MEDIUM
+    {
+      id: 'UX-2',
+      sev: 'medium',
+      disc: 'UX',
+      est: 'M',
+      title: 'Устранить тупик при удалении требования с детьми',
+      todo: 'Дать выбор «Удалить вместе с вложенными (N)» с усиленным подтверждением и/или «Открепить детей к родителю выше»; показать число затрагиваемых; чистить связи атомарно.',
+      risk: 'Для глубоких деревьев — десятки ручных операций снизу вверх; система перекладывает работу на пользователя вместо безопасного действия.',
+    },
+    {
+      id: 'UX-3',
+      sev: 'medium',
+      disc: 'UX',
+      est: 'S',
+      title: 'Добавить «Перейти к содержимому» и упорядочить обход сайдбара',
+      todo: 'Видимый при фокусе skip-link на <main> (id/tabindex=-1); e2e: первый Tab на странице проекта открывает skip-link.',
+      risk: 'Нарушение WCAG 2.4.1 (Bypass Blocks): повторный обход навигации на каждой странице и рост когнитивной нагрузки.',
+    },
+    {
+      id: 'UX-4',
+      sev: 'medium',
+      disc: 'UX',
+      est: 'M',
+      title: 'Обеспечить доступность графа связей',
+      todo: 'Узлы графа фокусируемы и активируемы с клавиатуры либо доступный эквивалент (дерево); клавиатурные команды для role=application документированы; axe без serious/critical.',
+      risk: 'Равноправный вид «Граф» выпадает для клавиатурных/скринридер-пользователей; role=application вдобавок перехватывает команды скринридера.',
+    },
+    {
+      id: 'UX-5',
+      sev: 'medium',
+      disc: 'UX',
+      est: 'S',
+      title: 'Управлять фокусом при открытии плавающего AI-чата',
+      todo: 'При раскрытии — фокус в поле ввода; при сворачивании (✕/Escape) — возврат на FAB; логичный Tab-порядок внутри панели.',
+      risk: 'Клавиатурный пользователь открывает чат, но фокус остаётся на прежнем месте; после закрытия теряется — разрыв взаимодействия.',
+    },
+    {
+      id: 'BA-4',
+      sev: 'medium',
+      disc: 'BA',
+      est: 'S',
+      title: 'Устранить противоречие статуса FR-7.4',
+      todo: 'Привести FR-7.4 к единому статусу «решено (drawer, S30)», снять метку [ОТКРЫТО] из §3.',
+      risk: 'Одно требование одновременно «открыто» и «закрыто» — противоречивый сигнал о scope/готовности мешает планированию и приёмке.',
+    },
+    {
+      id: 'BA-5',
+      sev: 'medium',
+      disc: 'BA',
+      est: 'S',
+      title: 'Синхронизировать нормативные FR с моделью slug (убрать остаточный id/ULID)',
+      todo: 'В FR-6.4 и FR-8.3 заменить id на slug/targetSlug (или пометить [ИСТОРИЧЕСКОЕ]); прогон §3 на остаточные id/targetId/ULID.',
+      risk: 'Нормативная часть противоречит модели данных; исполнитель/агент примет id за отдельное поле.',
+    },
+    {
+      id: 'BA-6',
+      sev: 'medium',
+      disc: 'BA',
+      est: 'S',
+      title: 'Довести FR-14 до самодостаточного требования',
+      todo: 'В FR-14.2 явно зафиксировать направление связи и реципрокную пару (без отсылки «за архитектурой»); сверить приоритет FR-14/FR-15 с фактической реализацией.',
+      risk: 'Нельзя написать однозначный приёмочный тест, не заглядывая в задачу E15/T4; расхождение план/факт.',
+    },
+    {
+      id: 'BE-2',
+      sev: 'medium',
+      disc: 'BE',
+      est: 'S',
+      title: 'Устранить утечку конкретного репозитория (каст ArchivePort → ArchiveRepo)',
+      todo: 'Объявить exportSelected/packReserialized в интерфейсе ArchivePort; удалить касты as ArchiveRepo из ProjectService; при необходимости ISP-разбиение порта.',
+      risk: 'Сервис снова связан с реализацией, не с абстракцией: нельзя подставить in-memory фейк для теста; любой другой ArchivePort сломается в рантайме.',
+    },
+    {
+      id: 'BE-3',
+      sev: 'medium',
+      disc: 'BE',
+      est: 'M',
+      title: 'Вернуть доменные чистые функции из сервера в ядро',
+      todo: 'Перенести breakParentCycles/nextQuarterOf/unionRelatedFunctions/nameKey в @po/core (graph/, domain/) с юнит-тестами; AiImportService импортирует их из ядра.',
+      risk: 'Доменные правила размазаны между core и сервером; нельзя переиспользовать и тестировать в изоляции от AI-пайплайна.',
+    },
+    {
+      id: 'BE-4',
+      sev: 'medium',
+      disc: 'BE',
+      est: 'S',
+      title: 'Унифицировать маппинг ошибок валидации входа (422 vs 400)',
+      todo: 'Единый хелпер валидации входа в lib/ с одним статусом; удалить продублированный parse400 из ai.ts и aiImport.ts; тест на единый код ответа.',
+      risk: 'Клиент получает разный HTTP-код за один класс ошибки в зависимости от роут-семейства — непредсказуемый контракт; дублирование разъедется.',
+    },
+    {
+      id: 'ARCH-3',
+      sev: 'medium',
+      disc: 'ARCH',
+      est: 'S',
+      title: 'Обновить ADR-004 (конкурентность): LWW → cross-process lock',
+      todo: 'Обновить/пометить Superseded: описать внедрённый advisory-lock (proper-lockfile), его гарантии и остаточные риски (crash-holder, отсутствие изоляции многошаговых операций).',
+      risk: 'ADR — источник истины по решениям; устаревший ADR вводит в заблуждение о гарантиях целостности, которые теперь закрыты иначе.',
+    },
+    {
+      id: 'ARCH-4',
+      sev: 'medium',
+      disc: 'ARCH',
+      est: 'M',
+      title: 'Зафиксировать семантику и устойчивость AI-import job',
+      todo: 'Описать семантику job (in-memory, single-process, TTL, поведение при рестарте, идемпотентность, отсутствие транзакции на весь импорт); поведение клиента при исчезнувшем job; задел на персистентность.',
+      risk: 'При рестарте/краше прогресс и лог джобы теряются, частичные требования остаются, polling → NOT_FOUND. Обострится под Electron (частые рестарты).',
+    },
+    {
+      id: 'ARCH-5',
+      sev: 'medium',
+      disc: 'ARCH',
+      est: 'M',
+      title: 'Ограничить суммарный распакованный объём архива (decompression bomb)',
+      todo: 'Инкрементальный лимит несжатого размера и/или числа всех записей во время распаковки; превышение → ArchiveError, tmp удаляется; тест на «архив-бомбу».',
+      risk: 'Сжатый архив 50 МБ разворачивается в гигабайты до срабатывания лимитов — локальный DoS: исчерпание диска/памяти single-process приложения.',
+    },
+    {
+      id: 'ARCH-7',
+      sev: 'medium',
+      disc: 'ARCH',
+      est: 'S',
+      title: 'Включить AI-эндпоинты в OpenAPI и политику версионирования (ADR-006)',
+      todo: 'Все AI-эндпоинты в /openapi.json с моделями запросов/ответов и кодами ошибок; дополнить таблицу роутов; async-контракт (202 + polling) — часть версионируемого API.',
+      risk: '«Контракт как единый источник» нарушен: потребители (фронт, будущие агенты) не видят часть API; обратная совместимость вне контроля политики.',
+    },
+    {
+      id: 'PO-6',
+      sev: 'medium',
+      disc: 'PO',
+      est: 'S',
+      title: 'Разрешить неоднозначность целевой аудитории и идентичности продукта',
+      todo: 'Определить primary user и primary job-to-be-done; вторичные аудитории подчинить ему; зафиксировать, ядро ли AI-авторство или вспомогательная фича.',
+      risk: 'Три конкурирующие роли (PO-автор, ИИ-потребитель, ИИ-автор) тянут продукт в разные стороны; размытая product identity.',
+    },
+    {
+      id: 'PO-7',
+      sev: 'medium',
+      disc: 'PO',
+      est: 'S',
+      title: 'Пересобрать «Known gaps» как приоритизированный реестр рисков принятия',
+      todo: 'Единый актуальный реестр без противоречий (FR-7.4, NFR-3, NFR-7 согласованы между project.md/CLAUDE.md/build-complete.md); оценка влияния на принятие; место в роадмапе.',
+      risk: 'Противоречия в статусе подрывают доверие к DoD; невыполненные a11y/perf — прямые риски принятия, но не приоритизированы.',
+    },
+    {
+      id: 'SA-4',
+      sev: 'medium',
+      disc: 'SA',
+      est: 'S',
+      title: 'Закрыть немую зону «битого требования»: сценарий просмотра/восстановления',
+      todo: 'FR/PUC «Просмотр битых требований»: список broken[] в UI с файлом и причиной (e2e); явно зафиксировать, что починка вне приложения, или завести FR на in-app коррекцию.',
+      risk: 'Обработка исключения объявлена, но пользовательский путь выхода из ошибки отсутствует — тупик при реальной ручной правке .md.',
+    },
+    {
+      id: 'SA-5',
+      sev: 'medium',
+      disc: 'SA',
+      est: 'S',
+      title: 'Добавить перф-бюджет и fit-критерий для импорта/экспорта в масштабе',
+      todo: 'Дополнить NFR-3: импорт и экспорт @1000 требований ≤ порога (напр. <3 c p95) + бенчмарк в CI; указать потолок пиковой памяти.',
+      risk: 'Самая тяжёлая операция (round-trip архива) — ключевой сценарий метрики успеха — неизмерима: риск непроверенной деградации на объёме.',
+    },
+    {
+      id: 'SA-6',
+      sev: 'medium',
+      disc: 'SA',
+      est: 'M',
+      title: 'Ввести Business Use Cases (BUC) отдельно от Product Use Cases',
+      todo: 'Для ключевых бизнес-событий описать BUC (цель PO, а не UI-шаги) с явной привязкой BUC → PUC; проверить покрытие каждого BUC.',
+      risk: 'Без BUC не виден gap «потребности vs возможности»; часть бизнес-нужд PO может быть не покрыта продуктовыми сценариями.',
+    },
+    {
+      id: 'QA-2',
+      sev: 'medium',
+      disc: 'QA',
+      est: 'M',
+      title: 'Расширить axe-сканы на GraphView и оставшиеся экраны',
+      todo: 'axe-скан GraphView в состоянии с узлами и рёбрами (0 serious/critical); ExportTasksModal и Import; при нарушениях — фикс или документированный baseline.',
+      risk: 'Интерактивный SVG-граф — типичный источник serious-нарушений a11y; деградация пройдёт незамеченной (NFR-7).',
+    },
+    {
+      id: 'QA-3',
+      sev: 'medium',
+      disc: 'QA',
+      est: 'M',
+      title: 'Поднять пол покрытия web-функций (сейчас 62%)',
+      todo: 'Через coverage-html выявить топ непокрытых функций; добавить компонентные тесты; поднять пол functions до ~72; пересмотреть branches web (78).',
+      risk: '~38% функций фронтенда вне гейта — целые обработчики можно сломать/удалить, не уронив CI. Слепая зона на самом изменчивом слое.',
+    },
+    {
+      id: 'QA-4',
+      sev: 'medium',
+      disc: 'QA',
+      est: 'M',
+      title: 'Добавить нагрузку с параллельными клиентами',
+      todo: 'Тест с K параллельными писателями по одному проекту, замер p95 под контентом лока; зафиксировать бюджет ожидания; проверить, что никто не падает по stale/timeout.',
+      risk: 'Латентность под конкуренцией за proper-lockfile не измеряется; хвостовая латентность может уходить далеко за бюджет 200 мс.',
+    },
+
+    // LOW
+    {
+      id: 'UX-6',
+      sev: 'low',
+      disc: 'UX',
+      est: 'M',
+      title: 'Снизить нагрузку и непредсказуемый перенос панели фильтров',
+      todo: 'Сгруппировать фильтры в единый блок с общим счётчиком активных; зафиксировать перенос на 1280/1024/768; активные фильтры и «Сбросить» без горизонтального переполнения.',
+      risk: 'Нестабильная раскладка и «стена» из трёх похожих кнопок-фильтров замедляют поиск нужного контрола.',
+    },
+    {
+      id: 'UX-7',
+      sev: 'low',
+      disc: 'UX',
+      est: 'S',
+      title: 'Добавить поиск внутри фильтра «Источник» при длинном списке',
+      todo: 'При >~10 источниках — поле фильтрации по подстроке; пустой результат показывает «Ничего не найдено».',
+      risk: 'После импорта документации источников много — найти нужный в длинном списке трудно, растёт время выбора.',
+    },
+    {
+      id: 'UX-8',
+      sev: 'low',
+      disc: 'UX',
+      est: 'S',
+      title: 'Уточнить озвучивание ошибок в тостах',
+      todo: 'Ошибки — assertive (role=alert / aria-live=assertive), success/info — polite; переозвучивать только новый тост (снять aria-atomic с контейнера).',
+      risk: 'Приоритетная ошибка «тонет» в polite-канале; переозвучивание всего стека шумит для скринридера.',
+    },
+    {
+      id: 'BE-5',
+      sev: 'low',
+      disc: 'BE',
+      est: 'S',
+      title: 'Убрать дублированные утилиты detectFormat и sanitize',
+      todo: 'Вынести detectFormat (magic bytes) в один модуль lib/; вынести sanitize (редакция API-ключа) в общий модуль; оба потребителя импортируют.',
+      risk: 'Правка одной копии молча оставит вторую неверной — особенно опасно для sanitize, отвечающего за неутечку ключа.',
+    },
+    {
+      id: 'BE-6',
+      sev: 'low',
+      disc: 'BE',
+      est: 'S',
+      title: 'Провести AiImportService через композиционный корень (factory)',
+      todo: 'Добавить createAiImportService(ctx, jobs) в factory.ts; routes/aiImport.ts без прямого new AiImportService и вызова createOpenAiClientFactory.',
+      risk: 'Нарушен единый паттерн сборки; выбор prod/mock AI-клиента размазан по factory и роуту — легко получить рассогласование тестов и прода.',
+    },
+    {
+      id: 'BE-7',
+      sev: 'low',
+      disc: 'BE',
+      est: 'S',
+      title: 'Заменить прямой stderr и нетипизированный throw',
+      todo: 'Репозиторий не пишет в process.stderr — предупреждение через инъектированный логгер; некорректная композиция сервиса — типизированной ошибкой/инвариантом сборки, а не throw new Error.',
+      risk: 'Несогласованное логирование мешает наблюдаемости; нетипизированный Error (500) неотличим от настоящего сбоя.',
+    },
+    {
+      id: 'BE-8',
+      sev: 'low',
+      disc: 'BE',
+      est: 'S',
+      title: 'Пересмотреть небезопасный дефолт TLS-проверки для AI Hub',
+      todo: 'Дефолт — проверка включена; ослабление требует явного AI_HUB_INSECURE_TLS=1; тест на дефолтное поведение. Согласовать с архитектором (см. ARCH-2).',
+      risk: '«Безопасно, только если не забыл переменную» — классический источник MITM в проде.',
+    },
+    {
+      id: 'ARCH-6',
+      sev: 'low',
+      disc: 'ARCH',
+      est: 'S',
+      title: 'Унифицировать и задокументировать лимиты размеров на швах загрузки',
+      todo: 'Согласовать лимиты (body 5MB, multipart 200MB, архив/AI 50MB) в одном месте; проверять предел как можно раньше (при приёме потока), а не после полной записи в tmp; отразить в api.md.',
+      risk: 'Расхождение лимитов — источник неожиданных 413/зря записанных данных и трудновоспроизводимых отказов.',
+    },
+    {
+      id: 'ARCH-8',
+      sev: 'low',
+      disc: 'ARCH',
+      est: 'S',
+      title: 'Добавить graceful shutdown и управление жизненным циклом процесса',
+      todo: 'Обработчики SIGTERM/SIGINT → app.close(); флаш pino; отмена/пометка фоновых джоб; проверка освобождения project-lock; поведение при осиротевших .lock.',
+      risk: 'Оборванные фоновые операции и залипшие .locks/ при завершении; особенно болезненно под Electron (частые запуски/остановки).',
+    },
+    {
+      id: 'ARCH-9',
+      sev: 'low',
+      disc: 'ARCH',
+      est: 'M',
+      title: 'Явно зафиксировать сервисный фасад как публичный контракт',
+      todo: 'Определить и задокументировать стабильный фасад-интерфейс, от которого зависят REST/MCP/AI-import; тесты соответствия адаптеров фасаду.',
+      risk: 'Изменение сигнатур сервисов ломает сразу три потребителя; стоимость изменения ядра растёт с числом адаптеров.',
+    },
+    {
+      id: 'ARCH-10',
+      sev: 'low',
+      disc: 'ARCH',
+      est: 'S',
+      title: 'Задокументировать остаточный риск целостности графа при «битых» файлах',
+      todo: 'Зафиксировать сценарий как известное ограничение в ADR-003; определить, как пользователь узнаёт о висячих ссылках (пометка broken/отчёт) и путь их устранения.',
+      risk: 'Каскадная чистка не трогает broken-файлы → висячие targetSlug молча накапливаются, ухудшая консистентность при ручных правках/импорте.',
+    },
+    {
+      id: 'PO-8',
+      sev: 'low',
+      disc: 'PO',
+      est: 'S',
+      title: 'Обосновать продуктовую ценность инфраструктурных эпиков (E13, E14)',
+      todo: "Для E13/E14 сформулировать роль-цель-выгода и продуктовую цель, либо перевести в Could/Won't; подтвердить, что объём соответствует ценности.",
+      risk: '«Фичи ради полноты» (Swagger-UI для single-user приложения) размывают фокус MVP.',
+    },
+    {
+      id: 'SA-7',
+      sev: 'low',
+      disc: 'SA',
+      est: 'S',
+      title: 'Синхронизировать формат хранения §2.5 с реализацией (createdAt/updatedAt)',
+      todo: '§2.5 и ADR-001 явно перечисляют все обязательные булиты, включая createdAt/updatedAt, их формат и место.',
+      risk: 'Двусмысленность формата хранения: внешний инструмент/агент по §2.5 создаст файлы, ломающие round-trip (инвариант S1).',
+    },
+    {
+      id: 'SA-8',
+      sev: 'low',
+      disc: 'SA',
+      est: 'S',
+      title: 'Привести fit-критерий кроссплатформенности NFR-1 в соответствие с CI',
+      todo: 'Либо добавить OS-матрицу (macOS/Windows/Linux) в CI, либо переформулировать fit-критерий под реально выполняемую проверку с протоколом ручного прогона.',
+      risk: 'Непроверяемое (по факту) требование даёт ложное чувство покрытия кроссплатформенности.',
+    },
+    {
+      id: 'SA-9',
+      sev: 'low',
+      disc: 'SA',
+      est: 'S',
+      title: 'Уточнить правило типов для неиерархических кросс-типовых связей',
+      todo: 'В 2.4 добавить явный пункт: неиерархические связи (DEPENDS_ON/BLOCKED_BY/RELATES_TO) допускают кросс-тип FUNCTION↔NFR; тест-ситуация подтверждает разрешение и запрет кросс-типа для иерархии.',
+      risk: 'Пробел в модели правил целостности — неявно разрешённое поведение не зафиксировано как требование и не покрыто тестом.',
+    },
+    {
+      id: 'QA-5',
+      sev: 'low',
+      disc: 'QA',
+      est: 'S',
+      title: 'End-to-end тест устойчивости к битым .md на диске',
+      todo: 'e2e создаёт проект, портит один .md в PROJECTS_ROOT, перезагружает Main: панель broken видна с корректным счётчиком, здоровые требования редактируются; аналогично для архива с битым файлом.',
+      risk: 'Источник правды — файлы, которые PO правит руками. Реальная деградация (парсер падает вместо surfacing) обнаружится только у пользователя.',
+    },
+    {
+      id: 'QA-6',
+      sev: 'low',
+      disc: 'QA',
+      est: 'S',
+      title: 'Зафиксировать perf-базлайн и тренд вместо только «×2/×3» гейта',
+      todo: 'Сохранять p50/p95 как артефакт и сравнивать с записанным базлайном; warn/fail при росте относительно базлайна > X%, а не только по абсолютному потолку.',
+      risk: 'Жёсткие потолки маскируют постепенную деградацию: регресс в 2.5× всё ещё «зелёный», медленное «оползание» накопится незаметно.',
+    },
+  ];
+
+  // ---- discipline breakdown ----
+  const discCounts = {};
+  for (const code in DISC) discCounts[code] = { blocker: 0, high: 0, medium: 0, low: 0, total: 0 };
+  T.forEach((t) => {
+    discCounts[t.disc][t.sev]++;
+    discCounts[t.disc].total++;
+  });
+
+  const discGrid = document.getElementById('discGrid');
+  Object.keys(DISC)
+    .sort((a, b) => discCounts[b].total - discCounts[a].total)
+    .forEach((code) => {
+      const c = discCounts[code];
+      const seg = ['blocker', 'high', 'medium', 'low']
+        .map((s) =>
+          c[s]
+            ? `<i data-sev="${s}" style="width:${((c[s] / c.total) * 100).toFixed(1)}%" title="${SEV_LABEL[s]}: ${c[s]}"></i>`
+            : '',
+        )
+        .join('');
+      const row = document.createElement('div');
+      row.className = 'disc-row';
+      row.innerHTML = `<div class="name">${DISC[code].label}<small>${DISC[code].expert}</small></div>
+      <div class="track">${seg}</div><div class="cnt">${c.total}</div>`;
+      discGrid.appendChild(row);
+    });
+
+  // ---- discipline select ----
+  const discSel = document.getElementById('discSel');
+  Object.keys(DISC).forEach((code) => {
+    const o = document.createElement('option');
+    o.value = code;
+    o.textContent = `${DISC[code].label} (${discCounts[code].total})`;
+    discSel.appendChild(o);
+  });
+
+  // ---- render tasks ----
+  const tasksEl = document.getElementById('tasks');
+  const countEl = document.getElementById('count');
+  const state = { sev: 'all', disc: 'all', q: '' };
+
+  const sorted = [...T].sort((a, b) => SEV_ORDER[a.sev] - SEV_ORDER[b.sev]);
+
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function cardHTML(t) {
+    const d = DISC[t.disc];
+    return `<article class="card" data-sev="${t.sev}">
+      <div class="card-head">
+        <span class="id">${t.id}</span>
+        <span class="pill" data-sev="${t.sev}">${SEV_LABEL[t.sev]}</span>
+        <span class="disc-tag"><b>${d.label}</b> · ${d.expert}</span>
+        ${t.root ? '<span class="root-chip">общий корень · AI</span>' : ''}
+        <span class="est" title="Оценка трудоёмкости">${t.est}</span>
+      </div>
+      <h3>${esc(t.title)}</h3>
+      <div class="kv">
+        <span class="k">Сделать</span><p class="v">${esc(t.todo)}</p>
+        <span class="k risk-k">Риск</span><p class="v risk">${esc(t.risk)}</p>
+      </div>
+    </article>`;
+  }
+
+  function render() {
+    const q = state.q.trim().toLowerCase();
+    const list = sorted.filter(
+      (t) =>
+        (state.sev === 'all' || t.sev === state.sev) &&
+        (state.disc === 'all' || t.disc === state.disc) &&
+        (!q || (t.id + ' ' + t.title + ' ' + t.todo + ' ' + t.risk).toLowerCase().includes(q)),
+    );
+    tasksEl.innerHTML = list.length
+      ? list.map(cardHTML).join('')
+      : '<div class="empty">Под фильтр ничего не подходит. Сбросьте условия.</div>';
+    countEl.textContent = `Показано ${list.length} из ${T.length}`;
+  }
+
+  // ---- filter wiring ----
+  const sevChips = document.getElementById('sevChips');
+  const tiles = document.getElementById('tiles');
+
+  function setSev(sev) {
+    state.sev = sev;
+    sevChips
+      .querySelectorAll('.chip')
+      .forEach((c) => c.classList.toggle('active', c.dataset.sev === sev));
+    tiles
+      .querySelectorAll('.tile')
+      .forEach((c) => c.classList.toggle('active', c.dataset.sev === sev));
+    render();
+  }
+  sevChips.addEventListener('click', (e) => {
+    const b = e.target.closest('.chip');
+    if (b) setSev(b.dataset.sev);
+  });
+  tiles.addEventListener('click', (e) => {
+    const b = e.target.closest('.tile');
+    if (b) setSev(b.dataset.sev);
+  });
+  discSel.addEventListener('change', () => {
+    state.disc = discSel.value;
+    render();
+  });
+  document.getElementById('search').addEventListener('input', (e) => {
+    state.q = e.target.value;
+    render();
+  });
+
+  // ---- waves ----
+  const WAVES = [
+    {
+      n: '0',
+      t: 'Разблокировать — продуктово-требовательный корень AI',
+      d: 'Строго по цепочке ролей, не параллельно: <code>PO-1</code>/<code>PO-5</code>/<code>PO-6</code> (нужна ли AI в MVP, ценность, primary user) → <code>BA-1</code>/<code>SA-1</code> (оформить FR/NFR, актора, MoSCoW) → <code>ARCH-1</code>/<code>ARCH-7</code> (ADR-007 и OpenAPI).',
+    },
+    {
+      n: '1',
+      t: 'Безопасность и целостность — параллельно с Волной 0',
+      d: '<code>ARCH-2</code>+<code>BE-8</code>+<code>SA-2</code> (secure-by-default TLS + NFR приватности/ключа, единый пакет) · <code>ARCH-5</code>+<code>ARCH-6</code> (decompression bomb + лимиты) · <code>QA-1</code> (тест гонки MCP↔REST) · <code>ARCH-3</code> (актуализировать ADR-004).',
+    },
+    {
+      n: '2',
+      t: 'Доступность и рабочие тупики UX',
+      d: '<code>UX-1</code> (клавиатура в дереве) · <code>UX-2</code> (удаление с детьми) · <code>UX-3</code>/<code>UX-4</code>/<code>UX-5</code> (skip-link, граф, фокус чата) · <code>QA-2</code> (axe графа).',
+    },
+    {
+      n: '3',
+      t: 'Качество кода и устойчивость',
+      d: '<code>BE-1</code> → <code>BE-3</code> → <code>BE-2</code>/<code>BE-4</code> (рефакторинг AI-импорта) · <code>ARCH-4</code> (семантика job) · <code>ARCH-8</code> (graceful shutdown) · <code>SA-3</code>/<code>SA-4</code> (краевые случаи) · <code>QA-5</code>.',
+    },
+    {
+      n: '4',
+      t: 'Измеримость, метрики, согласованность документов',
+      d: '<code>PO-2/3/4/7</code> (Vision Board, роадмап, метрики, реестр gaps) · <code>BA-2..6</code> · <code>SA-5..9</code> · <code>QA-3/4/6</code> · <code>BE-5/6/7</code> · <code>UX-6/7/8</code> · <code>ARCH-9/10</code> · <code>PO-8</code>.',
+    },
+  ];
+  document.getElementById('waves').innerHTML = WAVES.map(
+    (w) =>
+      `<div class="wave"><div class="n">${w.n}</div><div><h4>${w.t}</h4><p>${w.d}</p></div></div>`,
+  ).join('');
+
+  render();
+</script>

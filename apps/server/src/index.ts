@@ -51,6 +51,14 @@ export {
 export { LinkService, type LinkInput } from './services/LinkService.js';
 export { ExcelExportService } from './services/ExcelExportService.js';
 
+// Service facade contracts (ARCH-9): the stable public surface adapters
+// (REST/MCP/AI-import) depend on, decoupled from the concrete service classes.
+export type {
+  RequirementServicePort,
+  LinkServicePort,
+  ProjectServicePort,
+} from './services/ports.js';
+
 // Repositories (filesystem layer) + persistence ports (BE-1 / DIP).
 export { FsProjectRepo, MANIFEST_PATH } from './repositories/FsProjectRepo.js';
 export { FsRequirementRepo } from './repositories/FsRequirementRepo.js';

@@ -1,6 +1,7 @@
 import {
   assertUniqueName,
   cascadeUnlink,
+  cascadeUnlinkSubtree,
   dedupe,
   toSlug,
   validateRequirement,
@@ -19,6 +20,7 @@ import type {
 } from '../repositories/types.js';
 import { withOpLog, type OpLogger } from '../lib/logger.js';
 import { NotFoundError } from '../lib/errors.js';
+import type { RequirementServicePort } from './ports.js';
 
 /** Editable fields a client may supply when creating a requirement. */
 export interface RequirementInput {
@@ -48,7 +50,7 @@ export interface CheckNameResult {
  * uniqueness (409), conditional/field validation (422), manages timestamps, and
  * performs cascading delete (FR-9).
  */
-export class RequirementService {
+export class RequirementService implements RequirementServicePort {
   private readonly log?: OpLogger;
   private readonly projectId: string;
 
@@ -164,14 +166,22 @@ export class RequirementService {
 
   /**
    * Delete a requirement and strip every back-reference to it (FR-9.2).
-   * Rejected when the node still has children (HasChildrenError → 409, FR-9.3).
    *
-   * The delete and every neighbour rewrite are applied as one atomic batch
-   * under the project lock (ARCH-1): a mid-cascade failure leaves no dangling
-   * `targetSlug`. Broken files are never touched (ARCH-3) — a reference from an
-   * already-corrupt file is left as-is rather than crashing the delete.
+   * Default policy (FR-9.3): a node that still has children is rejected
+   * (HasChildrenError → 409). With `{ cascade: true }` (UX-2) the node and its
+   * whole subtree of descendants are removed instead, and every back-reference
+   * to any removed node — hierarchical or not — is stripped from the survivors.
+   *
+   * The deletes and every neighbour rewrite are applied as one atomic batch
+   * under the project lock (ARCH-1): a mid-cascade failure rolls back completely,
+   * leaving no partially-deleted subtree and no dangling `targetSlug`. Broken
+   * files are never touched (ARCH-3) — a reference from an already-corrupt file
+   * is left as-is rather than crashing the delete.
+   *
+   * @returns the slugs that were removed (`deleted`) — one for a leaf, the whole
+   *   subtree for a cascade — so callers can report the affected count.
    */
-  delete(slug: string): Promise<void> {
+  delete(slug: string, opts: { cascade?: boolean } = {}): Promise<{ deleted: string[] }> {
     return this.record('delete', slug, () =>
       this.repo.withLock(async () => {
         const { requirements } = await this.repo.loadAll();
@@ -179,17 +189,27 @@ export class RequirementService {
         if (!existing) {
           throw new NotFoundError(`Requirement not found: "${slug}".`);
         }
-
-        const after = cascadeUnlink(requirements, slug); // HasChildrenError (409)
         const bySlug = new Map(requirements.map((r) => [r.slug, r]));
 
-        const batch: RequirementBatchOp[] = [{ kind: 'delete', type: existing.type, slug }];
-        for (const r of after) {
+        // Choose subtree cascade vs. single-node delete. cascadeUnlink throws
+        // HasChildrenError (409) for a node with children when cascade is off.
+        const { remaining, removed } = opts.cascade
+          ? cascadeUnlinkSubtree(requirements, slug)
+          : { remaining: cascadeUnlink(requirements, slug), removed: [slug] };
+
+        // Deletes first so a mid-way write fault still compensates them back.
+        const batch: RequirementBatchOp[] = removed.map((s) => ({
+          kind: 'delete',
+          type: (bySlug.get(s) as Requirement).type,
+          slug: s,
+        }));
+        for (const r of remaining) {
           if (bySlug.get(r.slug) !== r) {
             batch.push({ kind: 'write', req: r });
           }
         }
         await this.repo.applyBatch(batch);
+        return { deleted: removed };
       }),
     );
   }

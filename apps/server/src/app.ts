@@ -3,6 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { DomainError } from '@po/core';
+import { BODY_LIMIT_BYTES, MAX_UPLOAD_BYTES } from './lib/limits.js';
 import { domainErrorDetails, httpStatusForCode } from './lib/errors.js';
 import { pinoOpLogger } from './lib/logger.js';
 import { registerOpenApi } from './openapi/plugin.js';
@@ -28,6 +29,12 @@ export interface BuildAppOptions {
    * when absent the production `openai`-backed factory is used.
    */
   makeAiClient?: AiClientFactory;
+  /**
+   * Per-file multipart upload cap (bytes). Defaults to {@link MAX_UPLOAD_BYTES}
+   * — the product archive/AI-import limit. Tests lower it to assert oversize
+   * uploads are rejected at the stream boundary without a full write (ARCH-6).
+   */
+  uploadFileSizeLimit?: number;
 }
 
 /**
@@ -37,11 +44,15 @@ export interface BuildAppOptions {
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     logger: opts.logger ?? false,
-    bodyLimit: 5 * 1024 * 1024,
+    bodyLimit: BODY_LIMIT_BYTES,
   });
 
+  // Cap uploads at the product limit and truncate (not throw) at the boundary so
+  // routes detect `part.file.truncated` and reject early with a clear message —
+  // instead of buffering up to a much larger cap in tmp first (ARCH-6).
   await app.register(multipart, {
-    limits: { fileSize: 200 * 1024 * 1024 },
+    limits: { fileSize: opts.uploadFileSizeLimit ?? MAX_UPLOAD_BYTES },
+    throwFileSizeLimit: false,
   });
 
   const deps = {

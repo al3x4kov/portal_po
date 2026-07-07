@@ -85,14 +85,14 @@ describe('T-802 AI routes (integration, mock client)', () => {
     expect(get.body).not.toContain(SECRET);
   });
 
-  it('PUT /api/ai/config rejects an invalid baseURL with 400', async () => {
+  it('PUT /api/ai/config rejects an invalid baseURL with 422 (BE-4 unified input validation)', async () => {
     await boot(okClient());
     const res = await app.inject({
       method: 'PUT',
       url: '/api/ai/config',
       payload: { baseURL: 'not-a-url' },
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(422);
   });
 
   it('GET /api/ai/models lists sorted models via the stored config', async () => {
@@ -147,7 +147,7 @@ describe('T-802 AI routes (integration, mock client)', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('POST /api/ai/generate-description returns 400 for an invalid body', async () => {
+  it('POST /api/ai/generate-description returns 422 for an invalid body (BE-4)', async () => {
     await boot(okClient());
     const res = await app.inject({
       method: 'POST',
@@ -157,7 +157,7 @@ describe('T-802 AI routes (integration, mock client)', () => {
         requirement: { name: '', type: 'FUNCTION', criticality: 'HIGH' },
       },
     });
-    expect(res.statusCode).toBe(400);
+    expect(res.statusCode).toBe(422);
   });
 
   it('POST /api/ai/chat happy path returns an assistant message', async () => {
@@ -211,20 +211,20 @@ describe('T-802 AI routes (integration, mock client)', () => {
     expect(createMock).toHaveBeenCalledWith(expect.objectContaining({ model: 'OverrideModel' }));
   });
 
-  it('POST /api/ai/chat returns 400 for an invalid body (bad role / empty history)', async () => {
+  it('POST /api/ai/chat returns 422 for an invalid body (bad role / empty history) (BE-4)', async () => {
     await boot(okClient());
     const badRole = await app.inject({
       method: 'POST',
       url: '/api/ai/chat',
       payload: { messages: [{ role: 'system', content: 'x' }] },
     });
-    expect(badRole.statusCode).toBe(400);
+    expect(badRole.statusCode).toBe(422);
     const empty = await app.inject({
       method: 'POST',
       url: '/api/ai/chat',
       payload: { messages: [] },
     });
-    expect(empty.statusCode).toBe(400);
+    expect(empty.statusCode).toBe(422);
   });
 
   it('POST /api/ai/chat returns 400 when no key or no model is configured', async () => {

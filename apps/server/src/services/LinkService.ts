@@ -14,6 +14,7 @@ import {
 import type { RequirementBatchOp, RequirementRepo } from '../repositories/types.js';
 import { withOpLog, type OpLogger } from '../lib/logger.js';
 import { ConflictError, NotFoundError } from '../lib/errors.js';
+import type { LinkServicePort } from './ports.js';
 
 export interface LinkInput {
   sourceSlug: string;
@@ -26,7 +27,7 @@ export interface LinkInput {
  * pair on both endpoints. Integrity checks (self-link, type match, single parent,
  * cycle) run before anything is written.
  */
-export class LinkService {
+export class LinkService implements LinkServicePort {
   private readonly log?: OpLogger;
   private readonly projectId: string;
 

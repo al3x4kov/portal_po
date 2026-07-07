@@ -34,3 +34,56 @@ export function cascadeUnlink(reqs: readonly Requirement[], deletedSlug: string)
       return remaining.length === r.links.length ? r : { ...r, links: remaining };
     });
 }
+
+/**
+ * Every transitive descendant slug of `rootSlug` following the CHILD_OF/PARENT_OF
+ * hierarchy (breadth-first), excluding the root itself. Cycle-safe via a visited
+ * set, so a malformed graph never loops.
+ */
+export function collectDescendants(reqs: readonly Requirement[], rootSlug: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>([rootSlug]);
+  const queue: string[] = [rootSlug];
+  while (queue.length > 0) {
+    const current = queue.shift() as string;
+    for (const child of findChildren(reqs, current)) {
+      if (!seen.has(child)) {
+        seen.add(child);
+        out.push(child);
+        queue.push(child);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Cascade-delete a whole subtree (UX-2): remove `rootSlug` together with every
+ * transitive descendant, and strip every back-reference to any removed node
+ * (hierarchical AND non-hierarchical) from the requirements that survive —
+ * leaving no dangling `targetSlug`, exactly like {@link cascadeUnlink} does for
+ * a single node.
+ *
+ * Unlike {@link cascadeUnlink}, this never throws {@link HasChildrenError}: the
+ * caller has explicitly opted into removing the children.
+ *
+ * @returns the surviving requirements (`remaining`, input not mutated) and the
+ *   slugs that were removed (`removed`, root first). The removed list lets the
+ *   caller resolve each file to delete and report the affected count.
+ */
+export function cascadeUnlinkSubtree(
+  reqs: readonly Requirement[],
+  rootSlug: string,
+): { remaining: Requirement[]; removed: string[] } {
+  const removed = [rootSlug, ...collectDescendants(reqs, rootSlug)];
+  const removedSet = new Set(removed);
+
+  const remaining = reqs
+    .filter((r) => !removedSet.has(r.slug))
+    .map((r) => {
+      const links = r.links.filter((l) => !removedSet.has(l.targetSlug));
+      return links.length === r.links.length ? r : { ...r, links };
+    });
+
+  return { remaining, removed };
+}

@@ -1,0 +1,44 @@
+{
+  "archive.export.zip@1000": {
+    "p50": 133.5,
+    "p95": 170.5,
+    "updatedAt": "2026-07-07T08:34:14.335Z",
+    "note": "bootstrap"
+  },
+  "archive.import.zip@1000": {
+    "p50": 265.2,
+    "p95": 288.1,
+    "updatedAt": "2026-07-07T08:34:25.006Z",
+    "note": "bootstrap"
+  },
+  "concurrent.create.k12": {
+    "p50": 576.9,
+    "p95": 1516.4,
+    "updatedAt": "2026-07-07T08:34:16.732Z",
+    "note": "bootstrap"
+  },
+  "crud.create@1000": {
+    "p50": 88.9,
+    "p95": 97,
+    "updatedAt": "2026-07-07T08:34:27.931Z",
+    "note": "bootstrap"
+  },
+  "crud.delete@1000": {
+    "p50": 85,
+    "p95": 87.5,
+    "updatedAt": "2026-07-07T08:34:32.295Z",
+    "note": "bootstrap"
+  },
+  "crud.list@1000": {
+    "p50": 74.5,
+    "p95": 93.4,
+    "updatedAt": "2026-07-07T08:34:25.667Z",
+    "note": "bootstrap"
+  },
+  "crud.update@1000": {
+    "p50": 88.7,
+    "p95": 91.2,
+    "updatedAt": "2026-07-07T08:34:30.153Z",
+    "note": "bootstrap"
+  }
+}

@@ -84,4 +84,27 @@ export interface ExportResult {
 export interface ArchivePort {
   export(projectDir: string, format: ArchiveFormat, baseName: string): Promise<ExportResult>;
   import(archivePath: string, rawName: string): Promise<string>;
+  /**
+   * Build a partial archive containing only the specified slugs + the project
+   * manifest (T-523). Missing slugs are silently skipped; on-disk `.md` files
+   * are copied verbatim.
+   */
+  exportSelected(
+    projectDir: string,
+    slugs: string[],
+    format: ArchiveFormat,
+    baseName: string,
+  ): Promise<ExportResult>;
+  /**
+   * Pack a set of already-serialized files into an archive (T-202). Unlike
+   * {@link ArchivePort.export}/{@link ArchivePort.exportSelected}, the content is
+   * supplied by the caller (reserialized through core `serialize()` with a field
+   * mask); the project manifest is read from `projectDir` and included when present.
+   */
+  packReserialized(
+    files: ReadonlyArray<{ rel: string; content: string }>,
+    projectDir: string,
+    format: ArchiveFormat,
+    baseName: string,
+  ): Promise<ExportResult>;
 }

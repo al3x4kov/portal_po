@@ -192,7 +192,7 @@ describe('DescPanel (T-1104, FR-7.4 / T6 desc-panel mockup §2.7)', () => {
     expect(onDelete).toHaveBeenCalledWith(req);
   });
 
-  it('disables «Удалить» with a visible reason while the requirement has children (§2.7)', async () => {
+  it('UX-2: «Удалить» is enabled for a node with children and opens the cascade dialog', async () => {
     const onDelete = vi.fn();
     const user = userEvent.setup();
     const req = makeReq({
@@ -214,11 +214,12 @@ describe('DescPanel (T-1104, FR-7.4 / T6 desc-panel mockup §2.7)', () => {
       />,
     );
     const del = screen.getByTestId('desc-panel-delete');
-    expect(del).toBeDisabled();
+    expect(del).not.toBeDisabled();
+    // The visible hint tells the user a reinforced confirmation is coming.
     expect(screen.getByTestId('desc-panel-delete-reason')).toHaveTextContent(
-      'Удаление недоступно: сначала удалите дочерние (2 вложенных).',
+      'Удалит требование и всё вложенное (2 вложенных) — потребуется подтверждение.',
     );
-    await user.click(del).catch(() => undefined);
-    expect(onDelete).not.toHaveBeenCalled();
+    await user.click(del);
+    expect(onDelete).toHaveBeenCalledWith(req);
   });
 });

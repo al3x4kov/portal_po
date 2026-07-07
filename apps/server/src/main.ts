@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildApp } from './app.js';
+import { registerShutdown } from './lib/shutdown.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // dist/main.js → apps/server/dist → apps/server → apps → <repo>
@@ -22,6 +23,10 @@ async function main(): Promise<void> {
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
     staticRoot,
   });
+
+  // Graceful shutdown: drain in-flight requests, close plugins, flush logs
+  // (ARCH-8). Registered before listen so a signal during startup is honoured.
+  registerShutdown(app);
 
   app.log.info({ projectsRoot: PROJECTS_ROOT, staticRoot: staticRoot ?? null }, 'starting server');
   await app.listen({ port: PORT, host: HOST });

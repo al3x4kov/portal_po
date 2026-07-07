@@ -224,4 +224,98 @@ describe('TreeToolbar (T-1101/1103/1105)', () => {
       expect(screen.getByTestId('source-opt-empty')).toBeInTheDocument();
     });
   });
+
+  // ── UX-6 · grouped filter block with a shared active count + reset ───────────
+  describe('UX-6 · grouped filters', () => {
+    it('renders a single filter group wrapping all three filters', () => {
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={['АС21']} />);
+      const group = screen.getByTestId('filter-group');
+      expect(group).toBeInTheDocument();
+      expect(group).toContainElement(screen.getByTestId('criticality-filter'));
+      expect(group).toContainElement(screen.getByTestId('impl-filter'));
+      expect(group).toContainElement(screen.getByTestId('source-filter'));
+    });
+
+    it('shows a shared active-filter count summing every applied filter', () => {
+      useUiStore.setState({
+        criticalityFilter: new Set(['HIGH']),
+        implementationFilter: new Set(['DONE']),
+        sourceFilter: new Set(['АС21']),
+      });
+      renderWithProviders(<TreeToolbar shown={2} total={9} availableSources={['АС21']} />);
+      expect(screen.getByTestId('filter-active-count')).toHaveTextContent('3');
+    });
+
+    it('hides the shared count + group reset when no filter is applied', () => {
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={['АС21']} />);
+      expect(screen.queryByTestId('filter-active-count')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('filter-group-reset')).not.toBeInTheDocument();
+    });
+
+    it('the group «Сбросить» clears every applied filter at once', async () => {
+      useUiStore.setState({
+        criticalityFilter: new Set(['HIGH']),
+        implementationFilter: new Set(['DONE']),
+        sourceFilter: new Set(['АС21']),
+      });
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={2} total={9} availableSources={['АС21']} />);
+      await user.click(screen.getByTestId('filter-group-reset'));
+      const s = useUiStore.getState();
+      expect(s.criticalityFilter.size).toBe(0);
+      expect(s.implementationFilter.size).toBe(0);
+      expect(s.sourceFilter.size).toBe(0);
+    });
+  });
+
+  // ── UX-7 · substring search inside the «Источник» dropdown ───────────────────
+  describe('UX-7 · source search', () => {
+    const MANY = [
+      'Alpha',
+      'Beta',
+      'Gamma',
+      'Delta',
+      'Epsilon',
+      'Zeta',
+      'Eta',
+      'Theta',
+      'Iota',
+      'Kappa',
+      'Lambda',
+    ]; // 11 > 10 → search enabled
+
+    it('does NOT render a search field for short source lists', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <TreeToolbar shown={5} total={5} availableSources={['АС21', 'Регламент']} />,
+      );
+      await user.click(screen.getByTestId('source-filter'));
+      expect(screen.queryByTestId('source-search')).not.toBeInTheDocument();
+    });
+
+    it('renders a search field for long source lists (>10)', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={MANY} />);
+      await user.click(screen.getByTestId('source-filter'));
+      expect(screen.getByTestId('source-search')).toBeInTheDocument();
+    });
+
+    it('filters the option list by substring', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={MANY} />);
+      await user.click(screen.getByTestId('source-filter'));
+      await user.type(screen.getByTestId('source-search'), 'Gamma');
+      expect(screen.getByTestId('source-opt-Gamma')).toBeInTheDocument();
+      expect(screen.queryByTestId('source-opt-Alpha')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('source-opt-empty')).not.toBeInTheDocument();
+    });
+
+    it('shows «Ничего не найдено» when nothing matches', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} availableSources={MANY} />);
+      await user.click(screen.getByTestId('source-filter'));
+      await user.type(screen.getByTestId('source-search'), 'zzzzz');
+      expect(screen.getByTestId('source-search-empty')).toHaveTextContent('Ничего не найдено');
+    });
+  });
 });

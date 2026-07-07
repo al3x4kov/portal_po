@@ -12,6 +12,7 @@ import { parseInput } from '../lib/parseInput.js';
 import { contentDisposition } from '../lib/contentDisposition.js';
 import { DomainError, exportFieldsSchema, parseExportFields } from '@po/core';
 import { ArchiveError, BadRequestError, NotFoundError } from '../lib/errors.js';
+import { MAX_UPLOAD_BYTES } from '../lib/limits.js';
 import type { ArchiveFormat } from '../repositories/types.js';
 import type { AppDeps } from './deps.js';
 
@@ -73,6 +74,13 @@ export async function archiveRoutes(app: FastifyInstance, deps: AppDeps): Promis
         if (part.type === 'file') {
           uploadPath = path.join(os.tmpdir(), `po-import-${randomBytes(8).toString('hex')}`);
           await pipeline(part.file, createWriteStream(uploadPath));
+          // ARCH-6: reject at the stream boundary when the upload exceeds the
+          // product limit, instead of buffering an oversize file into tmp first.
+          if (part.file.truncated) {
+            throw new BadRequestError(
+              `Архив превышает лимит ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} МБ.`,
+            );
+          }
         } else if (part.fieldname === 'name') {
           name = String(part.value);
         }

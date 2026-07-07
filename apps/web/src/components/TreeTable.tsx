@@ -91,8 +91,9 @@ function Row({
   const canAddNfr = Boolean(onAddNfr) && req.type === 'FUNCTION';
   // T-509: functional rows get an "add child" button.
   const canAddChild = Boolean(onAddChild) && req.type === 'FUNCTION';
-  // T-509: disable delete when node has children.
-  const deleteDisabled = row.hasChildren;
+  // UX-2: deletion of a node with children is allowed as a reinforced cascade
+  // (Main opens the confirm dialog); the row button only signals the intent.
+  const cascadeDelete = row.hasChildren;
 
   return (
     <tr
@@ -314,23 +315,17 @@ function Row({
           >
             <Link2 className="icon-sm" aria-hidden="true" />
           </button>
-          {/* Удалить — все строки; недоступно при наличии дочерних */}
-          <span title={deleteDisabled ? 'Сначала удалите дочерние требования' : undefined}>
-            <button
-              type="button"
-              className={`row-icon-btn ${deleteDisabled ? '' : 'hover:text-[var(--color-danger)]'}`}
-              data-testid={`delete-btn-${req.slug}`}
-              title={deleteDisabled ? undefined : 'Удалить'}
-              aria-label={
-                deleteDisabled ? 'Удалить (недоступно: есть дочерние)' : 'Удалить требование'
-              }
-              aria-disabled={deleteDisabled || undefined}
-              disabled={deleteDisabled}
-              onClick={() => !deleteDisabled && onDelete(req)}
-            >
-              <Trash2 className="icon-sm" aria-hidden="true" />
-            </button>
-          </span>
+          {/* Удалить — все строки; узел с детьми удаляется каскадом (UX-2) */}
+          <button
+            type="button"
+            className="row-icon-btn hover:text-[var(--color-danger)]"
+            data-testid={`delete-btn-${req.slug}`}
+            title={cascadeDelete ? 'Удалить требование со вложенными' : 'Удалить'}
+            aria-label={cascadeDelete ? 'Удалить требование со вложенными' : 'Удалить требование'}
+            onClick={() => onDelete(req)}
+          >
+            <Trash2 className="icon-sm" aria-hidden="true" />
+          </button>
         </div>
       </td>
     </tr>

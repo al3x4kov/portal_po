@@ -8,6 +8,8 @@ import { AI_IMPORT_MAX_DOC_FILES } from '@po/core';
 import { ensureDir } from './ensureDir.js';
 import { resolveSafe } from './pathSafe.js';
 import { ArchiveError } from './errors.js';
+import { detectArchiveFormat } from './archiveFormat.js';
+import { type ArchiveLimits, DEFAULT_ARCHIVE_LIMITS } from './limits.js';
 
 /** Documentation file extensions the AI import analyzes (spec §2.1). */
 export const DOC_EXTENSIONS = ['.md', '.markdown', '.txt'] as const;
@@ -49,20 +51,6 @@ function isMacJunk(rel: string): boolean {
   return parts.includes('__MACOSX') || (parts[parts.length - 1] ?? '').startsWith('._');
 }
 
-/** Detect the archive format from the leading magic bytes (as ArchiveRepo). */
-async function detectFormat(file: string): Promise<'zip' | 'targz'> {
-  const fh = await fs.open(file, 'r');
-  try {
-    const buf = Buffer.alloc(4);
-    await fh.read(buf, 0, 4, 0);
-    if (buf[0] === 0x50 && buf[1] === 0x4b) return 'zip'; // "PK"
-    if (buf[0] === 0x1f && buf[1] === 0x8b) return 'targz'; // gzip
-    throw new ArchiveError('Unsupported archive format (expected .zip or .tar.gz).');
-  } finally {
-    await fh.close();
-  }
-}
-
 /** True when the relative path has a documentation extension. */
 function isDocFile(rel: string): boolean {
   const ext = path.extname(rel).toLowerCase();
@@ -93,17 +81,40 @@ async function walk(dir: string, base: string): Promise<string[]> {
  * skipped and counted, never written. Throws {@link ArchiveError} on an
  * unsupported/corrupt archive or when the doc-file limit is exceeded.
  * The caller is responsible for removing `dir` when done.
+ *
+ * Decompression-bomb guard (ARCH-5): the cumulative *uncompressed* size and
+ * total entry count are accounted INCREMENTALLY as the archive is walked and,
+ * for zip, BEFORE each entry is written — so a small compressed archive can
+ * never expand into gigabytes on disk before a limit trips. Bounds come from
+ * {@link DEFAULT_ARCHIVE_LIMITS} (see lib/limits.ts, the single source).
  */
 export async function unpackDocsArchive(
   archivePath: string,
   maxDocFiles: number = AI_IMPORT_MAX_DOC_FILES,
+  limits: Partial<ArchiveLimits> = {},
 ): Promise<UnpackedDocs> {
-  const format = await detectFormat(archivePath);
+  const { maxEntries, maxTotalBytes } = { ...DEFAULT_ARCHIVE_LIMITS, ...limits };
+  const format = await detectArchiveFormat(archivePath);
   const dir = path.join(os.tmpdir(), `po-ai-import-${randomBytes(8).toString('hex')}`);
   await ensureDir(dir);
 
   let unsafeEntries = 0;
   let totalEntries = 0;
+  // Cumulative bomb-guard counters shared across the whole archive.
+  let accountedEntries = 0;
+  let accountedBytes = 0;
+  const account = (bytes: number): void => {
+    accountedEntries += 1;
+    accountedBytes += bytes;
+    if (accountedEntries > maxEntries) {
+      throw new ArchiveError(`Archive has too many entries (limit ${maxEntries}).`);
+    }
+    if (accountedBytes > maxTotalBytes) {
+      throw new ArchiveError(
+        `Archive exceeds the uncompressed size limit (${maxTotalBytes} bytes).`,
+      );
+    }
+  };
   try {
     if (format === 'zip') {
       let zip: AdmZip;
@@ -117,6 +128,7 @@ export async function unpackDocsArchive(
         const name = normalizeEntryName(entry.entryName);
         if (name === '' || name.endsWith('/')) continue; // directory-like entry
         totalEntries += 1;
+        account(entry.header.size); // uncompressed size, checked before writing
         let target: string;
         try {
           target = resolveSafe(dir, name); // rejects traversal ('..')
@@ -128,11 +140,16 @@ export async function unpackDocsArchive(
         await fs.writeFile(target, entry.getData());
       }
     } else {
+      // node-tar surfaces a throw from `filter` as an *uncaught* stream error,
+      // so we capture the first bomb-guard violation, skip the offending entry,
+      // and re-throw once extraction settles — nothing oversized is written.
+      let violation: Error | null = null;
       try {
         await tar.x({
           file: archivePath,
           cwd: dir,
           filter: (p: string, entry: tar.ReadEntry | Stats): boolean => {
+            if (violation) return false;
             const isFile = 'type' in entry ? entry.type === 'File' : entry.isFile();
             if (isFile) totalEntries += 1;
             const name = normalizeEntryName(p);
@@ -144,16 +161,26 @@ export async function unpackDocsArchive(
               // Check the normalized name: tar itself strips absolute prefixes
               // on extraction; '..' traversal is still rejected here.
               resolveSafe(dir, name);
-              return true;
             } catch {
               if (isFile) unsafeEntries += 1;
               return false;
             }
+            if (isFile) {
+              try {
+                account(entry.size); // rejects bomb (entries / uncompressed size)
+              } catch (err) {
+                violation = err as Error;
+                return false;
+              }
+            }
+            return true;
           },
         });
       } catch (err) {
+        if (err instanceof ArchiveError) throw err;
         throw new ArchiveError(`Corrupt tar.gz archive: ${(err as Error).message}`);
       }
+      if (violation) throw violation;
       // tar cannot rename entries during extraction: on POSIX an entry named
       // 'docs\sub\index.md' lands as ONE literal file — move it into place.
       for (const rel of await walk(dir, dir)) {

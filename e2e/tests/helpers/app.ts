@@ -1,4 +1,6 @@
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 
 export type LinkType = 'CHILD_OF' | 'PARENT_OF' | 'RELATES_TO' | 'DEPENDS_ON' | 'BLOCKED_BY';
@@ -249,25 +251,6 @@ export async function deleteRequirement(page: Page, name: string): Promise<void>
   await expect(rowByName(page, name)).toBeHidden();
 }
 
-/**
- * Verify that deleting a node that still has children is blocked (UX-3, S15).
- *
- * Wave 1-2 behaviour: the delete button is rendered `disabled` when the row
- * has children — the dialog never opens.  The test hovers the row to make the
- * action column visible, then asserts the button is disabled and the row is
- * still present.
- */
-export async function expectDeleteBlocked(page: Page, name: string): Promise<void> {
-  const row = rowByName(page, name);
-  await row.hover();
-  const deleteBtn = row.locator('[data-testid^="delete-btn-"]');
-  // UX-3 / Wave 1-2: button must be disabled while children exist.
-  await expect(deleteBtn).toBeDisabled();
-  // No dialog should open — the row stays intact.
-  await expect(page.getByTestId('delete-dialog')).toBeHidden();
-  await expect(row).toBeVisible();
-}
-
 /** Download a .zip / .tar.gz export archive and return the saved file path. */
 export async function exportArchive(
   page: Page,
@@ -312,4 +295,37 @@ export async function writeBrokenArchive(testInfo: TestInfo, filename: string): 
   const p = testInfo.outputPath(filename);
   await fs.writeFile(p, Buffer.from('this is not a valid archive at all'));
   return p;
+}
+
+/**
+ * Absolute path of the throwaway e2e Projects/ root. Must mirror the value
+ * computed in `playwright.config.ts` (shared with the webServer via env) so the
+ * test workers touch the exact same directory the server reads.
+ */
+export function projectsRoot(): string {
+  return process.env.E2E_PROJECTS_ROOT ?? path.join(os.tmpdir(), 'po-e2e-projects');
+}
+
+/**
+ * Corrupt a single requirement's `.md` directly on disk under PROJECTS_ROOT so
+ * the server reports it as "broken" on the next `loadAll` (SA-4 / QA-5).
+ *
+ * On-disk layout (verified against FsRequirementRepo, ADR-001):
+ *   `<root>/<projectId>/openspec/specs/{functions|nfr}/<slug>.md`
+ *
+ * The written content lacks the required `### Requirement: <name>` header, so
+ * `parse()` throws a `ParseError` — a deterministic, non-empty failure reason
+ * that the server surfaces in `broken[].error`. Returns the relative `file`
+ * string the server exposes (e.g. `functions/foo.md`).
+ */
+export async function corruptRequirementFile(
+  projectId: string,
+  kind: ReqKind,
+  slug: string,
+): Promise<string> {
+  const folder = kind === 'function' ? 'functions' : 'nfr';
+  const relFile = path.join(folder, `${slug}.md`);
+  const full = path.join(projectsRoot(), projectId, 'openspec', 'specs', relFile);
+  await fs.writeFile(full, 'THIS IS NOT VALID OPENSPEC MARKDOWN — no requirement header at all.\n');
+  return relFile;
 }

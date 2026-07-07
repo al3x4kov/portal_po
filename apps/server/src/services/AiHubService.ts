@@ -13,6 +13,7 @@ import { AiUpstreamError, BadRequestError } from '../lib/errors.js';
 import type { OpLogger } from '../lib/logger.js';
 import { buildChatMessages, buildDescriptionMessages, type AiChatMessage } from './aiPrompt.js';
 import { stripReasoning } from './aiReasoning.js';
+import { sanitize } from '../lib/redact.js';
 
 /** Parameters passed to a chat completion (subset we rely on). */
 export interface AiChatCompletionParams {
@@ -53,12 +54,6 @@ export interface AiHubServiceDeps {
   repo: AiConfigRepo;
   makeClient: AiClientFactory;
   log?: OpLogger;
-}
-
-/** Redact any occurrence of the secret key from an outbound message. */
-function sanitize(message: string, apiKey: string): string {
-  if (!apiKey) return message;
-  return message.split(apiKey).join('***');
 }
 
 /**

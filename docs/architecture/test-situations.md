@@ -43,6 +43,10 @@ BA-7), поэтому клетка ссылается прямо на него. 
 | S18 | Экспорт `.xlsx` | валидный xlsx (PK-заголовок), лист Requirements/Links непустые | U/E | `apps/server/test/excel-export.test.ts::produces a valid xlsx buffer (PK signature)` · `e2e/tests/xlsx-export.spec.ts::S18 Excel export downloads a valid non-empty .xlsx` (PUC-10) |
 | S19 | Импорт xlsx | не поддержан (ясная ошибка/скрыт в UI) | E | `e2e/tests/edge-cases.spec.ts::S19 importing an .xlsx is not supported (rejected client-side)` (PUC-3) |
 | S20 | Экспорт tar.gz | round-trip | E | `e2e/tests/import-export.spec.ts::S20 round-trip preserves requirements and links (.targz)` · `apps/server/test/archive.test.ts::round-trips export(targz)…` (PUC-3/10) |
+| S35 | Импорт архива с циклом `PARENT_OF` (файлы валидны, граф нет) | отклонить с перечнем нарушений; каталог не создан, temp пуст (SA-3/FR-3.4) | U | `core/test/importIntegrity.test.ts::reports a PARENT_OF/CHILD_OF cycle with its path` · `apps/server/test/archive-integrity.test.ts::S35 rejects a PARENT_OF hierarchy cycle` (PUC-3) |
+| S36 | Импорт архива с висячим `targetSlug` (ссылка в никуда) | отклонить с перечнем нарушений; каталог не создан, temp пуст (SA-3) | U | `core/test/importIntegrity.test.ts::reports a dangling targetSlug (link into nowhere)` · `apps/server/test/archive-integrity.test.ts::S36 rejects a dangling targetSlug (link into nowhere)` (PUC-3) |
+| S37 | Импорт архива со вторым родителем | отклонить (один родитель) с перечнем нарушений; каталог не создан (SA-3) | U | `core/test/importIntegrity.test.ts::reports a requirement with a second parent` · `apps/server/test/archive-integrity.test.ts::S37 rejects a requirement with a second parent` (PUC-3) |
+| S38 | Импорт архива с self-link | отклонить с перечнем нарушений; каталог не создан (SA-3) | U | `core/test/importIntegrity.test.ts::reports a self-link` · `apps/server/test/archive-integrity.test.ts::S38 rejects a self-link` (PUC-3) |
 
 ## ФС-безопасность
 | # | Ситуация | Ожидание | Тип | Тест (файл::имя) |
@@ -74,6 +78,6 @@ BA-7), поэтому клетка ссылается прямо на него. 
 
 ## Трассировка на product use cases
 
-S1–S34 связаны с шагами PUC-3 (импорт), PUC-6 (создание/редактирование), PUC-8 (связывание),
+S1–S38 связаны с шагами PUC-3 (импорт), PUC-6 (создание/редактирование), PUC-8 (связывание),
 PUC-9 (удаление), PUC-10 (экспорт) — см. §10 `docs/overview/project.md` (SA-3). Отметка PUC
 указана в скобках в колонке теста.

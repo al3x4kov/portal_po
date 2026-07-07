@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RequirementModal } from './RequirementModal';
@@ -571,5 +571,57 @@ describe('RequirementModal (T-1106, FR-6)', () => {
       }),
     );
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  // ── BA-3 (§2.2) · non-blocking «плановый срок в прошлом» warning ──────────────
+  describe('BA-3 · overdue target warning (§2.2, BA-9)', () => {
+    // Fix only the clock (current date = 2026-07-07 → Q3 2026); real timers stay
+    // live so debounced name-check and userEvent keep working.
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-07-07T00:00:00.000Z'));
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it('shows the warning for a past target year and keeps «Сохранить» available', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />);
+      // Default mode is «Не реализовано» → the quarter/year panel is visible.
+      await user.type(screen.getByTestId('req-name'), 'Просроченное требование');
+      await waitFor(() =>
+        expect(screen.getByTestId('req-name-status')).toHaveAttribute('data-state', 'ok'),
+      );
+      await user.selectOptions(screen.getByTestId('req-quarter'), 'Q1');
+      await user.type(screen.getByTestId('req-year'), '2020');
+
+      expect(screen.getByTestId('req-target-past-warning')).toHaveTextContent(
+        'Плановый срок в прошлом',
+      );
+      // Non-blocking: the record must still be saveable.
+      expect(screen.getByTestId('req-submit')).toBeEnabled();
+    });
+
+    it('shows the warning for an earlier quarter of the current year (quarter granularity)', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />);
+      await user.selectOptions(screen.getByTestId('req-quarter'), 'Q1'); // Q1 < current Q3
+      await user.type(screen.getByTestId('req-year'), '2026');
+      expect(screen.getByTestId('req-target-past-warning')).toBeInTheDocument();
+    });
+
+    it('shows NO warning for a future target', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />);
+      await user.selectOptions(screen.getByTestId('req-quarter'), 'Q4');
+      await user.type(screen.getByTestId('req-year'), '2030');
+      expect(screen.queryByTestId('req-target-past-warning')).not.toBeInTheDocument();
+    });
+
+    it('shows NO warning until both quarter and year are filled', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />);
+      await user.type(screen.getByTestId('req-year'), '2020'); // year only, no quarter
+      expect(screen.queryByTestId('req-target-past-warning')).not.toBeInTheDocument();
+    });
   });
 });

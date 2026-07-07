@@ -106,16 +106,22 @@ export function ToastProvider({ children }: { children: React.ReactNode }): Reac
   return (
     <ToastContext.Provider value={api}>
       {children}
+      {/*
+       * UX-8: the container is a plain landmark, NOT a live region — otherwise
+       * aria-atomic on the wrapper would re-announce the WHOLE stack whenever a
+       * new toast appears. Each toast is its own live region instead, so only the
+       * newest one is spoken: errors assertively (role="alert"), the rest politely.
+       */}
       <div
         className="fixed right-4 z-[100] flex flex-col items-end gap-2"
         style={{ bottom: 'var(--toast-offset)' }}
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
+        role="region"
+        aria-label="Уведомления"
         data-testid="toast-region"
       >
         {toasts.map((t) => {
           const ToneIcon = TONE_ICON[t.tone];
+          const isError = t.tone === 'error';
           return (
             <div
               key={t.id}
@@ -123,6 +129,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }): Reac
               style={TONE_STYLE[t.tone]}
               data-testid="toast"
               data-tone={t.tone}
+              role={isError ? 'alert' : 'status'}
+              aria-live={isError ? 'assertive' : 'polite'}
+              aria-atomic="true"
               onMouseEnter={() => pause(t.id)}
               onMouseLeave={() => resume(t.id)}
             >

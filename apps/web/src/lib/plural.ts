@@ -20,3 +20,8 @@ export function nestedLabel(n: number): string {
 export function matchesLabel(n: number): string {
   return `${n} ${plural(n, 'совпадение', 'совпадения', 'совпадений')}`;
 }
+
+/** "N требование / требования / требований" — used by cascade-delete copy (UX-2). */
+export function requirementsLabel(n: number): string {
+  return `${n} ${plural(n, 'требование', 'требования', 'требований')}`;
+}

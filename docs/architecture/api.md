@@ -37,6 +37,52 @@
 
 **Коды ошибок:** `404 NOT_FOUND` (нет проекта), `400 BAD_REQUEST` (неверный `format`).
 
+## AI-подсистема (внешний LLM-провайдер, ADR-007) `[ДОБАВЛЕНО 2026-07-07 — ARCH-7]`
+
+Исходящая интеграция с внешним OpenAI-совместимым сервисом (AI Hub). Ключ **никогда не
+возвращается** в ответах. Границы, что уходит наружу, и **принятый риск** (TLS/ключ) —
+[`ADR-007-ai-hub-integration.md`](ADR-007-ai-hub-integration.md).
+
+| Метод | Путь | Запрос → Ответ | Ошибки |
+|-------|------|----------------|--------|
+| GET | `/api/ai/config` | `?projectId?` → `{ baseURL, hasApiKey, model?, modelPresets? }` | 400 |
+| PUT | `/api/ai/config` | `{ baseURL?, apiKey?: string\|null, model?, modelPresets?, projectId? }` → `AiConfigView` | 400 |
+| GET | `/api/ai/models` | → `{ models: string[] }` | 400/5xx (провайдер) |
+| POST | `/api/ai/chat` | `{ messages[], model?, projectId? }` → `{ message }` | 400/5xx |
+| POST | `/api/ai/generate-description` | `{ projectId, requirement…, hint? }` → `{ description }` | 400/5xx |
+| POST | `/api/projects/:id/ai-import` | multipart (`file` + опц. `model`, `inferLinks`) → **202** `{ jobId }` | 400/404/413 |
+| GET | `/api/ai-import/:jobId` | → `AiImportJobView` `{ jobId, projectId, status, stage, progress, log[], result?, error?, relate? }` (`status`: `running\|succeeded\|failed\|cancelled`) | 404 (нет/истёк/после рестарта) |
+| POST | `/api/ai-import/:jobId/cancel` | отменить импорт-джобу → `AiImportJobView` | 404 |
+
+- **Async-контракт импорта:** старт возвращает `jobId` (202); клиент опрашивает статус (~800 мс).
+  Реестр джоб **in-memory, single-process** — после рестарта процесса `jobId` → `404` (ARCH-4).
+  Повторный запуск идемпотентен по смыслу (доливает недостающее). `apiKey:null` в `PUT` удаляет ключ.
+- **Что уходит наружу:** сообщения чата, контекст требования/проекта, **содержимое документации**
+  (импорт). Единый конверт ошибок `{ code, message, details? }`.
+
+## Лимиты загрузки `[ДОБАВЛЕНО 2026-07-07 — ARCH-5/ARCH-6]`
+
+Единый источник — `apps/server/src/lib/limits.ts` (импортируется в `app.ts`, роутах
+импорта, `ArchiveRepo`, `lib/unpack.ts`). Продуктовый предел архива берётся из
+`@po/core` (`AI_IMPORT_MAX_ARCHIVE_BYTES`), чтобы совпадать с проверкой в UI.
+
+| Константа | Значение | Где применяется |
+|-----------|----------|-----------------|
+| `BODY_LIMIT_BYTES` | 5 MiB | Fastify `bodyLimit` для обычных (не-multipart) запросов |
+| `MAX_UPLOAD_BYTES` | 50 MiB (= `AI_IMPORT_MAX_ARCHIVE_BYTES`) | multipart `fileSize` — предел одного загружаемого архива |
+| `MAX_UNPACK_TOTAL_BYTES` | 100 MiB | суммарный **несжатый** размер при распаковке (bomb-guard) |
+| `MAX_UNPACK_ENTRIES` | 10 000 | суммарное число записей архива (bomb-guard) |
+
+- **Ранняя отбраковка (ARCH-6):** multipart-поток обрезается на `MAX_UPLOAD_BYTES`
+  (`throwFileSizeLimit: false`); роуты импорта проверяют `part.file.truncated` сразу
+  после стрима и возвращают `400`, не записывая в tmp больше кэпа. Предел больше не
+  проверяется постфактум по `fs.stat` после полной записи.
+- **Защита от decompression-bomb (ARCH-5):** и `ArchiveRepo` (импорт проекта), и
+  `lib/unpack.ts` (AI-импорт) считают несжатый размер и число записей **инкрементально**
+  во время обхода — для zip перед записью каждой записи, для tar.gz потоково в `filter`.
+  Превышение → `ArchiveError`, временный каталог удаляется. Защита от zip-slip/traversal
+  (NFR-5) сохранена без изменений.
+
 ## MCP (stdio, `apps/mcp`, `@po/mcp`)
 
 Тонкая обёртка над сервисами `@po/server` поверх общего `PROJECTS_ROOT` (env, дефолт

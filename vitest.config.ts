@@ -30,13 +30,15 @@ export default defineConfig({
       // serialization) stays strict; server + MCP wrappers have their own floors
       // set below current actuals (core ~98/94, server ~90+, mcp ~99) with headroom
       // so ordinary changes don't trip the gate but regressions do. Web floors sit
-      // below current actuals (lines/stmts ~91, branches ~87, functions ~73) with
-      // headroom so QA-4/BE-10 catches web-coverage regressions.
+      // below current actuals (lines/stmts ~97.7, branches ~91.7, functions ~93) with
+      // headroom so QA-3/QA-4/BE-10 catches web-coverage regressions. QA-3 raised the
+      // web floors (functions 62→85, branches 78→86, lines/stmts 82→90) after adding
+      // handler/store tests: the old functions floor left ~38% of web functions ungated.
       thresholds: {
         'packages/core/src/**': { lines: 90, statements: 90, functions: 90, branches: 90 },
         'apps/server/src/**': { lines: 80, statements: 80, functions: 80, branches: 70 },
         'apps/mcp/src/**': { lines: 90, statements: 90, functions: 85, branches: 88 },
-        'apps/web/src/**': { lines: 82, statements: 82, functions: 62, branches: 78 },
+        'apps/web/src/**': { lines: 90, statements: 90, functions: 85, branches: 86 },
       },
     },
     projects: [

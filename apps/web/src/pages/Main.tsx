@@ -11,9 +11,9 @@ import {
 } from '../api/hooks';
 import { ApiError, errorMessage } from '../api/client';
 import { useUiStore } from '../store/ui';
-import { ancestorNamesOf, buildForest, childCountOf } from '../lib/tree';
+import { ancestorNamesOf, buildForest, descendantCountOf } from '../lib/tree';
 import { computeVisibleRows } from '../lib/visibility';
-import { matchesLabel } from '../lib/plural';
+import { matchesLabel, requirementsLabel } from '../lib/plural';
 import { Sidebar } from '../components/Sidebar';
 import { PathHeader } from '../components/PathHeader';
 import { TreeToolbar } from '../components/TreeToolbar';
@@ -497,55 +497,72 @@ export function Main(): React.ReactElement {
         {modal?.kind === 'delete'
           ? (() => {
               const req = modal.requirement;
-              const children = childCountOf(req);
-              // §2.13-2: name the blocking children right at the disabled button.
-              const childNames = req.links
-                .filter((l) => l.type === 'PARENT_OF')
-                .map((l) => nameBySlug.get(l.targetSlug) ?? l.targetSlug)
-                .slice(0, 3)
-                .map((n) => `«${n}»`)
-                .join(', ');
+              // UX-2: N = все транзитивные потомки (из дерева). Всего удалится
+              // N потомков + сам узел = total. Число фактически удалённых
+              // приходит с сервера в ответе как `deleted`.
+              const descendants = descendantCountOf(req, requirements);
+              const cascade = descendants > 0;
+              const total = descendants + 1;
               return (
                 <ConfirmDialog
                   testid="delete-dialog"
                   danger
                   icon={
-                    children > 0 ? (
-                      <TriangleAlert className="icon-sm" aria-hidden="true" />
-                    ) : undefined
+                    cascade ? <TriangleAlert className="icon-sm" aria-hidden="true" /> : undefined
                   }
-                  iconTone={children > 0 ? 'warning' : 'danger'}
-                  title="Удалить требование?"
+                  iconTone={cascade ? 'warning' : 'danger'}
+                  title={cascade ? 'Удалить требование со вложенными?' : 'Удалить требование?'}
                   message={
-                    children > 0
-                      ? `«${req.name}» содержит вложенные требования.`
-                      : `«${req.name}» будет удалено, связи с другими требованиями — очищены. Действие необратимо.`
+                    cascade ? (
+                      <span data-testid="delete-dialog-cascade">
+                        «{req.name}» содержит {requirementsLabel(descendants)} во вложениях. Будут
+                        удалены{' '}
+                        <strong>все они и само требование — {requirementsLabel(total)}</strong>, а
+                        связи с другими требованиями очищены. Действие необратимо.
+                      </span>
+                    ) : (
+                      `«${req.name}» будет удалено, связи с другими требованиями — очищены. Действие необратимо.`
+                    )
                   }
                   note={
-                    children > 0
-                      ? undefined
+                    cascade
+                      ? {
+                          tone: 'danger',
+                          text: 'Каскадное удаление необратимо: восстановить вложенные требования будет нельзя.',
+                        }
                       : {
                           tone: 'success',
                           text: 'Вложенных требований нет — удаление безопасно.',
                         }
                   }
+                  typeToConfirm={
+                    cascade
+                      ? {
+                          expected: req.name,
+                          label: 'Для подтверждения введите имя требования',
+                          placeholder: req.name,
+                          inputTestid: 'delete-dialog-input',
+                          hint: 'Кнопка активна, когда имя введено точно.',
+                        }
+                      : undefined
+                  }
                   error={deleteError}
-                  confirmLabel="Удалить"
+                  confirmLabel={cascade ? `Удалить ${requirementsLabel(total)}` : 'Удалить'}
                   busyLabel="Удаляем…"
                   busy={deleteMut.isPending}
-                  confirmDisabled={children > 0}
-                  confirmDisabledReason={
-                    children > 0 ? `Сначала удалите дочерние: ${childNames}` : undefined
-                  }
                   onCancel={closeModal}
                   onConfirm={async () => {
                     setDeleteError(null);
                     try {
-                      await deleteMut.mutateAsync(req.slug);
+                      await deleteMut.mutateAsync({ slug: req.slug, cascade });
                       closeModal();
                     } catch (err) {
                       if (err instanceof ApiError && err.code === 'HAS_CHILDREN') {
-                        setDeleteError('Нельзя удалить требование с дочерними элементами.');
+                        // Should not happen (we send cascade=true when there are
+                        // children), but surface it cleanly if the tree was stale.
+                        setDeleteError(
+                          'У требования появились вложенные элементы. Обновите страницу и повторите удаление.',
+                        );
                       } else {
                         setDeleteError(errorMessage(err));
                       }

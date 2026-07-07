@@ -19,6 +19,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
+    "test:perf": "RUN_PERF=1 vitest run apps/server/test/perf.test.ts apps/server/test/perf-archive.test.ts apps/server/test/perf-concurrency.test.ts",
     "e2e": "playwright test"
   },
   "devDependencies": {

@@ -106,6 +106,91 @@ describe('E14 OpenAPI / Swagger docs', () => {
     expect(String(res.headers['content-type'])).toContain('text/html');
   });
 
+  it('documents every AI path (config, models, chat, generate-description, import)', async () => {
+    const doc = (await app.inject({ method: 'GET', url: '/openapi.json' })).json();
+    const paths = Object.keys(doc.paths);
+    expect(paths).toContain('/api/ai/config');
+    expect(paths).toContain('/api/ai/models');
+    expect(paths).toContain('/api/ai/chat');
+    expect(paths).toContain('/api/ai/generate-description');
+    expect(paths).toContain('/api/projects/{id}/ai-import');
+    expect(paths).toContain('/api/ai-import/{jobId}');
+    expect(paths).toContain('/api/ai-import/{jobId}/cancel');
+    // GET /api/ai/config carries both read (GET) and write (PUT) operations.
+    expect(doc.paths['/api/ai/config'].get).toBeTruthy();
+    expect(doc.paths['/api/ai/config'].put).toBeTruthy();
+  });
+
+  it('declares the `ai` tag', async () => {
+    const doc = (await app.inject({ method: 'GET', url: '/openapi.json' })).json();
+    const tagNames = (doc.tags as { name: string }[]).map((t) => t.name);
+    expect(tagNames).toContain('ai');
+    for (const op of [
+      doc.paths['/api/ai/config'].get,
+      doc.paths['/api/ai/models'].get,
+      doc.paths['/api/ai/chat'].post,
+      doc.paths['/api/projects/{id}/ai-import'].post,
+    ]) {
+      expect(op.tags).toContain('ai');
+    }
+  });
+
+  it('exposes the AI request/response component schemas', async () => {
+    const doc = (await app.inject({ method: 'GET', url: '/openapi.json' })).json();
+    const schemas = doc.components?.schemas ?? {};
+    for (const name of [
+      'AiConfigView',
+      'AiConfigUpdate',
+      'AiModelsView',
+      'GenerateDescriptionRequest',
+      'GenerateDescriptionResponse',
+      'AiChatRequest',
+      'AiChatResponse',
+      'AiImportJobView',
+      'AiImportStartResponse',
+    ]) {
+      expect(schemas[name], `component ${name}`).toBeTruthy();
+    }
+  });
+
+  it('never exposes apiKey in the AiConfigView response schema', async () => {
+    const doc = (await app.inject({ method: 'GET', url: '/openapi.json' })).json();
+    const view = doc.components.schemas.AiConfigView;
+    expect(view.properties.apiKey).toBeUndefined();
+    expect(Object.keys(view.properties)).toEqual(expect.arrayContaining(['baseURL', 'hasApiKey']));
+    // The read endpoint returns exactly this key-less view.
+    const getOp = doc.paths['/api/ai/config'].get;
+    expect(getOp.responses['200'].content['application/json'].schema.$ref).toBe(
+      '#/components/schemas/AiConfigView',
+    );
+  });
+
+  it('wires the AI bodies and the 202 import start response', async () => {
+    const doc = (await app.inject({ method: 'GET', url: '/openapi.json' })).json();
+    const putBody =
+      doc.paths['/api/ai/config'].put.requestBody.content['application/json'].schema.$ref;
+    expect(putBody).toBe('#/components/schemas/AiConfigUpdate');
+    const chatBody =
+      doc.paths['/api/ai/chat'].post.requestBody.content['application/json'].schema.$ref;
+    expect(chatBody).toBe('#/components/schemas/AiChatRequest');
+    const genBody =
+      doc.paths['/api/ai/generate-description'].post.requestBody.content['application/json'].schema
+        .$ref;
+    expect(genBody).toBe('#/components/schemas/GenerateDescriptionRequest');
+    // Import start is multipart and answers 202 with a jobId.
+    const importOp = doc.paths['/api/projects/{id}/ai-import'].post;
+    expect(importOp.requestBody.content['multipart/form-data']).toBeTruthy();
+    expect(importOp.responses['202'].content['application/json'].schema.$ref).toBe(
+      '#/components/schemas/AiImportStartResponse',
+    );
+    // Job poll returns the job view.
+    const jobOp = doc.paths['/api/ai-import/{jobId}'].get;
+    expect(jobOp.responses['200'].content['application/json'].schema.$ref).toBe(
+      '#/components/schemas/AiImportJobView',
+    );
+    expect(jobOp.responses['404']).toBeTruthy();
+  });
+
   it('does not break the existing project lifecycle', async () => {
     const created = await app.inject({
       method: 'POST',

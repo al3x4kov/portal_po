@@ -1,4 +1,4 @@
-import type { Link, LinkType, Requirement } from '../domain/types.js';
+import type { Link, LinkType, Requirement, RequirementType } from '../domain/types.js';
 import {
   CycleError,
   MultipleParentError,
@@ -216,4 +216,110 @@ export function assertAcyclic(reqs: readonly Requirement[]): void {
       throw new CycleError(cycle);
     }
   }
+}
+
+/** Discriminator for a single import-time graph-integrity breach (SA-3). */
+export type ImportIntegrityViolationKind =
+  'SELF_LINK' | 'DANGLING_TARGET' | 'MISSING_INVERSE' | 'MULTIPLE_PARENT' | 'CYCLE';
+
+/**
+ * One concrete way the imported link graph violates the 2.4 invariants.
+ * Structured (not just a string) so callers can surface a machine-readable
+ * `details` list (SA-3) and the same data drives the human-readable `message`.
+ */
+export interface ImportIntegrityViolation {
+  kind: ImportIntegrityViolationKind;
+  /** Human-readable, self-contained description (used verbatim in `details`). */
+  message: string;
+  /** Requirement the breach originates from (absent for graph-wide cycles). */
+  slug?: string;
+  /** The offending link target (for SELF_LINK / DANGLING_TARGET / MISSING_INVERSE). */
+  targetSlug?: string;
+  /** The offending path A -> B -> A (for CYCLE). */
+  path?: string[];
+}
+
+const linkKey = (type: RequirementType, slug: string): string => `${type}:${slug}`;
+
+/**
+ * Collect EVERY graph-integrity breach in a set of parsed requirements without
+ * failing fast (SA-3). Reuses the interactive-editing rules so an archive can
+ * never smuggle in a graph the product forbids creating by hand
+ * (2.4.3/2.4.4/2.4.7): self-links, links into nowhere, missing inverses,
+ * multiple parents and hierarchy/dependency cycles. Returns [] for a clean
+ * graph; the import path rejects when the list is non-empty.
+ */
+export function collectImportIntegrityViolations(
+  reqs: readonly Requirement[],
+): ImportIntegrityViolation[] {
+  const violations: ImportIntegrityViolation[] = [];
+
+  // Index by type:slug for hierarchy resolution; associations fall back to a
+  // cross-type slug lookup (mirrors the import resolver exactly).
+  const bySlug = new Map<string, Requirement>();
+  for (const req of reqs) bySlug.set(linkKey(req.type, req.slug), req);
+
+  for (const req of reqs) {
+    for (const linkRef of req.links) {
+      const other =
+        bySlug.get(linkKey(req.type, linkRef.targetSlug)) ??
+        reqs.find((r) => r.slug === linkRef.targetSlug && r !== req);
+
+      if (other === req) {
+        violations.push({
+          kind: 'SELF_LINK',
+          slug: req.slug,
+          targetSlug: linkRef.targetSlug,
+          message: `Self-link: "${req.slug}" links to itself (${linkRef.type}).`,
+        });
+        continue;
+      }
+      if (!other) {
+        violations.push({
+          kind: 'DANGLING_TARGET',
+          slug: req.slug,
+          targetSlug: linkRef.targetSlug,
+          message: `Dangling link: "${req.slug}" (${linkRef.type}) references missing "${linkRef.targetSlug}".`,
+        });
+        continue;
+      }
+      const inverse = inverseLinkType(linkRef.type);
+      const reciprocated = other.links.some((l) => l.type === inverse && l.targetSlug === req.slug);
+      if (!reciprocated) {
+        violations.push({
+          kind: 'MISSING_INVERSE',
+          slug: req.slug,
+          targetSlug: linkRef.targetSlug,
+          message: `Link from "${req.slug}" to "${linkRef.targetSlug}" (${linkRef.type}) is missing its inverse on the target.`,
+        });
+      }
+    }
+
+    // At most one parent per requirement, scoped to its own type.
+    try {
+      assertSingleParent(
+        reqs.filter((r) => r.type === req.type),
+        req.slug,
+      );
+    } catch (err) {
+      if (err instanceof MultipleParentError) {
+        violations.push({ kind: 'MULTIPLE_PARENT', slug: req.slug, message: err.message });
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // Hierarchy/dependency cycles across the whole graph.
+  try {
+    assertAcyclic(reqs);
+  } catch (err) {
+    if (err instanceof CycleError) {
+      violations.push({ kind: 'CYCLE', path: err.path, message: err.message });
+    } else {
+      throw err;
+    }
+  }
+
+  return violations;
 }

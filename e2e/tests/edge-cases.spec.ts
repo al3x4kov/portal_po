@@ -6,7 +6,6 @@ import {
   addRequirement,
   createProject,
   deleteRequirement,
-  expectDeleteBlocked,
   linkRequirements,
   rowByName,
   uniqueName,
@@ -123,7 +122,9 @@ test.describe('T-702 edge cases', () => {
     await expect(page.getByTestId('import-error')).toBeVisible();
   });
 
-  test('S15 deleting a node with children is blocked with a hint (FR-9.3)', async ({ page }) => {
+  test('S15 deleting a node with children requires cascade confirmation (UX-2)', async ({
+    page,
+  }) => {
     await createProject(page, uniqueName('has-children'));
     const parent = uniqueName('F-parent');
     const child = uniqueName('F-child');
@@ -131,7 +132,27 @@ test.describe('T-702 edge cases', () => {
     await addRequirement(page, { kind: 'function', name: child });
     await linkRequirements(page, child, 'CHILD_OF', parent);
 
-    await expectDeleteBlocked(page, parent);
+    // UX-2: удаление узла с детьми больше НЕ блокируется — кнопка активна и
+    // открывает каскадный диалог с усиленным подтверждением (type-to-confirm).
+    // Полный сценарий фактического удаления покрыт cascade-delete.spec.ts;
+    // здесь фиксируем, что вместо блокировки доступен путь каскада.
+    const parentRow = rowByName(page, parent);
+    await parentRow.hover();
+    await parentRow.locator('[data-testid^="delete-btn-"]').click();
+    await expect(page.getByTestId('delete-dialog')).toBeVisible();
+
+    // Каскадный блок присутствует с корректным N (1 потомок).
+    await expect(page.getByTestId('delete-dialog-cascade')).toContainText('1 требование');
+
+    // Подтверждение заблокировано без ввода имени и активируется после точного ввода.
+    const confirm = page.getByTestId('delete-dialog-confirm');
+    await expect(confirm).toBeDisabled();
+    await page.getByTestId('delete-dialog-input').fill(parent);
+    await expect(confirm).toBeEnabled();
+
+    // Сам факт удаления здесь не подтверждаем (покрыто cascade-delete.spec.ts).
+    await page.getByTestId('delete-dialog-cancel').click();
+    await expect(page.getByTestId('delete-dialog')).toBeHidden();
   });
 
   test('S14 deleting a requirement cleans up reverse links', async ({ page }) => {
@@ -143,18 +164,20 @@ test.describe('T-702 edge cases', () => {
     // child CHILD_OF parent ⇒ parent gains a PARENT_OF reverse link.
     await linkRequirements(page, child, 'CHILD_OF', parent);
 
-    // While the link exists, parent is treated as having children (delete blocked).
-    await expectDeleteBlocked(page, parent);
-
     // Delete the leaf child; this must cascade-clean parent's PARENT_OF link.
     await deleteRequirement(page, child);
 
-    // Parent now has no children: its delete button is enabled again.
+    // Parent now has no children: its delete opens the plain (non-cascade)
+    // dialog — proving the reverse PARENT_OF link was cleaned up (otherwise the
+    // dialog would show the cascade block / require type-to-confirm).
     // Hover the row first so the action column is visible, then click delete.
     const parentRow = rowByName(page, parent);
     await parentRow.hover();
     await parentRow.locator('[data-testid^="delete-btn-"]').click();
     await expect(page.getByTestId('delete-dialog')).toBeVisible();
+    // No leftover children ⇒ no cascade block, no name-input, safe note shown.
+    await expect(page.getByTestId('delete-dialog-cascade')).toHaveCount(0);
+    await expect(page.getByTestId('delete-dialog-input')).toHaveCount(0);
     // T4 (todo_17): текст заметки по макету confirm-dialog.html.
     await expect(page.getByTestId('delete-dialog-note')).toContainText(
       'Вложенных требований нет — удаление безопасно',

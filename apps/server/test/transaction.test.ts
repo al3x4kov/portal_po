@@ -92,4 +92,37 @@ describe('ARCH-1/BE-7 transactional multi-file writes', () => {
     const dir = path.join(root, 'P', 'openspec', 'specs', 'functions');
     expect((await fs.readdir(dir)).filter((f) => f.startsWith('.tmp-'))).toEqual([]);
   });
+
+  it('a failure mid subtree-cascade rolls the whole subtree back (UX-2)', async () => {
+    const root_ = await reqs.create(reqInput({ name: 'Root' }));
+    const c1 = await reqs.create(reqInput({ name: 'Child' }));
+    const g1 = await reqs.create(reqInput({ name: 'Grand' }));
+    // Two surviving externals each reference a to-be-deleted node, so the cascade
+    // batch contains 3 deletes AND 2 neighbour rewrites.
+    const e1 = await reqs.create(reqInput({ name: 'Ext One' }));
+    const e2 = await reqs.create(reqInput({ name: 'Ext Two' }));
+    await links.create({ sourceSlug: c1.slug, type: 'CHILD_OF', targetSlug: root_.slug });
+    await links.create({ sourceSlug: g1.slug, type: 'CHILD_OF', targetSlug: c1.slug });
+    await links.create({ sourceSlug: e1.slug, type: 'RELATES_TO', targetSlug: g1.slug });
+    await links.create({ sourceSlug: e2.slug, type: 'RELATES_TO', targetSlug: c1.slug });
+
+    // Fail the 2nd neighbour rewrite: the 3 deletes and the 1st rewrite already
+    // applied and must all be compensated back (all-or-nothing).
+    repo.arm(2);
+    await expect(reqs.delete(root_.slug, { cascade: true })).rejects.toThrow(
+      /injected write failure/,
+    );
+
+    // Nothing was deleted: the whole subtree survives, and both externals keep
+    // their references to the (still-present) subtree nodes.
+    const { requirements, broken } = await repo.loadAll();
+    expect(requirements.map((r) => r.slug).sort()).toEqual(
+      [root_.slug, c1.slug, g1.slug, e1.slug, e2.slug].sort(),
+    );
+    const load = (slug: string): Requirement | undefined =>
+      requirements.find((r) => r.slug === slug);
+    expect(load(e1.slug)!.links).toContainEqual({ type: 'RELATES_TO', targetSlug: g1.slug });
+    expect(load(e2.slug)!.links).toContainEqual({ type: 'RELATES_TO', targetSlug: c1.slug });
+    expect(broken).toEqual([]);
+  });
 });

@@ -57,7 +57,7 @@ describe('ARCH-3 broken files are honoured in the write-path', () => {
     await fs.writeFile(brokenPath, brokenBody);
 
     // Deletion succeeds and does not throw over the un-parseable neighbour.
-    await expect(reqs.delete(b.slug)).resolves.toBeUndefined();
+    await expect(reqs.delete(b.slug)).resolves.toEqual({ deleted: [b.slug] });
 
     const { requirements, broken } = await repo.loadAll();
     // Valid back-reference stripped; b gone.

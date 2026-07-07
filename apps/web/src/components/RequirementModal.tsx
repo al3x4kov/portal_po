@@ -11,7 +11,7 @@ import {
   type Requirement,
   type RequirementType,
 } from '@po/core';
-import { Link2 } from 'lucide-react';
+import { Link2, TriangleAlert } from 'lucide-react';
 import { requirementFormSchema, type RequirementFormValues } from '../lib/requirementForm';
 import {
   useCreateLink,
@@ -61,6 +61,20 @@ function takenMessage(type: RequirementType): string {
   return type === 'FUNCTION'
     ? 'Функция с таким именем уже существует'
     : 'НФТ с таким именем уже существует';
+}
+
+/**
+ * BA-9 (§2.2): is the planned target (year + quarter) strictly before the
+ * current quarter? Granularity is a quarter. Used for a NON-blocking warning —
+ * the record is still saved; the 2020–2100 range remains a hard validation.
+ */
+function isTargetInPast(year: number | undefined, quarter: string | undefined, now: Date): boolean {
+  if (year == null || quarter == null || quarter === '') return false;
+  const q = Number(quarter.replace('Q', ''));
+  if (!Number.isFinite(q)) return false;
+  const currentYear = now.getFullYear();
+  const currentQuarter = Math.floor(now.getMonth() / 3) + 1;
+  return year < currentYear || (year === currentYear && q < currentQuarter);
 }
 
 export function RequirementModal({
@@ -150,6 +164,18 @@ export function RequirementModal({
   const criticality = watch('criticality');
   const description = watch('description') ?? '';
   const sourceValue = watch('source') ?? '';
+  const targetYear = watch('targetYear');
+  const targetQuarter = watch('targetQuarter');
+
+  // §2.2 (BA-9): non-blocking «плановый срок в прошлом» warning. Only relevant
+  // while the requirement is unimplemented and both target fields are filled.
+  const targetInPast =
+    implemented === false &&
+    isTargetInPast(
+      typeof targetYear === 'number' ? targetYear : undefined,
+      targetQuarter,
+      new Date(),
+    );
 
   // «Источник» — select с пресетами и пунктом «Другой…» (§2.10): свободный ввод
   // остаётся доступен, но не в виде «пустого» поля-даталиста.
@@ -583,6 +609,20 @@ export function RequirementModal({
                   <p className="hint sm:col-span-2">
                     Квартал и год обязательны, пока требование не реализовано
                   </p>
+                  {targetInPast ? (
+                    <p
+                      className="flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs font-medium sm:col-span-2"
+                      style={{
+                        background: 'var(--color-warning-bg)',
+                        color: 'var(--color-warning-fg)',
+                      }}
+                      role="status"
+                      data-testid="req-target-past-warning"
+                    >
+                      <TriangleAlert className="icon-sm flex-none" aria-hidden="true" />
+                      Плановый срок в прошлом
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </div>

@@ -260,7 +260,7 @@ test.describe('DescPanel · редизайн (§2.7)', () => {
     await expect(title).toHaveAttribute('aria-expanded', 'true');
   });
 
-  test('удаление недоступно при вложенных: disabled-кнопка + видимая причина + чип «N вложенное»', async ({
+  test('удаление доступно каскадом при вложенных: активная кнопка + подсказка о подтверждении + чип «N вложенное» (UX-2)', async ({
     page,
   }) => {
     await createProject(page, uniqueName('desc-del'));
@@ -292,12 +292,13 @@ test.describe('DescPanel · редизайн (§2.7)', () => {
     // Чип-агрегат вложенных (средний род: «1 вложенное»).
     await expect(page.getByTestId('desc-panel-links')).toContainText('1 вложенное');
 
-    // Кнопка «Удалить» задизейблена, причина видна и связана через aria-describedby.
+    // UX-2: узел с детьми удаляется каскадом — кнопка «Удалить» АКТИВНА, а видимая
+    // подсказка (связанная через aria-describedby) предупреждает о каскаде и подтверждении.
     const deleteBtn = page.getByTestId('desc-panel-delete');
-    await expect(deleteBtn).toBeDisabled();
+    await expect(deleteBtn).toBeEnabled();
     await expect(deleteBtn).toHaveAttribute('aria-describedby', 'desc-panel-delete-reason');
     await expect(page.getByTestId('desc-panel-delete-reason')).toHaveText(
-      'Удаление недоступно: сначала удалите дочерние (1 вложенное).',
+      'Удалит требование и всё вложенное (1 вложенное) — потребуется подтверждение.',
     );
 
     // «Редактировать» при этом остаётся доступной.

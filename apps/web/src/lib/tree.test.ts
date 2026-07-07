@@ -1,6 +1,42 @@
 import { describe, it, expect } from 'vitest';
-import { buildForest, flattenVisible } from './tree';
+import { buildForest, descendantCountOf, flattenVisible } from './tree';
 import { makeReq } from '../test/fixtures';
+
+/**
+ * Flat requirement list matching the forest documented above:
+ *   pay → card → token, pay → refund, payout (standalone).
+ */
+function sampleRequirements() {
+  return [
+    makeReq({
+      slug: 'pay',
+      name: 'Платежи',
+      links: [
+        { type: 'PARENT_OF', targetSlug: 'card' },
+        { type: 'PARENT_OF', targetSlug: 'refund' },
+      ],
+    }),
+    makeReq({
+      slug: 'card',
+      name: 'Оплата картой',
+      links: [
+        { type: 'CHILD_OF', targetSlug: 'pay' },
+        { type: 'PARENT_OF', targetSlug: 'token' },
+      ],
+    }),
+    makeReq({
+      slug: 'token',
+      name: 'Токенизация',
+      links: [{ type: 'CHILD_OF', targetSlug: 'card' }],
+    }),
+    makeReq({
+      slug: 'refund',
+      name: 'Возвраты',
+      links: [{ type: 'CHILD_OF', targetSlug: 'pay' }],
+    }),
+    makeReq({ slug: 'payout', name: 'Выплаты', links: [] }),
+  ];
+}
 
 /**
  * Forest:
@@ -75,5 +111,43 @@ describe('flattenVisible', () => {
 
   it('returns an empty array for an empty forest', () => {
     expect(flattenVisible([], new Set())).toEqual([]);
+  });
+});
+
+describe('descendantCountOf (UX-2 cascade sizing)', () => {
+  it('counts all transitive descendants, not just direct children', () => {
+    const reqs = sampleRequirements();
+    const pay = reqs.find((r) => r.slug === 'pay')!;
+    // pay → card → token, pay → refund ⇒ 3 descendants.
+    expect(descendantCountOf(pay, reqs)).toBe(3);
+  });
+
+  it('counts a single level for a node whose children are leaves', () => {
+    const reqs = sampleRequirements();
+    const card = reqs.find((r) => r.slug === 'card')!;
+    expect(descendantCountOf(card, reqs)).toBe(1);
+  });
+
+  it('returns 0 for a leaf requirement', () => {
+    const reqs = sampleRequirements();
+    const payout = reqs.find((r) => r.slug === 'payout')!;
+    expect(descendantCountOf(payout, reqs)).toBe(0);
+  });
+
+  it('is cycle-safe: a self/loop reference does not recurse forever', () => {
+    const a = makeReq({
+      slug: 'a',
+      name: 'A',
+      links: [{ type: 'PARENT_OF', targetSlug: 'b' }],
+    });
+    const b = makeReq({
+      slug: 'b',
+      name: 'B',
+      links: [
+        { type: 'CHILD_OF', targetSlug: 'a' },
+        { type: 'PARENT_OF', targetSlug: 'a' },
+      ],
+    });
+    expect(descendantCountOf(a, [a, b])).toBe(1);
   });
 });

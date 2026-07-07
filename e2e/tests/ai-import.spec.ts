@@ -922,14 +922,33 @@ test.describe('Task 13 · AI-импорт: структура, поля, рет�
       expect(childOfTargets(byName.get(REQ_TREE_OVERVIEW))).toEqual([]);
       expect(childOfTargets(byName.get(REQ_REPORT))).toEqual([]);
 
-      // UI-дерево (НЕ два плоских списка): у корней с детьми удаление
-      // запрещено («Сначала удалите дочерние»), у листа LOGS — разрешено.
+      // UI-дерево (НЕ два плоских списка): UX-2 — удаление доступно и у корней,
+      // но корень с детьми ведёт к каскадному диалогу (усиленное подтверждение),
+      // а лист LOGS — к обычному. Так подтверждаем древовидную структуру.
       const overviewRow = rowByName(page, REQ_TREE_OVERVIEW);
-      await expect(overviewRow.locator('[data-testid^="delete-btn-"]')).toBeDisabled();
+      await expect(overviewRow.locator('[data-testid^="delete-btn-"]')).toBeEnabled();
       await expect(
         rowByName(page, REQ_REPORT).locator('[data-testid^="delete-btn-"]'),
-      ).toBeDisabled();
+      ).toBeEnabled();
       await expect(rowByName(page, REQ_LOGS).locator('[data-testid^="delete-btn-"]')).toBeEnabled();
+
+      // Корень с детьми → каскадный диалог (блок с числом потомков присутствует).
+      await overviewRow.hover();
+      await overviewRow.locator('[data-testid^="delete-btn-"]').click();
+      await expect(page.getByTestId('delete-dialog')).toBeVisible();
+      await expect(page.getByTestId('delete-dialog-cascade')).toBeVisible();
+      await page.getByTestId('delete-dialog-cancel').click();
+      await expect(page.getByTestId('delete-dialog')).toBeHidden();
+
+      // Лист → обычный диалог (без каскадного блока и без поля ввода имени).
+      const logsRow = rowByName(page, REQ_LOGS);
+      await logsRow.hover();
+      await logsRow.locator('[data-testid^="delete-btn-"]').click();
+      await expect(page.getByTestId('delete-dialog')).toBeVisible();
+      await expect(page.getByTestId('delete-dialog-cascade')).toHaveCount(0);
+      await expect(page.getByTestId('delete-dialog-input')).toHaveCount(0);
+      await page.getByTestId('delete-dialog-cancel').click();
+      await expect(page.getByTestId('delete-dialog')).toBeHidden();
 
       // Режим «Скрыть зависимости»: дети сворачиваются под корни, chip
       // «N зависимостей» на корне раскрывает ветку обратно (паттерн S25).

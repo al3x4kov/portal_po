@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { linkInputSchema } from '@po/core';
 import { createLinkService, createProjectRepo, type ServiceContext } from '../factory.js';
-import type { LinkService } from '../services/LinkService.js';
+import type { LinkServicePort } from '../services/ports.js';
 import { parseInput } from '../lib/parseInput.js';
 import { NotFoundError } from '../lib/errors.js';
 import type { AppDeps } from './deps.js';
@@ -22,7 +22,7 @@ export async function linkRoutes(app: FastifyInstance, deps: AppDeps): Promise<v
   const ctx: ServiceContext = { projectsRoot: deps.projectsRoot, now: deps.now, log: deps.log };
   const projectRepo = createProjectRepo(ctx);
 
-  const serviceFor = async (projectId: string): Promise<LinkService> => {
+  const serviceFor = async (projectId: string): Promise<LinkServicePort> => {
     if (!(await projectRepo.exists(projectId))) {
       throw new NotFoundError(`Project not found: "${projectId}".`);
     }

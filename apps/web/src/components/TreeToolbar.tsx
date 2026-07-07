@@ -78,12 +78,24 @@ export function TreeToolbar({
   const [srcOpen, setSrcOpen] = useState(false);
   const [srcDraft, setSrcDraft] = useState<Set<string>>(new Set(srcApplied));
   const srcWrapRef = useRef<HTMLDivElement>(null);
+  // UX-7: substring filter inside the «Источник» dropdown (shown for long lists).
+  const [srcQuery, setSrcQuery] = useState('');
 
   // Source dropdown options: '' = "Не задан" + sorted unique sources from project
   const sourceOptions = ['', ...availableSources];
+  // UX-7: only bother with an in-dropdown search once the list gets long.
+  const srcSearchable = availableSources.length > 10;
+  const srcFilteredOptions = srcSearchable
+    ? sourceOptions.filter((src) => {
+        const label = src === '' ? 'Не задан' : src;
+        return label.toLowerCase().includes(srcQuery.trim().toLowerCase());
+      })
+    : sourceOptions;
 
   // §2.6: единая строка «Показано X из Y · Сбросить фильтры» активна при любом фильтре.
   const filtersActive = applied.size > 0 || implApplied.size > 0 || srcApplied.size > 0;
+  // UX-6: общий счётчик активных фильтров для сгруппированного блока.
+  const activeFilterCount = applied.size + implApplied.size + srcApplied.size;
 
   // Sync the draft with the applied set whenever the dropdown opens.
   useEffect(() => {
@@ -95,7 +107,10 @@ export function TreeToolbar({
   }, [implOpen, implApplied]);
 
   useEffect(() => {
-    if (srcOpen) setSrcDraft(new Set(srcApplied));
+    if (srcOpen) {
+      setSrcDraft(new Set(srcApplied));
+      setSrcQuery('');
+    }
   }, [srcOpen, srcApplied]);
 
   // Close the dropdown on outside click / Escape.
@@ -282,272 +297,335 @@ export function TreeToolbar({
         ) : null}
       </div>
 
-      {/* B5 · criticality multi-select */}
-      <div className="relative" ref={wrapRef}>
-        <button
-          type="button"
-          className="btn btn-secondary text-sm"
-          style={applied.size > 0 ? { borderColor: 'var(--color-primary)' } : undefined}
-          aria-haspopup="true"
-          aria-expanded={open}
-          data-testid="criticality-filter"
-          onClick={() => setOpen((v) => !v)}
+      {/* UX-6 · единый блок фильтров (Критичность | Реализация | Источник) */}
+      <div
+        className="inline-flex flex-none flex-wrap items-center gap-2 rounded-lg border px-2 py-1"
+        role="group"
+        aria-label="Фильтры"
+        style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
+        data-testid="filter-group"
+      >
+        <span
+          className="pl-1 text-xs font-semibold"
+          style={{ color: 'var(--color-text-3)' }}
+          aria-hidden="true"
         >
-          Критичность
-          {applied.size > 0 ? (
-            <span
-              className="inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
-              style={{ background: 'var(--color-primary)' }}
-              data-testid="criticality-count"
-            >
-              {applied.size}
-            </span>
-          ) : null}
-        </button>
+          Фильтры
+        </span>
 
-        {open ? (
-          <div
-            className="absolute left-0 z-20 mt-1.5 w-64 overflow-hidden rounded-lg border shadow-lg"
-            style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
-            data-testid="criticality-dropdown"
+        {/* B5 · criticality multi-select */}
+        <div className="relative" ref={wrapRef}>
+          <button
+            type="button"
+            className="btn btn-secondary text-sm"
+            style={applied.size > 0 ? { borderColor: 'var(--color-primary)' } : undefined}
+            aria-haspopup="true"
+            aria-expanded={open}
+            data-testid="criticality-filter"
+            onClick={() => setOpen((v) => !v)}
           >
-            <div
-              className="border-b px-3 py-2 text-xs"
-              style={{ color: 'var(--color-text-3)', borderColor: 'var(--color-border)' }}
-            >
-              Показывать критичность
-            </div>
-            {CRITICALITIES.map((crit) => {
-              const checked = draft.has(crit);
-              return (
-                <label
-                  key={crit}
-                  className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm"
-                  data-testid={CRIT_TESTID[crit]}
-                >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={checked}
-                    onChange={() => toggleDraft(crit)}
-                  />
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
-                    <span
-                      className="inline-block h-2 w-2 rounded-full"
-                      style={{ background: CRITICALITY_COLOR_VAR[crit] }}
-                      aria-hidden="true"
-                    />
-                    {CRITICALITY_LABEL[crit]}
-                  </span>
-                </label>
-              );
-            })}
-            <div
-              className="flex items-center justify-between border-t px-3 py-2"
-              style={{ borderColor: 'var(--color-border)' }}
-            >
-              <button
-                type="button"
-                className="btn btn-ghost py-1 text-xs"
-                data-testid="crit-reset"
-                onClick={() => {
-                  setDraft(new Set());
-                  setCriticalityFilter([]);
-                  setOpen(false);
-                }}
+            Критичность
+            {applied.size > 0 ? (
+              <span
+                className="inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
+                style={{ background: 'var(--color-primary)' }}
+                data-testid="criticality-count"
               >
-                Сбросить
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary py-1 text-xs"
-                data-testid="crit-apply"
-                onClick={() => {
-                  setCriticalityFilter(draft);
-                  setOpen(false);
-                }}
-              >
-                Применить
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {/* T1 · implementation-status multi-select */}
-      <div className="relative" ref={implWrapRef}>
-        <button
-          type="button"
-          className="btn btn-secondary text-sm"
-          style={implApplied.size > 0 ? { borderColor: 'var(--color-primary)' } : undefined}
-          aria-haspopup="true"
-          aria-expanded={implOpen}
-          data-testid="impl-filter"
-          onClick={() => setImplOpen((v) => !v)}
-        >
-          Реализация
-          {implApplied.size > 0 ? (
-            <span
-              className="inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
-              style={{ background: 'var(--color-primary)' }}
-              data-testid="impl-count"
-            >
-              {implApplied.size}
-            </span>
-          ) : null}
-        </button>
-
-        {implOpen ? (
-          <div
-            className="absolute left-0 z-20 mt-1.5 w-72 overflow-hidden rounded-lg border shadow-lg"
-            style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
-            data-testid="impl-dropdown"
-          >
-            <div
-              className="border-b px-3 py-2 text-xs"
-              style={{ color: 'var(--color-text-3)', borderColor: 'var(--color-border)' }}
-            >
-              Показывать по статусу реализации
-            </div>
-            {IMPL_OPTIONS.map((opt) => {
-              const checked = implDraft.has(opt.value);
-              return (
-                <label
-                  key={opt.value}
-                  className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm"
-                  data-testid={opt.testid}
-                >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={checked}
-                    onChange={() => toggleImplDraft(opt.value)}
-                  />
-                  <span className="badge" style={{ background: opt.bg, color: opt.fg }}>
-                    {opt.label}
-                  </span>
-                </label>
-              );
-            })}
-            <div
-              className="flex items-center justify-between border-t px-3 py-2"
-              style={{ borderColor: 'var(--color-border)' }}
-            >
-              <button
-                type="button"
-                className="btn btn-ghost py-1 text-xs"
-                data-testid="impl-reset"
-                onClick={() => {
-                  setImplDraft(new Set());
-                  setImplementationFilter([]);
-                  setImplOpen(false);
-                }}
-              >
-                Сбросить
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary py-1 text-xs"
-                data-testid="impl-apply"
-                onClick={() => {
-                  setImplementationFilter(implDraft);
-                  setImplOpen(false);
-                }}
-              >
-                Применить
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {/* FR-19 · source multi-select */}
-      <div className="relative" ref={srcWrapRef}>
-        <button
-          type="button"
-          className="btn btn-secondary text-sm"
-          style={srcApplied.size > 0 ? { borderColor: 'var(--color-primary)' } : undefined}
-          aria-haspopup="true"
-          aria-expanded={srcOpen}
-          data-testid="source-filter"
-          onClick={() => setSrcOpen((v) => !v)}
-        >
-          Источник
-          {srcApplied.size > 0 ? (
-            <span
-              className="inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
-              style={{ background: 'var(--color-primary)' }}
-              data-testid="source-count"
-            >
-              {srcApplied.size}
-            </span>
-          ) : null}
-        </button>
-
-        {srcOpen ? (
-          <div
-            className="absolute left-0 z-20 mt-1.5 w-64 overflow-hidden rounded-lg border shadow-lg"
-            style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
-            data-testid="source-dropdown"
-          >
-            <div
-              className="border-b px-3 py-2 text-xs"
-              style={{ color: 'var(--color-text-3)', borderColor: 'var(--color-border)' }}
-            >
-              Показывать по источнику
-            </div>
-            {sourceOptions.map((src) => {
-              const checked = srcDraft.has(src);
-              const label = src === '' ? 'Не задан' : src;
-              return (
-                <label
-                  key={src === '' ? '__empty__' : src}
-                  className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm"
-                  data-testid={`source-opt-${src === '' ? 'empty' : src}`}
-                >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={checked}
-                    onChange={() => toggleSrcDraft(src)}
-                  />
-                  <span className="text-sm">{label}</span>
-                </label>
-              );
-            })}
-            {sourceOptions.length === 0 ? (
-              <p className="px-3 py-3 text-sm" style={{ color: 'var(--color-text-3)' }}>
-                Нет источников
-              </p>
+                {applied.size}
+              </span>
             ) : null}
+          </button>
+
+          {open ? (
             <div
-              className="flex items-center justify-between border-t px-3 py-2"
-              style={{ borderColor: 'var(--color-border)' }}
+              className="absolute left-0 z-20 mt-1.5 w-64 overflow-hidden rounded-lg border shadow-lg"
+              style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+              data-testid="criticality-dropdown"
             >
-              <button
-                type="button"
-                className="btn btn-ghost py-1 text-xs"
-                data-testid="source-reset"
-                onClick={() => {
-                  setSrcDraft(new Set());
-                  setSourceFilter([]);
-                  setSrcOpen(false);
-                }}
+              <div
+                className="border-b px-3 py-2 text-xs"
+                style={{ color: 'var(--color-text-3)', borderColor: 'var(--color-border)' }}
               >
-                Сбросить
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary py-1 text-xs"
-                data-testid="source-apply"
-                onClick={() => {
-                  setSourceFilter(srcDraft);
-                  setSrcOpen(false);
-                }}
+                Показывать критичность
+              </div>
+              {CRITICALITIES.map((crit) => {
+                const checked = draft.has(crit);
+                return (
+                  <label
+                    key={crit}
+                    className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm"
+                    data-testid={CRIT_TESTID[crit]}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={checked}
+                      onChange={() => toggleDraft(crit)}
+                    />
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
+                      <span
+                        className="inline-block h-2 w-2 rounded-full"
+                        style={{ background: CRITICALITY_COLOR_VAR[crit] }}
+                        aria-hidden="true"
+                      />
+                      {CRITICALITY_LABEL[crit]}
+                    </span>
+                  </label>
+                );
+              })}
+              <div
+                className="flex items-center justify-between border-t px-3 py-2"
+                style={{ borderColor: 'var(--color-border)' }}
               >
-                Применить
-              </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost py-1 text-xs"
+                  data-testid="crit-reset"
+                  onClick={() => {
+                    setDraft(new Set());
+                    setCriticalityFilter([]);
+                    setOpen(false);
+                  }}
+                >
+                  Сбросить
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary py-1 text-xs"
+                  data-testid="crit-apply"
+                  onClick={() => {
+                    setCriticalityFilter(draft);
+                    setOpen(false);
+                  }}
+                >
+                  Применить
+                </button>
+              </div>
             </div>
+          ) : null}
+        </div>
+
+        {/* T1 · implementation-status multi-select */}
+        <div className="relative" ref={implWrapRef}>
+          <button
+            type="button"
+            className="btn btn-secondary text-sm"
+            style={implApplied.size > 0 ? { borderColor: 'var(--color-primary)' } : undefined}
+            aria-haspopup="true"
+            aria-expanded={implOpen}
+            data-testid="impl-filter"
+            onClick={() => setImplOpen((v) => !v)}
+          >
+            Реализация
+            {implApplied.size > 0 ? (
+              <span
+                className="inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
+                style={{ background: 'var(--color-primary)' }}
+                data-testid="impl-count"
+              >
+                {implApplied.size}
+              </span>
+            ) : null}
+          </button>
+
+          {implOpen ? (
+            <div
+              className="absolute left-0 z-20 mt-1.5 w-72 overflow-hidden rounded-lg border shadow-lg"
+              style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+              data-testid="impl-dropdown"
+            >
+              <div
+                className="border-b px-3 py-2 text-xs"
+                style={{ color: 'var(--color-text-3)', borderColor: 'var(--color-border)' }}
+              >
+                Показывать по статусу реализации
+              </div>
+              {IMPL_OPTIONS.map((opt) => {
+                const checked = implDraft.has(opt.value);
+                return (
+                  <label
+                    key={opt.value}
+                    className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm"
+                    data-testid={opt.testid}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={checked}
+                      onChange={() => toggleImplDraft(opt.value)}
+                    />
+                    <span className="badge" style={{ background: opt.bg, color: opt.fg }}>
+                      {opt.label}
+                    </span>
+                  </label>
+                );
+              })}
+              <div
+                className="flex items-center justify-between border-t px-3 py-2"
+                style={{ borderColor: 'var(--color-border)' }}
+              >
+                <button
+                  type="button"
+                  className="btn btn-ghost py-1 text-xs"
+                  data-testid="impl-reset"
+                  onClick={() => {
+                    setImplDraft(new Set());
+                    setImplementationFilter([]);
+                    setImplOpen(false);
+                  }}
+                >
+                  Сбросить
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary py-1 text-xs"
+                  data-testid="impl-apply"
+                  onClick={() => {
+                    setImplementationFilter(implDraft);
+                    setImplOpen(false);
+                  }}
+                >
+                  Применить
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* FR-19 · source multi-select */}
+        <div className="relative" ref={srcWrapRef}>
+          <button
+            type="button"
+            className="btn btn-secondary text-sm"
+            style={srcApplied.size > 0 ? { borderColor: 'var(--color-primary)' } : undefined}
+            aria-haspopup="true"
+            aria-expanded={srcOpen}
+            data-testid="source-filter"
+            onClick={() => setSrcOpen((v) => !v)}
+          >
+            Источник
+            {srcApplied.size > 0 ? (
+              <span
+                className="inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
+                style={{ background: 'var(--color-primary)' }}
+                data-testid="source-count"
+              >
+                {srcApplied.size}
+              </span>
+            ) : null}
+          </button>
+
+          {srcOpen ? (
+            <div
+              className="absolute left-0 z-20 mt-1.5 w-64 overflow-hidden rounded-lg border shadow-lg"
+              style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+              data-testid="source-dropdown"
+            >
+              <div
+                className="border-b px-3 py-2 text-xs"
+                style={{ color: 'var(--color-text-3)', borderColor: 'var(--color-border)' }}
+              >
+                Показывать по источнику
+              </div>
+              {/* UX-7 · substring search for long source lists */}
+              {srcSearchable ? (
+                <div className="border-b p-2" style={{ borderColor: 'var(--color-border)' }}>
+                  <input
+                    type="search"
+                    className="input !py-1.5 text-sm"
+                    placeholder="Поиск источника…"
+                    aria-label="Поиск по источнику"
+                    data-testid="source-search"
+                    value={srcQuery}
+                    onChange={(e) => setSrcQuery(e.target.value)}
+                  />
+                </div>
+              ) : null}
+              <div className="max-h-60 overflow-y-auto">
+                {srcFilteredOptions.map((src) => {
+                  const checked = srcDraft.has(src);
+                  const label = src === '' ? 'Не задан' : src;
+                  return (
+                    <label
+                      key={src === '' ? '__empty__' : src}
+                      className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm"
+                      data-testid={`source-opt-${src === '' ? 'empty' : src}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={checked}
+                        onChange={() => toggleSrcDraft(src)}
+                      />
+                      <span className="text-sm">{label}</span>
+                    </label>
+                  );
+                })}
+                {srcSearchable && srcFilteredOptions.length === 0 ? (
+                  <p
+                    className="px-3 py-3 text-sm"
+                    style={{ color: 'var(--color-text-3)' }}
+                    data-testid="source-search-empty"
+                  >
+                    Ничего не найдено
+                  </p>
+                ) : null}
+              </div>
+              {sourceOptions.length === 0 ? (
+                <p className="px-3 py-3 text-sm" style={{ color: 'var(--color-text-3)' }}>
+                  Нет источников
+                </p>
+              ) : null}
+              <div
+                className="flex items-center justify-between border-t px-3 py-2"
+                style={{ borderColor: 'var(--color-border)' }}
+              >
+                <button
+                  type="button"
+                  className="btn btn-ghost py-1 text-xs"
+                  data-testid="source-reset"
+                  onClick={() => {
+                    setSrcDraft(new Set());
+                    setSourceFilter([]);
+                    setSrcOpen(false);
+                  }}
+                >
+                  Сбросить
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary py-1 text-xs"
+                  data-testid="source-apply"
+                  onClick={() => {
+                    setSourceFilter(srcDraft);
+                    setSrcOpen(false);
+                  }}
+                >
+                  Применить
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* UX-6 · общий счётчик активных фильтров + «Сбросить» внутри блока */}
+        {filtersActive ? (
+          <div className="flex items-center gap-2 pl-1">
+            <span
+              className="inline-flex min-w-[18px] items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white"
+              style={{ background: 'var(--color-primary)' }}
+              data-testid="filter-active-count"
+            >
+              {activeFilterCount}
+            </span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm text-xs"
+              data-testid="filter-group-reset"
+              onClick={resetFilters}
+            >
+              Сбросить
+            </button>
           </div>
         ) : null}
       </div>

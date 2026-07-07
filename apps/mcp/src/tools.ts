@@ -16,9 +16,9 @@ import {
   requirementUpdateShape,
   NotFoundError,
   type ArchiveFormat,
-  type LinkService,
+  type LinkServicePort,
   type OpLogger,
-  type RequirementService,
+  type RequirementServicePort,
   type ServiceContext,
 } from '@po/server';
 
@@ -122,8 +122,8 @@ export function createTools(projectsRoot: string, now?: () => string, log?: OpLo
     }
   };
 
-  const reqService = (id: string): RequirementService => createRequirementService(ctx, id);
-  const linkService = (id: string): LinkService => createLinkService(ctx, id);
+  const reqService = (id: string): RequirementServicePort => createRequirementService(ctx, id);
+  const linkService = (id: string): LinkServicePort => createLinkService(ctx, id);
 
   return [
     tool('list_projects', 'List all projects.', {}, async () => {
@@ -199,12 +199,15 @@ export function createTools(projectsRoot: string, now?: () => string, log?: OpLo
 
     tool(
       'delete_requirement',
-      'Delete a leaf requirement (rejected when it still has children).',
-      { projectId, slug },
-      async ({ projectId: id, slug: s }) => {
+      'Delete a requirement. By default a leaf (a node with children is rejected). ' +
+        'With cascade=true, deletes the node together with its whole subtree of descendants.',
+      { projectId, slug, cascade: z.boolean().default(false) },
+      async ({ projectId: id, slug: s, cascade }) => {
         await requireProject(id);
-        await reqService(id).delete(s);
-        return { deleted: true, slug: s };
+        const { deleted } = await reqService(id).delete(s, { cascade });
+        return cascade
+          ? { deleted: true, slug: s, count: deleted.length, slugs: deleted }
+          : { deleted: true, slug: s };
       },
     ),
 

@@ -17,12 +17,14 @@ import { useUiStore } from '../store/ui';
 import { errorMessage } from './client';
 import { aiApi, aiImportApi, linksApi, projectsApi, requirementsApi } from './endpoints';
 import type {
+  DeleteRequirementResult,
   LinkInput,
   ProjectSummary,
   RequirementCreateInput,
   RequirementListResult,
   RequirementUpdateInput,
 } from './types';
+import { requirementsLabel } from '../lib/plural';
 
 export const queryKeys = {
   projects: ['projects'] as const,
@@ -132,14 +134,20 @@ export function useUpdateRequirement(projectId: string) {
   });
 }
 
+/**
+ * UX-2: delete a requirement, optionally cascading over its subtree. The leaf
+ * path (204 → `null`) removes exactly one; the cascade path returns the true
+ * `deleted` count from the server, which the toast echoes verbatim.
+ */
 export function useDeleteRequirement(projectId: string) {
   const qc = useQueryClient();
   const toast = useToast();
-  return useMutation<null, Error, string>({
-    mutationFn: (rid) => requirementsApi.remove(projectId, rid),
-    onSuccess: () => {
+  return useMutation<DeleteRequirementResult | null, Error, { slug: string; cascade?: boolean }>({
+    mutationFn: ({ slug, cascade }) => requirementsApi.remove(projectId, slug, cascade),
+    onSuccess: (result) => {
       invalidateRequirements(qc, projectId);
-      toast.show('Требование удалено');
+      const deleted = result?.deleted ?? 1;
+      toast.show(`Удалено ${requirementsLabel(deleted)}`);
     },
   });
 }

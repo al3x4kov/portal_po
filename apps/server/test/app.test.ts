@@ -167,6 +167,52 @@ describe('T-301/T-304/T-403/T-503 HTTP integration', () => {
     expect(unlink.statusCode).toBe(200);
   });
 
+  it('DELETE with children → 409; ?cascade=true removes the subtree with a count (UX-2)', async () => {
+    await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'C' } });
+    const mk = async (name: string): Promise<string> => {
+      const r = await app.inject({
+        method: 'POST',
+        url: '/api/projects/C/requirements',
+        payload: { type: 'FUNCTION', name, criticality: 'LOW', implemented: true },
+      });
+      return r.json().slug as string;
+    };
+    const root = await mk('Root');
+    const child = await mk('Child');
+    const grand = await mk('Grand');
+    await app.inject({
+      method: 'POST',
+      url: '/api/projects/C/links',
+      payload: { sourceSlug: root, type: 'PARENT_OF', targetSlug: child },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/projects/C/links',
+      payload: { sourceSlug: child, type: 'PARENT_OF', targetSlug: grand },
+    });
+
+    // Default delete of a node with children is rejected (safe default).
+    const blocked = await app.inject({
+      method: 'DELETE',
+      url: `/api/projects/C/requirements/${root}`,
+    });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().code).toBe('HAS_CHILDREN');
+
+    // Explicit cascade removes the whole subtree and reports the count + slugs.
+    const cascaded = await app.inject({
+      method: 'DELETE',
+      url: `/api/projects/C/requirements/${root}?cascade=true`,
+    });
+    expect(cascaded.statusCode).toBe(200);
+    expect(cascaded.json().deleted).toBe(3);
+    expect((cascaded.json().slugs as string[]).sort()).toEqual([child, grand, root].sort());
+
+    // The subtree is gone.
+    const list = await app.inject({ method: 'GET', url: '/api/projects/C/requirements' });
+    expect(list.json().requirements).toEqual([]);
+  });
+
   it('export returns an archive; multipart import recreates the project (round-trip over HTTP)', async () => {
     await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Exp' } });
     await app.inject({

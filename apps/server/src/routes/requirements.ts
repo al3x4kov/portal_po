@@ -9,7 +9,7 @@ import {
   type Requirement,
 } from '@po/core';
 import { createProjectRepo, createRequirementService, type ServiceContext } from '../factory.js';
-import type { RequirementService } from '../services/RequirementService.js';
+import type { RequirementServicePort } from '../services/ports.js';
 import { parseInput } from '../lib/parseInput.js';
 import { NotFoundError } from '../lib/errors.js';
 import type { AppDeps } from './deps.js';
@@ -29,6 +29,18 @@ export const checkNameQuery = z.object({
   type: z.enum(REQUIREMENT_TYPES),
   name: z.string(),
   excludeSlug: z.string().optional(),
+});
+
+/**
+ * Query for DELETE requirement. `cascade=true` opts into removing the node with
+ * its whole subtree (UX-2); absent/`false` keeps the safe default (a node with
+ * children is rejected with 409 HAS_CHILDREN). Any other value is a 422.
+ */
+export const deleteQuery = z.object({
+  cascade: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
 });
 
 /** Query for the requirements listing endpoint. */
@@ -65,7 +77,7 @@ export async function requirementRoutes(app: FastifyInstance, deps: AppDeps): Pr
   const ctx: ServiceContext = { projectsRoot: deps.projectsRoot, now: deps.now, log: deps.log };
   const projectRepo = createProjectRepo(ctx);
 
-  const serviceFor = async (projectId: string): Promise<RequirementService> => {
+  const serviceFor = async (projectId: string): Promise<RequirementServicePort> => {
     if (!(await projectRepo.exists(projectId))) {
       throw new NotFoundError(`Project not found: "${projectId}".`);
     }
@@ -109,8 +121,13 @@ export async function requirementRoutes(app: FastifyInstance, deps: AppDeps): Pr
 
   app.delete('/api/projects/:id/requirements/:slug', async (req, reply) => {
     const { id, slug } = parseInput(slugParams, req.params);
+    const { cascade } = parseInput(deleteQuery, req.query);
     const service = await serviceFor(id);
-    await service.delete(slug);
+    const { deleted } = await service.delete(slug, { cascade });
+    // Cascade returns the affected count/slugs (200); a plain delete stays 204.
+    if (cascade) {
+      return { deleted: deleted.length, slugs: deleted };
+    }
     reply.code(204);
     return null;
   });

@@ -373,4 +373,86 @@ describe('Dashboard (T-513 / T-514)', () => {
       expect(screen.queryByTestId('dash-no-desc-nfr')).not.toBeInTheDocument();
     });
   });
+
+  // ── Handlers: opening modals from the dashboard ─────────────────────────────
+
+  describe('modal openers (onOpen / onOpenExport / onOpenTasks)', () => {
+    it('«+ Описание» on a no-description FT opens the requirement modal (onOpen)', async () => {
+      listRequirements.mockResolvedValue({
+        requirements: [ftRoot1, ftNoDescBlocker],
+        broken: [],
+      });
+      renderDashboard();
+
+      const openBtn = await screen.findByTestId('dash-no-desc-open-ft-no-desc-blocker');
+      fireEvent.click(openBtn);
+
+      // openModal records a requirement modal focused on the description.
+      const modal = useUiStore.getState().modal;
+      expect(modal).toMatchObject({
+        kind: 'requirement',
+        focusField: 'description',
+        requirement: { slug: 'ft-no-desc-blocker' },
+      });
+    });
+
+    it('«+ Описание» on a no-description NFR opens its requirement modal (onOpen)', async () => {
+      const nfrNoDesc = makeReq({
+        slug: 'nfr-no-desc',
+        name: 'НФТ без описания',
+        type: 'NFR',
+        description: '',
+        links: [],
+      });
+      listRequirements.mockResolvedValue({
+        requirements: [ftRoot1, nfrNoDesc],
+        broken: [],
+      });
+      renderDashboard();
+
+      fireEvent.click(await screen.findByTestId('dash-no-desc-open-nfr-no-desc'));
+      expect(useUiStore.getState().modal).toMatchObject({
+        kind: 'requirement',
+        reqType: 'NFR',
+        focusField: 'description',
+      });
+    });
+
+    it('sidebar «Экспорт проекта» opens the export modal (onOpenExport)', async () => {
+      listRequirements.mockResolvedValue({ requirements: [ftRoot2], broken: [] });
+      renderDashboard();
+
+      fireEvent.click(await screen.findByTestId('sidebar-open-export'));
+      expect(useUiStore.getState().modal).toEqual({ kind: 'export' });
+    });
+
+    it('sidebar «Генерация задач» opens the export-tasks modal (onOpenTasks)', async () => {
+      listRequirements.mockResolvedValue({ requirements: [ftRoot2], broken: [] });
+      renderDashboard();
+
+      fireEvent.click(await screen.findByTestId('sidebar-open-tasks'));
+      expect(useUiStore.getState().modal).toEqual({ kind: 'export-tasks' });
+    });
+
+    it('«ФТ без НФТ» list beyond the limit toggles show-all (setShowAllFnWithoutNfr)', async () => {
+      // 8 root FTs with descriptions but no linked NFR → functionsWithoutNfr > limit.
+      const many = Array.from({ length: 8 }, (_, i) =>
+        makeReq({
+          slug: `ft-no-nfr-${i}`,
+          name: `ФТ без НФТ ${i}`,
+          criticality: 'MEDIUM',
+          description: 'Описание есть',
+          links: [],
+        }),
+      );
+      listRequirements.mockResolvedValue({ requirements: many, broken: [] });
+      renderDashboard();
+
+      const showAll = await screen.findByTestId('dashboard-nfr-missing-show-all');
+      expect(showAll).toHaveTextContent('Показать все (8)');
+      fireEvent.click(showAll);
+      expect(await screen.findByText('ФТ без НФТ 7')).toBeInTheDocument();
+      expect(screen.getByTestId('dashboard-nfr-missing-show-all')).toHaveTextContent('Свернуть');
+    });
+  });
 });

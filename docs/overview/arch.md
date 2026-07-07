@@ -9,6 +9,9 @@
 > single-process SPA+API, версионирование REST). Границы системы — [`context.md`](../overview/context.md).
 >
 > **История версий:**
+> - v1.2 (2026-07-07) — **AI Hub как внешняя интеграция**: §6.3, AI-роуты в §6, актор
+>   «Внешний LLM-провайдер», принятый риск по безопасности AI-канала. ADR-007. По итогам совета
+>   (ARCH-1/ARCH-7).
 > - v1.1 (2026-07-02) — синхронизация с ADR-001 (slug/OpenSpec), актуальные роуты
 >   (`:slug`, `/links`, `/export.xlsx`, `?format=openspec`), MCP-сервер, OpenAPI (`/docs`,
 >   `/openapi.json`). По итогам совета (ARCH-8).
@@ -91,6 +94,18 @@ project_po/
   обеспечивают транзакционность операции (напр. удаление = файл + чистка ссылок).
 - **repositories** — единственное место ввода-вывода (fs, архивы).
 - **core (импорт из packages/core)** — модели, валидация, графовые проверки.
+
+**Сервисный фасад `[ДОБАВЛЕНО — ARCH-9]`.** Публичная поверхность сервисов
+зафиксирована стабильными интерфейсами-фасадами `RequirementServicePort` /
+`LinkServicePort` / `ProjectServicePort` (`services/ports.ts`). Классы сервисов
+`implements` эти порты (компилятор гарантирует соответствие), а три адаптера над
+доменным ядром — REST-роуты, MCP-tools (ADR-002) и `AiImportService` — типизированы
+против портов, а не конкретных классов (фабрики в `factory.ts` возвращают порт-тип;
+`AiImportServiceDeps`/стадии AI-импорта и `serviceFor` в роутах используют порты).
+Порт покрывает ровно те методы, что вызывают адаптеры — приватные хелперы не
+протекают. Изменение приватной поверхности сервиса не задевает потребителей; изменение
+публичной проходит через порт и сразу видно всем трём адаптерам. Contract-тест:
+`apps/server/test/service-ports.test.ts`.
 
 ### 3.2 Ключевые модули
 - `lib/pathSafe.ts` — резолв путей строго внутри `Projects/`; защита от path traversal
@@ -188,10 +203,19 @@ interface Requirement {
 | GET | `/api/projects/:id/requirements/check-name` | проверка уникальности | FR-6.6 |
 | POST | `/api/projects/:id/requirements` | создать требование | FR-6 |
 | PUT | `/api/projects/:id/requirements/:slug` | редактировать | FR-6.5 |
-| DELETE | `/api/projects/:id/requirements/:slug` | удалить + чистка ссылок | FR-9 |
+| DELETE | `/api/projects/:id/requirements/:slug[?cascade=true]` | удалить + чистка ссылок; `cascade=true` — удалить узел со всем поддеревом (200 `{deleted,slugs}`), иначе узел с детьми → 409 HAS_CHILDREN | FR-9 / UX-2 |
 | POST | `/api/projects/:id/links` | создать связь (реципрокная пара, с проверками) | FR-8 |
 | DELETE | `/api/projects/:id/links` | удалить связь (обе стороны) | FR-8/FR-13 |
+| GET/PUT | `/api/ai/config` | чтение/запись AI-конфига (ключ не возвращается) | FR-17 |
+| GET | `/api/ai/models` | список моделей провайдера | FR-17.3 |
+| POST | `/api/ai/chat` | сообщение чат-помощнику | FR-18 |
+| POST | `/api/ai/generate-description` | генерация описания требования | FR-19 |
+| POST | `/api/projects/:id/ai-import` | старт AI-импорта из документации (async → `jobId`) | FR-20 |
+| GET | `/api/ai-import/:jobId` | статус/прогресс/лог импорт-джобы (`running/succeeded/failed/cancelled`) | FR-20.2 |
+| POST | `/api/ai-import/:jobId/cancel` | отменить импорт-джобу | FR-20.2 |
 
+- `[ДОБАВЛЕНО v1.2]` **AI-эндпоинты** (`/api/ai/*`, `/api/…/ai-import`) — исходящая интеграция с
+  внешним LLM (AI Hub); async-контракт импорта (202 + polling) и границы — §6.3, ADR-007, api.md.
 - **`?format=openspec`** на `/requirements` — склеенный OpenSpec-текст (`text/markdown`),
   детерминированный/байт-в-байт (§1.2 ТЗ, api.md). `?format=json` (по умолчанию) — прежний JSON.
 - Все запросы/ответы валидируются zod-схемами (единый источник — `@po/core`, ARCH-4);
@@ -215,6 +239,25 @@ interface Requirement {
 - Доменные ошибки маппятся в MCP error с сохранением `details` (напр. `CycleError.path`,
   ARCH-11). Лог — в stderr (NFR-9). Запуск: `node apps/mcp/dist/main.js`, `PROJECTS_ROOT` из env.
 - Контекст акторов/событий REST и MCP — [`context.md`](../overview/context.md).
+
+### 6.3 AI Hub (внешний LLM-провайдер) `[ДОБАВЛЕНО v1.2 — ADR-007]`
+- **Исходящая** интеграция с внешним OpenAI-совместимым сервисом (`services/AiHubService.ts`,
+  `AiImportService.ts`, `openaiClient.ts`; конфиг — `AiConfigRepo` → `.ai-config.json`).
+  Единственная внешняя система, к которой сервер обращается сам.
+- **Сценарии:** чат (`/api/ai/chat`), генерация описания (`/api/ai/generate-description`),
+  AI-импорт из документации (`/api/projects/:id/ai-import`, async). Наружу уходят сообщения
+  чата, контекст требования/проекта и **содержимое загруженной документации**.
+- **Async-контракт импорта:** старт → `jobId`; статус/прогресс/лог — polling `GET /api/ai-import/:jobId`;
+  реестр джоб **in-memory, single-process** (при рестарте состояние теряется — ARCH-4); импорт
+  **не атомарен** как целое (каждая запись под своим project-lock, ADR-004).
+- **Деградация:** ядро работает без AI Hub; при недоступности провайдера деградируют только
+  AI-функции (NFR-10).
+- **Секрет и TLS:** ключ — plaintext в конфиге, наружу не отдаётся, редактируется из логов;
+  TLS-проверка AI Hub по умолчанию отключена. Это **принятый риск** локального demo — см.
+  [`../architecture/ADR-007-ai-hub-integration.md`](../architecture/ADR-007-ai-hub-integration.md)
+  (условие пересмотра, задачи ARCH-2/BE-8/SA-2).
+- Контекст акторов/событий AI — [`context.md`](../overview/context.md) (актор «Внешний
+  LLM-провайдер», события #25–#29).
 
 ---
 
@@ -244,7 +287,8 @@ interface Requirement {
 | ID | **slug** (`[a-z0-9-]`, из `name`) | читаемые связи, стабильны при переименовании; без опаковых ULID (ADR-001) |
 | Архивы | `archiver`/`adm-zip` + `tar` | zip и tar.gz (FR-3, FR-10) |
 | Excel | `exceljs` | `.xlsx`-выгрузка «как в UI» (FR-10.3/FR-15), без нативных зависимостей |
-| AI-канал | MCP (`@modelcontextprotocol/sdk`, stdio) | второй потребитель — ИИ-агент поверх сервисов (ADR-002) |
+| AI-канал (исходящий MCP) | MCP (`@modelcontextprotocol/sdk`, stdio) | второй потребитель — ИИ-агент поверх сервисов (ADR-002) |
+| AI Hub (исходящая интеграция) | внешний OpenAI-совместимый провайдер (`openaiClient`/undici) | чат, генерация описания, AI-импорт; §6.3, ADR-007 (принятый риск TLS/ключа) |
 | API-док | OpenAPI/Swagger | `/openapi.json` + `/docs` (E14) |
 | Фронт | React + Vite + Tailwind | скорость, совместимость с макетами docs/design/ |
 | Server state | React Query | кэш + инвалидция = «автосохранение видно сразу» |

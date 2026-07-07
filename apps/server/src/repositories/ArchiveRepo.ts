@@ -5,12 +5,8 @@ import { Readable } from 'node:stream';
 import AdmZip from 'adm-zip';
 import * as tar from 'tar';
 import {
-  DomainError,
   REQUIREMENT_FOLDER,
-  assertAcyclic,
-  assertNoSelfLink,
-  assertSingleParent,
-  inverseLinkType,
+  collectImportIntegrityViolations,
   parse,
   parseManifest,
   serializeManifest,
@@ -22,6 +18,8 @@ import { ensureDir } from '../lib/ensureDir.js';
 import { resolveSafe } from '../lib/pathSafe.js';
 import { sanitizeProjectName } from '../lib/projectName.js';
 import { ArchiveError, ConflictError } from '../lib/errors.js';
+import { detectArchiveFormat } from '../lib/archiveFormat.js';
+import type { OpLogger } from '../lib/logger.js';
 import {
   SCHEMA_VERSION,
   type ArchiveFormat,
@@ -31,42 +29,15 @@ import {
 
 export type { ArchiveFormat, ExportResult } from './types.js';
 
-/** Bomb-guard limits applied while unpacking an import (ARCH-10 / QA-8). */
-export interface ArchiveLimits {
-  /** Max number of file entries an archive may contain. */
-  maxEntries: number;
-  /** Max cumulative *uncompressed* size across all entries, in bytes. */
-  maxTotalBytes: number;
-}
-
-/**
- * Default import limits. Chosen well above any realistic OpenSpec project
- * (thousands of small markdown files) yet low enough to stop a decompression
- * bomb: 10 000 entries, 100 MiB uncompressed.
- */
-export const DEFAULT_ARCHIVE_LIMITS: ArchiveLimits = {
-  maxEntries: 10_000,
-  maxTotalBytes: 100 * 1024 * 1024,
-};
+// Bomb-guard limits (ARCH-10 / QA-8) now live in lib/limits.ts — the single
+// source of upload/archive limits (ARCH-6). Re-exported here for back-compat.
+import { type ArchiveLimits, DEFAULT_ARCHIVE_LIMITS } from '../lib/limits.js';
+export { type ArchiveLimits, DEFAULT_ARCHIVE_LIMITS } from '../lib/limits.js';
 
 const MANIFEST = path.join('openspec', 'project.md');
 const SPECS_DIR = path.join('openspec', 'specs');
 const FOLDER = REQUIREMENT_FOLDER;
 const IMPORT_TMP = '.import-tmp';
-
-/** Detect archive format from the leading magic bytes. */
-async function detectFormat(file: string): Promise<ArchiveFormat> {
-  const fh = await fs.open(file, 'r');
-  try {
-    const buf = Buffer.alloc(4);
-    await fh.read(buf, 0, 4, 0);
-    if (buf[0] === 0x50 && buf[1] === 0x4b) return 'zip'; // "PK"
-    if (buf[0] === 0x1f && buf[1] === 0x8b) return 'targz'; // gzip
-    throw new ArchiveError('Unsupported archive format (expected .zip or .tar.gz).');
-  } finally {
-    await fh.close();
-  }
-}
 
 /**
  * Repository for full-project archives (FR-3 / FR-10). Export streams a project
@@ -79,6 +50,13 @@ export class ArchiveRepo implements ArchivePort {
   constructor(
     private readonly projectsRoot: string,
     limits: Partial<ArchiveLimits> = {},
+    /**
+     * Optional structured logger (BE-7): non-fatal diagnostics (e.g. a slug
+     * requested for a partial export that does not exist) go here instead of
+     * being written to `process.stderr` directly. Wired from the same OpLogger
+     * the rest of the server uses; a no-op when absent (silent in unit tests).
+     */
+    private readonly log?: OpLogger,
   ) {
     this.limits = { ...DEFAULT_ARCHIVE_LIMITS, ...limits };
   }
@@ -132,9 +110,16 @@ export class ArchiveRepo implements ArchivePort {
         }
       }
       if (!found) {
-        process.stderr.write(
-          `[ArchiveRepo.exportSelected] slug "${slug}" not found in project "${baseName}", skipping.\n`,
-        );
+        // Non-fatal: a requested slug is absent, so it is simply omitted from
+        // the partial archive. Surface it through the injected logger (BE-7) —
+        // pino renders an `outcome:'error'` entry at warn level — never stderr.
+        this.log?.op({
+          op: 'exportSelected.skipSlug',
+          projectId: baseName,
+          slug,
+          outcome: 'error',
+          code: 'NOT_FOUND',
+        });
       }
     }
 
@@ -411,51 +396,18 @@ export class ArchiveRepo implements ArchivePort {
       seenSlugs.add(r.slug);
     }
 
-    // Links target a slug; hierarchical links are within a single type, so index by type+slug.
-    const key = (type: RequirementType, slug: string): string => `${type}:${slug}`;
-    const bySlug = new Map<string, Requirement>();
-    for (const r of reqs) bySlug.set(key(r.type, r.slug), r);
-
-    // Route link integrity through core/graph so the import shares the exact same
-    // rules as interactive editing (BE-2). Core raises typed DomainErrors; they
-    // are re-wrapped as ArchiveError so import failures map to a single code.
-    try {
-      for (const req of reqs) {
-        for (const linkRef of req.links) {
-          // Resolve the target: same type first (hierarchy), then any type (associations).
-          const other =
-            bySlug.get(key(req.type, linkRef.targetSlug)) ??
-            reqs.find((r) => r.slug === linkRef.targetSlug && r !== req);
-          if (other === req) {
-            assertNoSelfLink(req.slug, linkRef.targetSlug); // SelfLinkError
-          }
-          if (!other) {
-            throw new ArchiveError(
-              `Dangling link: "${req.slug}" references missing "${linkRef.targetSlug}".`,
-            );
-          }
-          const inverse = inverseLinkType(linkRef.type);
-          const reciprocated = other.links.some(
-            (l) => l.type === inverse && l.targetSlug === req.slug,
-          );
-          if (!reciprocated) {
-            throw new ArchiveError(
-              `Link from "${req.slug}" to "${linkRef.targetSlug}" is missing its inverse on the target.`,
-            );
-          }
-        }
-        // At most one parent per requirement (scoped to its own type). MultipleParentError.
-        assertSingleParent(
-          reqs.filter((r) => r.type === req.type),
-          req.slug,
-        );
-      }
-      // Reject hierarchy/dependency cycles across the whole graph (BE-2 gap). CycleError.
-      assertAcyclic(reqs);
-    } catch (err) {
-      if (err instanceof ArchiveError) throw err;
-      if (err instanceof DomainError) throw new ArchiveError(err.message);
-      throw err;
+    // Route link-graph integrity through core so the import shares the EXACT
+    // same 2.4 invariants as interactive editing (BE-2 / SA-3). The collector
+    // gathers EVERY breach (cycle, second parent, dangling target, self-link,
+    // missing inverse) instead of failing fast, so the caller can reject with
+    // the full list of concrete violations. Rejection is atomic: the target dir
+    // is never created and the temp is swept (FR-3.4).
+    const violations = collectImportIntegrityViolations(reqs);
+    if (violations.length > 0) {
+      throw new ArchiveError(
+        `Archive link graph violates integrity invariants (${violations.length} issue(s)).`,
+        violations.map((v) => v.message),
+      );
     }
   }
 
@@ -488,7 +440,7 @@ export class ArchiveRepo implements ArchivePort {
       throw new ConflictError(`A project named "${id}" already exists.`);
     }
 
-    const format = await detectFormat(archivePath);
+    const format = await detectArchiveFormat(archivePath);
     const tmpParent = resolveSafe(this.projectsRoot, IMPORT_TMP);
     await ensureDir(tmpParent);
     const tmpDir = resolveSafe(tmpParent, randomBytes(10).toString('hex'));
