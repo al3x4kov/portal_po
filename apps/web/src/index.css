@@ -41,6 +41,34 @@
   --crit-critical: #dc2626;
   --crit-blocker: #a21caf;
 
+  /* todo_19 (T-210): fixed priority-colour palette. bg/fg = tinted badge (AA);
+     solid = saturated swatch. Mapped from @po/core PRIORITY_COLORS in
+     lib/priorityColors.ts — never hard-code these at call sites. */
+  --prio-red-bg: #fee2e2;
+  --prio-red-fg: #b91c1c;
+  --prio-red-solid: #ef4444;
+  --prio-amber-bg: #fef3c7;
+  --prio-amber-fg: #92400e;
+  --prio-amber-solid: #f59e0b;
+  --prio-blue-bg: #dbeafe;
+  --prio-blue-fg: #1d4ed8;
+  --prio-blue-solid: #3b82f6;
+  --prio-green-bg: #dcfce7;
+  --prio-green-fg: #166534;
+  --prio-green-solid: #22c55e;
+  --prio-purple-bg: #f3e8ff;
+  --prio-purple-fg: #7e22ce;
+  --prio-purple-solid: #a855f7;
+  --prio-sky-bg: #e0f2fe;
+  --prio-sky-fg: #075985;
+  --prio-sky-solid: #0ea5e9;
+  --prio-gray-bg: #eef2f7;
+  --prio-gray-fg: #475569;
+  --prio-gray-solid: #94a3b8;
+  --prio-pink-bg: #fce7f3;
+  --prio-pink-fg: #be185d;
+  --prio-pink-solid: #ec4899;
+
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Inter, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
@@ -98,6 +126,32 @@ html.dark {
 
   /* Tree lines — darker in dark theme */
   --tree-line-color: #334155;
+
+  /* todo_19 (T-210): priority palette on dark surfaces (tint darker, text lighter, ≥AA). */
+  --prio-red-bg: #450a0a;
+  --prio-red-fg: #fca5a5;
+  --prio-red-solid: #f87171;
+  --prio-amber-bg: #451a03;
+  --prio-amber-fg: #fbbf24;
+  --prio-amber-solid: #fbbf24;
+  --prio-blue-bg: #172554;
+  --prio-blue-fg: #93c5fd;
+  --prio-blue-solid: #60a5fa;
+  --prio-green-bg: #052e16;
+  --prio-green-fg: #4ade80;
+  --prio-green-solid: #4ade80;
+  --prio-purple-bg: #3b0764;
+  --prio-purple-fg: #d8b4fe;
+  --prio-purple-solid: #c084fc;
+  --prio-sky-bg: #082f49;
+  --prio-sky-fg: #7dd3fc;
+  --prio-sky-solid: #38bdf8;
+  --prio-gray-bg: #1e293b;
+  --prio-gray-fg: #cbd5e1;
+  --prio-gray-solid: #94a3b8;
+  --prio-pink-bg: #500724;
+  --prio-pink-fg: #f9a8d4;
+  --prio-pink-solid: #f472b6;
 }
 
 @layer base {

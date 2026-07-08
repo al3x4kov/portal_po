@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import ExcelJS from 'exceljs';
-import type { ExportOptionalField, Requirement } from '@po/core';
+import type { ExportOptionalField, Requirement, SourceEntry } from '@po/core';
 import { ExcelExportService } from '../src/services/ExcelExportService.js';
 
 /** Default (all optional fields) column layout — 8 columns (Task 2). */
@@ -239,5 +239,30 @@ describe('T-202 ExcelExportService dynamic columns (field mask)', () => {
     const childIndent = ws.getRow(childIdx + 2).getCell(1).alignment?.indent ?? 0;
     expect(childIndent).toBeGreaterThan(parentIndent);
     expect(ws.getRow(2).getCell(3).fill).toBeTruthy();
+  });
+});
+
+describe('todo_19 «Источник» column renders req.sources[]', () => {
+  function src(name: string): SourceEntry {
+    return { type: 'STAKEHOLDER', name, priorityId: 'p1' };
+  }
+
+  /** «Источник» is column 5 (1-based) in the default layout. */
+  async function sourceCellOf(r: Requirement): Promise<string> {
+    const wb = await loadBack(await ExcelExportService.buildWorkbook([r]));
+    const ws = wb.getWorksheet('Требования')!;
+    return String(ws.getRow(2).getCell(5).value ?? '');
+  }
+
+  it('joins multiple source names with «; »', async () => {
+    expect(await sourceCellOf(req({ sources: [src('имя1'), src('имя2')] }))).toBe('имя1; имя2');
+  });
+
+  it('renders the legacy scalar source when sources[] is absent', async () => {
+    expect(await sourceCellOf(req({ source: 'АС21' }))).toBe('АС21');
+  });
+
+  it('is empty when the requirement has neither sources[] nor source', async () => {
+    expect(await sourceCellOf(req())).toBe('');
   });
 });

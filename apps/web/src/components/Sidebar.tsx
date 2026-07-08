@@ -1,10 +1,18 @@
 import { useNavigate } from 'react-router-dom';
-import { ChartColumn, ClipboardList, Download, ListTree, Sparkle, Waypoints } from 'lucide-react';
+import {
+  BookMarked,
+  ChartColumn,
+  ClipboardList,
+  Download,
+  ListTree,
+  Sparkle,
+  Waypoints,
+} from 'lucide-react';
 import { useUiStore } from '../store/ui';
 
 export interface SidebarProps {
   projectId: string;
-  activePage: 'requirements' | 'dashboard' | 'ai';
+  activePage: 'requirements' | 'dashboard' | 'ai' | 'dictionaries';
   onOpenExport: () => void;
   onOpenTasks: () => void;
 }
@@ -107,6 +115,14 @@ export function Sidebar({
         onClick={() => navigate(`/p/${projectId}/dashboard`)}
       >
         <ChartColumn className="icon" aria-hidden="true" />
+      </NavBtn>
+      <NavBtn
+        label="Справочники"
+        testId="sidebar-nav-dictionaries"
+        active={activePage === 'dictionaries'}
+        onClick={() => navigate(`/p/${projectId}/dictionaries`)}
+      >
+        <BookMarked className="icon" aria-hidden="true" />
       </NavBtn>
       <NavBtn
         label="Настройка AI"

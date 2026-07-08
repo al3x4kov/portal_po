@@ -38,6 +38,8 @@ const MANIFEST = path.join('openspec', 'project.md');
 const SPECS_DIR = path.join('openspec', 'specs');
 const FOLDER = REQUIREMENT_FOLDER;
 const IMPORT_TMP = '.import-tmp';
+/** Per-project dictionaries file — travels with every archive so it survives export/import (todo_19). */
+const DICTIONARIES = 'dictionaries.json';
 
 /**
  * Repository for full-project archives (FR-3 / FR-10). Export streams a project
@@ -133,10 +135,23 @@ export class ArchiveRepo implements ArchivePort {
       /* no manifest — omit */
     }
 
+    // Carry the project dictionaries alongside a partial export (todo_19).
+    const dictAbs = path.join(projectDir, DICTIONARIES);
+    let hasDict = false;
+    try {
+      await fs.access(dictAbs);
+      hasDict = true;
+    } catch {
+      /* no dictionaries — omit */
+    }
+
     if (format === 'zip') {
       const zip = new AdmZip();
       if (hasManifest) {
         zip.addLocalFile(manifestAbs, path.dirname(MANIFEST));
+      }
+      if (hasDict) {
+        zip.addLocalFile(dictAbs, '');
       }
       for (const { rel, abs } of includePaths) {
         zip.addLocalFile(abs, path.dirname(rel));
@@ -159,6 +174,11 @@ export class ArchiveRepo implements ArchivePort {
         const dest = path.join(tmpDir, MANIFEST);
         await fs.mkdir(path.dirname(dest), { recursive: true });
         await fs.copyFile(manifestAbs, dest);
+      }
+      if (hasDict) {
+        const dest = path.join(tmpDir, DICTIONARIES);
+        await fs.mkdir(path.dirname(dest), { recursive: true });
+        await fs.copyFile(dictAbs, dest);
       }
       for (const { rel, abs } of includePaths) {
         const dest = path.join(tmpDir, rel);
@@ -206,6 +226,15 @@ export class ArchiveRepo implements ArchivePort {
       entries.push({ rel: MANIFEST.split(path.sep).join('/'), content: manifestRaw });
     } catch {
       /* no manifest — import synthesizes one */
+    }
+    // Include the project dictionaries verbatim so a reserialized (field-masked)
+    // archive stays entry-for-entry equal to the full copy and re-imports with
+    // its priorities/sources intact (todo_19).
+    try {
+      const dictRaw = await fs.readFile(path.join(projectDir, DICTIONARIES), 'utf8');
+      entries.push({ rel: DICTIONARIES, content: dictRaw });
+    } catch {
+      /* no dictionaries file — nothing to carry */
     }
 
     if (format === 'zip') {

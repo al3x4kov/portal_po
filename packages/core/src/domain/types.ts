@@ -30,6 +30,86 @@ export interface InfoItem {
 export const SOURCE_PRESETS = ['АС21', 'ПАО'] as const;
 export type ScenarioKeyword = (typeof SCENARIO_KEYWORDS)[number];
 
+// ---------------------------------------------------------------------------
+// todo_19 — multiple requirement sources, RICE scoring and project dictionaries
+// ---------------------------------------------------------------------------
+
+/** Kind of a requirement source (todo_19 §0.1). */
+export const SOURCE_TYPES = ['CLIENT', 'STAKEHOLDER', 'STANDARD', 'TEXT'] as const;
+export type SourceType = (typeof SOURCE_TYPES)[number];
+
+/** Base RICE selector scales (fixed by PO). */
+export const RICE_REACH = [1, 2, 3, 4, 5] as const;
+export const RICE_IMPACT = [0.25, 0.5, 1, 2, 3] as const;
+export const RICE_CONFIDENCE = [0.5, 0.8, 1] as const;
+export const RICE_EFFORT = [0.5, 1, 2, 3, 5, 8] as const;
+
+/** A single RICE estimate attached to one source. */
+export interface Rice {
+  reach: number;
+  impact: number;
+  confidence: number;
+  effort: number;
+}
+
+/** Fixed priority-color palette (keys map to project design tokens). */
+export const PRIORITY_COLORS = [
+  'red',
+  'amber',
+  'blue',
+  'green',
+  'purple',
+  'sky',
+  'gray',
+  'pink',
+] as const;
+export type PriorityColor = (typeof PRIORITY_COLORS)[number];
+
+/**
+ * One source attached to a requirement (0..N per requirement). `name` references
+ * the project source dictionary by name; `priorityId` references the project
+ * priority dictionary by id.
+ */
+export interface SourceEntry {
+  type: SourceType;
+  /** 1..100, trimmed. */
+  name: string;
+  /** Id of an entry in the project priority dictionary (never empty). */
+  priorityId: string;
+  /** Optional RICE estimate (see scoring/). */
+  rice?: Rice;
+  targetQuarter?: TargetQuarter;
+  /** Range 2020..2100. */
+  targetYear?: number;
+  /** ISO `yyyy-mm-dd`, optional. */
+  targetDate?: string;
+}
+
+/** A project source-priority dictionary entry. `order` = seniority (0 = highest). */
+export interface SourcePriority {
+  id: string;
+  /** 1..40, trimmed, unique (case-insensitive) within the project. */
+  name: string;
+  color: PriorityColor;
+  order: number;
+}
+
+/** A project source dictionary entry (collected manually and via auto-collect). */
+export interface SourceRef {
+  id: string;
+  /** 1..100, trimmed, unique (case-insensitive) within the project. */
+  name: string;
+  type: SourceType;
+  /** Optional display color token. */
+  color?: string;
+}
+
+/** The two per-project dictionaries persisted in `dictionaries.json`. */
+export interface ProjectDictionaries {
+  priorities: SourcePriority[];
+  sources: SourceRef[];
+}
+
 /** A typed, directed edge to another requirement (stored on both endpoints). */
 export interface Link {
   type: LinkType;
@@ -77,4 +157,8 @@ export interface Requirement {
   source?: string;
   /** Supplementary reference information as key-value pairs. */
   infoItems?: InfoItem[];
+  /** Multiple requirement sources (todo_19). Present only when non-empty. */
+  sources?: SourceEntry[];
+  /** PO release date, ISO `yyyy-mm-dd`. Cleared when implemented === true. */
+  releaseDate?: string;
 }

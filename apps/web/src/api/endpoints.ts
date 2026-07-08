@@ -9,11 +9,16 @@ import type {
   ExportOptionalField,
   GenerateDescriptionRequest,
   GenerateDescriptionResponse,
+  ProjectDictionaries,
   Requirement,
   RequirementType,
+  SourcePriority,
+  SourceRef,
 } from '@po/core';
 import { apiDownload, apiRequest } from './client';
 import type {
+  AddPriorityInput,
+  AddSourceInput,
   CheckNameResult,
   DeleteRequirementResult,
   LinkInput,
@@ -21,6 +26,8 @@ import type {
   RequirementCreateInput,
   RequirementListResult,
   RequirementUpdateInput,
+  UpdatePriorityInput,
+  UpdateSourceInput,
 } from './types';
 
 export type ArchiveFormat = 'zip' | 'targz';
@@ -195,6 +202,53 @@ export const aiImportApi = {
     apiRequest(`/ai-import/${encodeURIComponent(jobId)}`),
   cancel: (jobId: string): Promise<AiImportJobView> =>
     apiRequest(`/ai-import/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' }),
+};
+
+/**
+ * todo_19 (T-201): per-project dictionaries — the source-priority list and the
+ * auto-collected source list. All bodies/queries mirror the server Zod contract
+ * (`apps/server/routes/dictionaries.ts`). Delete of a used priority requires a
+ * `reassignTo` target, otherwise the server answers 409.
+ */
+export const dictionariesApi = {
+  get: (projectId: string): Promise<ProjectDictionaries> =>
+    apiRequest(`/projects/${encodeURIComponent(projectId)}/dictionaries`),
+  addPriority: (projectId: string, input: AddPriorityInput): Promise<SourcePriority> =>
+    apiRequest(`/projects/${encodeURIComponent(projectId)}/dictionaries/priorities`, {
+      method: 'POST',
+      body: input,
+    }),
+  updatePriority: (
+    projectId: string,
+    pid: string,
+    input: UpdatePriorityInput,
+  ): Promise<SourcePriority> =>
+    apiRequest(
+      `/projects/${encodeURIComponent(projectId)}/dictionaries/priorities/${encodeURIComponent(pid)}`,
+      { method: 'PUT', body: input },
+    ),
+  deletePriority: (projectId: string, pid: string, reassignTo?: string): Promise<null> =>
+    apiRequest(
+      `/projects/${encodeURIComponent(projectId)}/dictionaries/priorities/${encodeURIComponent(pid)}${
+        reassignTo ? `?reassignTo=${encodeURIComponent(reassignTo)}` : ''
+      }`,
+      { method: 'DELETE' },
+    ),
+  addSource: (projectId: string, input: AddSourceInput): Promise<SourceRef> =>
+    apiRequest(`/projects/${encodeURIComponent(projectId)}/dictionaries/sources`, {
+      method: 'POST',
+      body: input,
+    }),
+  updateSource: (projectId: string, sid: string, input: UpdateSourceInput): Promise<SourceRef> =>
+    apiRequest(
+      `/projects/${encodeURIComponent(projectId)}/dictionaries/sources/${encodeURIComponent(sid)}`,
+      { method: 'PUT', body: input },
+    ),
+  deleteSource: (projectId: string, sid: string): Promise<null> =>
+    apiRequest(
+      `/projects/${encodeURIComponent(projectId)}/dictionaries/sources/${encodeURIComponent(sid)}`,
+      { method: 'DELETE' },
+    ),
 };
 
 export const linksApi = {

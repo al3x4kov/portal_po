@@ -3,13 +3,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   CRITICALITIES,
-  SOURCE_PRESETS,
   TARGET_QUARTERS,
   type InfoItem,
   type Link,
   type LinkType,
   type Requirement,
   type RequirementType,
+  type TargetQuarter,
 } from '@po/core';
 import { Link2, TriangleAlert } from 'lucide-react';
 import { requirementFormSchema, type RequirementFormValues } from '../lib/requirementForm';
@@ -17,16 +17,19 @@ import {
   useCreateLink,
   useCreateRequirement,
   useDeleteLink,
+  useDictionaries,
   useUpdateRequirement,
 } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import { CRITICALITY_COLOR_VAR, CRITICALITY_LABEL } from '../lib/criticality';
+import { draftsToSources, toDraft, type SourceDraft } from '../lib/sourceDraft';
 import { useNameCheck } from '../hooks/useNameCheck';
 import { Modal } from './Modal';
 import { BusyButton } from './BusyButton';
 import { LinkList } from './LinkList';
 import { ConfirmDialog } from './ConfirmDialog';
 import { AiGenerationPanel } from './AiGenerationPanel';
+import { PriorityTab } from './PriorityTab';
 
 interface RequirementModalProps {
   projectId: string;
@@ -55,7 +58,7 @@ interface RequirementModalProps {
 const FORM_ID = 'requirement-form';
 const MAX_DESCRIPTION = 5000;
 
-type Tab = 'desc' | 'links' | 'info';
+type Tab = 'main' | 'priority' | 'desc' | 'links' | 'info';
 
 function takenMessage(type: RequirementType): string {
   return type === 'FUNCTION'
@@ -95,10 +98,19 @@ export function RequirementModal({
   // §2.10-2 (уровень 0): сохранение — рутинное действие, confirm остаётся
   // только у отмены с несохранёнными изменениями (потеря данных необратима).
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>('desc');
+  // ФТ-E3: модалка на вкладках. «Основное» — первая/дефолтная; при focusField
+  // (быстрый переход к описанию из дерева/дашборда) открываем сразу «Описание».
+  const [activeTab, setActiveTab] = useState<Tab>(focusField === 'description' ? 'desc' : 'main');
 
   // FR-20: infoItems managed as local state (not part of RHF, appended to payload)
   const [infoItems, setInfoItems] = useState<InfoItem[]>(requirement?.infoItems ?? []);
+  // todo_19 (T-205/206): sources[] + releaseDate managed as local state (like
+  // infoItems) and merged into the payload on save. Dictionaries drive the tab.
+  const dictionariesQuery = useDictionaries(projectId);
+  const [sourceDrafts, setSourceDrafts] = useState<SourceDraft[]>(
+    () => requirement?.sources?.map(toDraft) ?? [],
+  );
+  const [releaseDate, setReleaseDate] = useState<string>(requirement?.releaseDate ?? '');
   const [showInfoForm, setShowInfoForm] = useState(false);
   const [infoType, setInfoType] = useState('');
   const [infoValue, setInfoValue] = useState('');
@@ -155,7 +167,6 @@ export function RequirementModal({
       implemented: requirement?.implemented ?? (noDefaultCriticality ? undefined : false),
       targetQuarter: requirement?.targetQuarter,
       targetYear: requirement?.targetYear,
-      source: requirement?.source ?? '',
     },
   });
 
@@ -163,7 +174,6 @@ export function RequirementModal({
   const implemented = watch('implemented');
   const criticality = watch('criticality');
   const description = watch('description') ?? '';
-  const sourceValue = watch('source') ?? '';
   const targetYear = watch('targetYear');
   const targetQuarter = watch('targetQuarter');
 
@@ -176,13 +186,6 @@ export function RequirementModal({
       targetQuarter,
       new Date(),
     );
-
-  // «Источник» — select с пресетами и пунктом «Другой…» (§2.10): свободный ввод
-  // остаётся доступен, но не в виде «пустого» поля-даталиста.
-  const [customSource, setCustomSource] = useState<boolean>(() => {
-    const initial = requirement?.source ?? '';
-    return initial !== '' && !(SOURCE_PRESETS as readonly string[]).includes(initial);
-  });
 
   // Clear conditional fields when the requirement becomes implemented.
   useEffect(() => {
@@ -210,17 +213,23 @@ export function RequirementModal({
       ? `Заполните: ${missingFields.join(', ')}`
       : null;
 
-  const buildPayload = (values: RequirementFormValues) => ({
-    name: values.name.trim(),
-    criticality: values.criticality,
-    description:
-      values.description && values.description.length > 0 ? values.description : undefined,
-    implemented: values.implemented,
-    targetQuarter: values.implemented ? undefined : values.targetQuarter,
-    targetYear: values.implemented ? undefined : values.targetYear,
-    source: values.source && values.source.trim().length > 0 ? values.source.trim() : undefined,
-    infoItems: infoItems.length > 0 ? infoItems : undefined,
-  });
+  const buildPayload = (values: RequirementFormValues) => {
+    const sources = draftsToSources(sourceDrafts);
+    return {
+      name: values.name.trim(),
+      criticality: values.criticality,
+      description:
+        values.description && values.description.length > 0 ? values.description : undefined,
+      implemented: values.implemented,
+      targetQuarter: values.implemented ? undefined : values.targetQuarter,
+      targetYear: values.implemented ? undefined : values.targetYear,
+      infoItems: infoItems.length > 0 ? infoItems : undefined,
+      // todo_19: present only when non-empty (like scenarios); releaseDate is
+      // cleared when the requirement is implemented (mirrors targetQuarter/Year).
+      sources: sources.length > 0 ? sources : undefined,
+      releaseDate: values.implemented || releaseDate.length === 0 ? undefined : releaseDate,
+    };
+  };
 
   // Уровень 0: без confirm — успех подтверждает toast («Сохранено» из useUpdateRequirement).
   const doSave = async (values: RequirementFormValues): Promise<void> => {
@@ -411,274 +420,18 @@ export function RequirementModal({
           </div>
         ) : null}
 
-        {/* ── Постоянная зона «Основное» (§2.10) ─────────────────────────────── */}
-        <section aria-labelledby="req-main-h">
-          <h3 id="req-main-h" className="mb-3 text-sm font-semibold">
-            Основное
-          </h3>
-          <div className="space-y-4">
-            <div>
-              <label className="label" htmlFor="req-name-input">
-                Имя требования <span style={{ color: 'var(--color-danger)' }}>*</span>
-              </label>
-              <input
-                id="req-name-input"
-                className="input"
-                data-testid="req-name"
-                autoFocus
-                {...register('name')}
-              />
-              {nameStatus}
-            </div>
-
-            {/* Критичность: 5 равных сегментов в один ряд, цвета --crit-* (§2.10) */}
-            <div>
-              <span className="label" id="req-crit-label">
-                Критичность <span style={{ color: 'var(--color-danger)' }}>*</span>
-              </span>
-              <div
-                className="grid grid-cols-5 overflow-hidden rounded-sm border"
-                style={{ borderColor: 'var(--color-border)' }}
-                role="radiogroup"
-                aria-labelledby="req-crit-label"
-                data-testid="req-criticality"
-              >
-                {CRITICALITIES.map((c, i) => {
-                  const on = criticality === c;
-                  return (
-                    <label
-                      key={c}
-                      className="flex cursor-pointer items-center justify-center gap-1.5 px-1 py-2.5 text-xs font-semibold"
-                      data-testid={`req-criticality-${c.toLowerCase()}`}
-                      style={{
-                        borderLeft: i === 0 ? 'none' : '1px solid var(--color-border)',
-                        ...(on
-                          ? {
-                              background: `color-mix(in srgb, ${CRITICALITY_COLOR_VAR[c]} 14%, transparent)`,
-                              boxShadow: `inset 0 0 0 1px ${CRITICALITY_COLOR_VAR[c]}`,
-                              color: 'var(--color-text)',
-                            }
-                          : { color: 'var(--color-text-2)' }),
-                      }}
-                    >
-                      <input
-                        type="radio"
-                        value={c}
-                        className="sr-only"
-                        {...register('criticality')}
-                      />
-                      <span
-                        className="inline-block h-2 w-2 flex-none rounded-full"
-                        style={{ background: CRITICALITY_COLOR_VAR[c] }}
-                        aria-hidden="true"
-                      />
-                      {CRITICALITY_LABEL[c]}
-                    </label>
-                  );
-                })}
-              </div>
-              {errors.criticality ? (
-                <p
-                  className="mt-1.5 text-xs"
-                  style={{ color: 'var(--color-danger)' }}
-                  data-testid="req-criticality-error"
-                >
-                  Выберите уровень критичности
-                </p>
-              ) : null}
-            </div>
-
-            {/* Статус реализации + условные Квартал/Год */}
-            <div>
-              <span className="label">
-                Статус реализации <span style={{ color: 'var(--color-danger)' }}>*</span>
-              </span>
-              <div className="grid grid-cols-2 gap-2" data-testid="req-implemented">
-                <button
-                  type="button"
-                  className="flex items-center justify-center gap-2 rounded-sm border px-3 py-2.5 text-sm font-semibold"
-                  style={
-                    implemented
-                      ? {
-                          borderColor: 'var(--color-primary)',
-                          background: 'var(--color-primary-soft)',
-                          color: 'var(--color-primary)',
-                        }
-                      : { borderColor: 'var(--color-border)' }
-                  }
-                  aria-pressed={implemented}
-                  data-testid="req-implemented-yes"
-                  onClick={() =>
-                    setValue('implemented', true, { shouldDirty: true, shouldValidate: true })
-                  }
-                >
-                  Реализовано
-                </button>
-                <button
-                  type="button"
-                  className="flex items-center justify-center gap-2 rounded-sm border px-3 py-2.5 text-sm font-semibold"
-                  style={
-                    implemented === false
-                      ? {
-                          borderColor: 'var(--color-primary)',
-                          background: 'var(--color-primary-soft)',
-                          color: 'var(--color-primary)',
-                        }
-                      : { borderColor: 'var(--color-border)' }
-                  }
-                  aria-pressed={implemented === false}
-                  data-testid="req-implemented-no"
-                  onClick={() =>
-                    setValue('implemented', false, { shouldDirty: true, shouldValidate: true })
-                  }
-                >
-                  Не реализовано
-                </button>
-              </div>
-
-              {errors.implemented ? (
-                <p
-                  className="mt-1.5 text-xs"
-                  style={{ color: 'var(--color-danger)' }}
-                  data-testid="req-implemented-error"
-                >
-                  Выберите статус реализации
-                </p>
-              ) : null}
-
-              {implemented === false ? (
-                <div
-                  className="mt-3 grid gap-4 rounded-lg p-4 sm:grid-cols-2"
-                  style={{ background: 'var(--color-surface-2)' }}
-                  data-testid="req-target"
-                >
-                  <div>
-                    <label className="label" htmlFor="req-quarter">
-                      Квартал <span style={{ color: 'var(--color-danger)' }}>*</span>
-                    </label>
-                    <select
-                      id="req-quarter"
-                      className="input"
-                      data-testid="req-quarter"
-                      {...register('targetQuarter', {
-                        setValueAs: (v) => (v === '' || v == null ? undefined : v),
-                      })}
-                    >
-                      <option value="">—</option>
-                      {TARGET_QUARTERS.map((q) => (
-                        <option key={q} value={q}>
-                          {q}
-                        </option>
-                      ))}
-                    </select>
-                    {errors.targetQuarter ? (
-                      <p
-                        className="mt-1.5 text-xs"
-                        style={{ color: 'var(--color-danger)' }}
-                        data-testid="req-quarter-error"
-                      >
-                        {errors.targetQuarter.message}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div>
-                    <label className="label" htmlFor="req-year">
-                      Год <span style={{ color: 'var(--color-danger)' }}>*</span>
-                    </label>
-                    <input
-                      id="req-year"
-                      type="number"
-                      min={2020}
-                      max={2100}
-                      className="input"
-                      data-testid="req-year"
-                      {...register('targetYear', {
-                        setValueAs: (v) => (v === '' || v == null ? undefined : Number(v)),
-                      })}
-                    />
-                    {errors.targetYear ? (
-                      <p
-                        className="mt-1.5 text-xs"
-                        style={{ color: 'var(--color-danger)' }}
-                        data-testid="req-year-error"
-                      >
-                        {errors.targetYear.message}
-                      </p>
-                    ) : null}
-                  </div>
-                  <p className="hint sm:col-span-2">
-                    Квартал и год обязательны, пока требование не реализовано
-                  </p>
-                  {targetInPast ? (
-                    <p
-                      className="flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs font-medium sm:col-span-2"
-                      style={{
-                        background: 'var(--color-warning-bg)',
-                        color: 'var(--color-warning-fg)',
-                      }}
-                      role="status"
-                      data-testid="req-target-past-warning"
-                    >
-                      <TriangleAlert className="icon-sm flex-none" aria-hidden="true" />
-                      Плановый срок в прошлом
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-
-            {/* Источник: select с пресетами + «Другой…» (§2.10, FR-19) */}
-            <div>
-              <label className="label" htmlFor="req-source">
-                Источник требования
-              </label>
-              <select
-                id="req-source"
-                className="input"
-                data-testid="req-source"
-                value={customSource ? '__custom__' : sourceValue}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === '__custom__') {
-                    setCustomSource(true);
-                    setValue('source', '', { shouldDirty: true });
-                  } else {
-                    setCustomSource(false);
-                    setValue('source', v, { shouldDirty: true });
-                  }
-                }}
-              >
-                <option value="">Не задан</option>
-                {SOURCE_PRESETS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-                <option value="__custom__">Другой…</option>
-              </select>
-              {customSource ? (
-                <input
-                  className="input mt-2"
-                  placeholder="Свой источник…"
-                  aria-label="Свой источник требования"
-                  data-testid="req-source-custom"
-                  value={sourceValue}
-                  onChange={(e) => setValue('source', e.target.value, { shouldDirty: true })}
-                />
-              ) : null}
-            </div>
-          </div>
-        </section>
-
-        {/* ── Табы: Описание | Связи | Справочно (§2.10) ─────────────────────── */}
+        {/* ── Табы: Основное | Приоритизация | Описание и сценарии | Связи | Справочно
+             (ФТ-E3, §2.10) ─────────────────────────────────────────────────── */}
         <section>
           <div
             role="tablist"
             aria-label="Разделы требования"
-            className="inline-flex gap-1 rounded-lg p-1"
+            className="flex flex-wrap gap-1 rounded-lg p-1"
             style={{ background: 'var(--color-surface-2)' }}
           >
-            {tabButton('desc', 'Описание')}
+            {tabButton('main', 'Основное')}
+            {tabButton('priority', 'Приоритизация')}
+            {tabButton('desc', 'Описание и сценарии')}
             {isEdit
               ? tabButton(
                   'links',
@@ -698,7 +451,274 @@ export function RequirementModal({
             )}
           </div>
 
-          {/* ── Таб «Описание» ─────────────────────────────────────────────── */}
+          {/* ── Таб «Основное» ─────────────────────────────────────────────── */}
+          <div
+            role="tabpanel"
+            id="req-tabpanel-main"
+            aria-labelledby="req-tab-main"
+            hidden={activeTab !== 'main'}
+            className="mt-4"
+          >
+            <div className="space-y-4">
+              <div>
+                <label className="label" htmlFor="req-name-input">
+                  Имя требования <span style={{ color: 'var(--color-danger)' }}>*</span>
+                </label>
+                <input
+                  id="req-name-input"
+                  className="input"
+                  data-testid="req-name"
+                  autoFocus
+                  {...register('name')}
+                />
+                {nameStatus}
+              </div>
+
+              {/* Критичность: 5 равных сегментов в один ряд, цвета --crit-* (§2.10) */}
+              <div>
+                <span className="label" id="req-crit-label">
+                  Критичность <span style={{ color: 'var(--color-danger)' }}>*</span>
+                </span>
+                <div
+                  className="grid grid-cols-5 overflow-hidden rounded-sm border"
+                  style={{ borderColor: 'var(--color-border)' }}
+                  role="radiogroup"
+                  aria-labelledby="req-crit-label"
+                  data-testid="req-criticality"
+                >
+                  {CRITICALITIES.map((c, i) => {
+                    const on = criticality === c;
+                    return (
+                      <label
+                        key={c}
+                        className="flex cursor-pointer items-center justify-center gap-1.5 px-1 py-2.5 text-xs font-semibold"
+                        data-testid={`req-criticality-${c.toLowerCase()}`}
+                        style={{
+                          borderLeft: i === 0 ? 'none' : '1px solid var(--color-border)',
+                          ...(on
+                            ? {
+                                background: `color-mix(in srgb, ${CRITICALITY_COLOR_VAR[c]} 14%, transparent)`,
+                                boxShadow: `inset 0 0 0 1px ${CRITICALITY_COLOR_VAR[c]}`,
+                                color: 'var(--color-text)',
+                              }
+                            : { color: 'var(--color-text-2)' }),
+                        }}
+                      >
+                        <input
+                          type="radio"
+                          value={c}
+                          className="sr-only"
+                          {...register('criticality')}
+                        />
+                        <span
+                          className="inline-block h-2 w-2 flex-none rounded-full"
+                          style={{ background: CRITICALITY_COLOR_VAR[c] }}
+                          aria-hidden="true"
+                        />
+                        {CRITICALITY_LABEL[c]}
+                      </label>
+                    );
+                  })}
+                </div>
+                {errors.criticality ? (
+                  <p
+                    className="mt-1.5 text-xs"
+                    style={{ color: 'var(--color-danger)' }}
+                    data-testid="req-criticality-error"
+                  >
+                    Выберите уровень критичности
+                  </p>
+                ) : null}
+              </div>
+
+              {/* Статус реализации + условные Квартал/Год */}
+              <div>
+                <span className="label">
+                  Статус реализации <span style={{ color: 'var(--color-danger)' }}>*</span>
+                </span>
+                <div className="grid grid-cols-2 gap-2" data-testid="req-implemented">
+                  <button
+                    type="button"
+                    className="flex items-center justify-center gap-2 rounded-sm border px-3 py-2.5 text-sm font-semibold"
+                    style={
+                      implemented
+                        ? {
+                            borderColor: 'var(--color-primary)',
+                            background: 'var(--color-primary-soft)',
+                            color: 'var(--color-primary)',
+                          }
+                        : { borderColor: 'var(--color-border)' }
+                    }
+                    aria-pressed={implemented}
+                    data-testid="req-implemented-yes"
+                    onClick={() =>
+                      setValue('implemented', true, { shouldDirty: true, shouldValidate: true })
+                    }
+                  >
+                    Реализовано
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center justify-center gap-2 rounded-sm border px-3 py-2.5 text-sm font-semibold"
+                    style={
+                      implemented === false
+                        ? {
+                            borderColor: 'var(--color-primary)',
+                            background: 'var(--color-primary-soft)',
+                            color: 'var(--color-primary)',
+                          }
+                        : { borderColor: 'var(--color-border)' }
+                    }
+                    aria-pressed={implemented === false}
+                    data-testid="req-implemented-no"
+                    onClick={() =>
+                      setValue('implemented', false, { shouldDirty: true, shouldValidate: true })
+                    }
+                  >
+                    Не реализовано
+                  </button>
+                </div>
+
+                {errors.implemented ? (
+                  <p
+                    className="mt-1.5 text-xs"
+                    style={{ color: 'var(--color-danger)' }}
+                    data-testid="req-implemented-error"
+                  >
+                    Выберите статус реализации
+                  </p>
+                ) : null}
+
+                {implemented === false ? (
+                  <div
+                    className="mt-3 grid gap-4 rounded-lg p-4 sm:grid-cols-2"
+                    style={{ background: 'var(--color-surface-2)' }}
+                    data-testid="req-target"
+                  >
+                    <div>
+                      <label className="label" htmlFor="req-quarter">
+                        Квартал <span style={{ color: 'var(--color-danger)' }}>*</span>
+                      </label>
+                      <select
+                        id="req-quarter"
+                        className="input"
+                        data-testid="req-quarter"
+                        {...register('targetQuarter', {
+                          setValueAs: (v) => (v === '' || v == null ? undefined : v),
+                        })}
+                      >
+                        <option value="">—</option>
+                        {TARGET_QUARTERS.map((q) => (
+                          <option key={q} value={q}>
+                            {q}
+                          </option>
+                        ))}
+                      </select>
+                      {errors.targetQuarter ? (
+                        <p
+                          className="mt-1.5 text-xs"
+                          style={{ color: 'var(--color-danger)' }}
+                          data-testid="req-quarter-error"
+                        >
+                          {errors.targetQuarter.message}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div>
+                      <label className="label" htmlFor="req-year">
+                        Год <span style={{ color: 'var(--color-danger)' }}>*</span>
+                      </label>
+                      <input
+                        id="req-year"
+                        type="number"
+                        min={2020}
+                        max={2100}
+                        className="input"
+                        data-testid="req-year"
+                        {...register('targetYear', {
+                          setValueAs: (v) => (v === '' || v == null ? undefined : Number(v)),
+                        })}
+                      />
+                      {errors.targetYear ? (
+                        <p
+                          className="mt-1.5 text-xs"
+                          style={{ color: 'var(--color-danger)' }}
+                          data-testid="req-year-error"
+                        >
+                          {errors.targetYear.message}
+                        </p>
+                      ) : null}
+                    </div>
+                    <p className="hint sm:col-span-2">
+                      Квартал и год обязательны, пока требование не реализовано
+                    </p>
+                    {targetInPast ? (
+                      <p
+                        className="flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs font-medium sm:col-span-2"
+                        style={{
+                          background: 'var(--color-warning-bg)',
+                          color: 'var(--color-warning-fg)',
+                        }}
+                        role="status"
+                        data-testid="req-target-past-warning"
+                      >
+                        <TriangleAlert className="icon-sm flex-none" aria-hidden="true" />
+                        Плановый срок в прошлом
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
+              {/* todo_19: источник требования управляется на вкладке
+                  «Приоритизация» (карточки sources[]); легаси-поле удалено. */}
+            </div>
+          </div>
+
+          {/* ── Таб «Приоритизация» (T-205/T-206): источники, приоритеты, RICE,
+               агрегат и «Решение PO». Наполняется из справочников проекта. ── */}
+          <div
+            role="tabpanel"
+            id="req-tabpanel-priority"
+            aria-labelledby="req-tab-priority"
+            hidden={activeTab !== 'priority'}
+            className="mt-4"
+          >
+            {dictionariesQuery.isLoading ? (
+              <p className="hint" data-testid="req-priority-loading">
+                Загрузка справочников…
+              </p>
+            ) : dictionariesQuery.isError ? (
+              <p
+                className="rounded-md p-3 text-sm"
+                role="alert"
+                style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
+                data-testid="req-priority-error"
+              >
+                {errorMessage(dictionariesQuery.error)}
+              </p>
+            ) : dictionariesQuery.data ? (
+              <PriorityTab
+                projectId={projectId}
+                dictionaries={dictionariesQuery.data}
+                drafts={sourceDrafts}
+                onChange={setSourceDrafts}
+                implemented={implemented}
+                targetQuarter={targetQuarter}
+                targetYear={typeof targetYear === 'number' ? targetYear : undefined}
+                onTargetQuarter={(q: TargetQuarter | undefined) =>
+                  setValue('targetQuarter', q, { shouldDirty: true, shouldValidate: true })
+                }
+                onTargetYear={(y: number | undefined) =>
+                  setValue('targetYear', y, { shouldDirty: true, shouldValidate: true })
+                }
+                releaseDate={releaseDate}
+                onReleaseDate={setReleaseDate}
+              />
+            ) : null}
+          </div>
+
+          {/* ── Таб «Описание и сценарии» ──────────────────────────────────── */}
           <div
             role="tabpanel"
             id="req-tabpanel-desc"

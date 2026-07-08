@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>todo_19 — предложения по замечаниям с демо</title>
+<style>
+/* ===== Дизайн-токены проекта (docs/design/tokens.css) ===== */
+:root {
+  --color-primary:#4f46e5; --color-primary-hover:#4338ca; --color-primary-soft:#eef2ff; --color-accent:#0ea5e9;
+  --color-bg:#f8fafc; --color-surface:#ffffff; --color-surface-2:#f1f5f9; --color-border:#e2e8f0;
+  --color-text:#0f172a; --color-text-2:#475569; --color-text-3:#5b6675;
+  --color-success:#16a34a; --color-success-bg:#dcfce7; --color-warning:#d97706; --color-warning-bg:#fef3c7;
+  --color-danger:#dc2626; --color-danger-bg:#fee2e2; --color-info:#0284c7; --color-info-bg:#e0f2fe;
+  --color-success-fg:#166534; --color-warning-fg:#92400e; --color-danger-fg:#b91c1c; --color-info-fg:#075985;
+  --crit-low:#16a34a; --crit-medium:#d97706; --crit-high:#ea580c; --crit-critical:#dc2626; --crit-blocker:#a21caf;
+  --font-sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Inter,Arial,sans-serif;
+  --font-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --radius-sm:6px; --radius:10px; --radius-lg:16px;
+  --shadow-sm:0 1px 2px rgba(15,23,42,.06); --shadow:0 4px 12px rgba(15,23,42,.08); --shadow-lg:0 12px 32px rgba(15,23,42,.16);
+}
+html.dark {
+  --color-primary:#818cf8; --color-primary-hover:#a5b4fc; --color-primary-soft:#1e1b4b; --color-accent:#38bdf8;
+  --color-bg:#0b1120; --color-surface:#111827; --color-surface-2:#1e293b; --color-border:#334155;
+  --color-text:#f1f5f9; --color-text-2:#cbd5e1; --color-text-3:#94a3b8;
+  --color-success-bg:#052e16; --color-warning-bg:#451a03; --color-danger-bg:#450a0a; --color-info-bg:#082f49;
+  --color-success-fg:#4ade80; --color-warning-fg:#fbbf24; --color-danger-fg:#fca5a5; --color-info-fg:#7dd3fc;
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--color-bg); color:var(--color-text); font-family:var(--font-sans); font-size:15px; line-height:1.55; }
+.mono { font-family:var(--font-mono); }
+.t2 { color:var(--color-text-2); } .t3 { color:var(--color-text-3); }
+.card { background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius); box-shadow:var(--shadow-sm); }
+.badge { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
+.input, select.input { width:100%; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-sm); padding:9px 12px; font-size:14px; color:var(--color-text); }
+.input:focus { outline:2px solid var(--color-primary); outline-offset:1px; border-color:var(--color-primary); }
+.label { display:block; font-size:13px; font-weight:600; margin-bottom:6px; color:var(--color-text-2); }
+.btn { display:inline-flex; align-items:center; gap:8px; border-radius:var(--radius-sm); font-weight:600; padding:9px 16px; font-size:14px; cursor:pointer; border:1px solid transparent; }
+.btn-primary { background:var(--color-primary); color:#fff; }
+.btn-secondary { background:var(--color-surface); color:var(--color-text); border-color:var(--color-border); }
+
+/* ===== Каркас страницы ===== */
+.wrap { max-width:1080px; margin:0 auto; padding:32px 24px 96px; }
+.pagehead { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:8px; }
+h1 { font-size:26px; margin:0 0 6px; letter-spacing:-.01em; }
+h2 { font-size:20px; margin:0; letter-spacing:-.01em; }
+h3 { font-size:15px; margin:0 0 10px; }
+section.block { margin-top:36px; }
+.sec-head { display:flex; align-items:center; gap:12px; margin-bottom:6px; }
+.sec-num { width:30px; height:30px; border-radius:999px; background:var(--color-primary); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; flex:none; }
+.quote { border-left:3px solid var(--color-border); padding:2px 14px; color:var(--color-text-3); font-style:italic; margin:8px 0 16px; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media (max-width:860px){ .grid2 { grid-template-columns:1fr; } }
+.panel { padding:18px 20px; }
+.panel h3 { display:flex; align-items:center; gap:8px; }
+.hint { font-size:12.5px; color:var(--color-text-3); margin-top:4px; }
+.toc { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 4px; }
+.toc a { text-decoration:none; }
+.pill { display:inline-flex; gap:6px; align-items:center; padding:6px 12px; border-radius:999px; border:1px solid var(--color-border); background:var(--color-surface); font-size:13px; font-weight:600; color:var(--color-text-2); }
+.pill:hover { border-color:var(--color-primary); color:var(--color-primary); }
+.tag { font-size:11px; font-weight:700; border-radius:5px; padding:2px 7px; letter-spacing:.02em; }
+.tag-new { background:var(--color-primary-soft); color:var(--color-primary); }
+.tag-fix { background:var(--color-info-bg); color:var(--color-info-fg); }
+
+/* ===== Мок: модалка ===== */
+.mock-modal { border-radius:var(--radius-lg); box-shadow:var(--shadow-lg); overflow:hidden; }
+.mock-modal-head { padding:14px 20px; border-bottom:1px solid var(--color-border); display:flex; justify-content:space-between; align-items:center; background:var(--color-surface); }
+.mock-tabs { display:flex; gap:2px; padding:10px 20px 0; border-bottom:1px solid var(--color-border); background:var(--color-surface); }
+.mock-tab { padding:8px 14px; font-size:13.5px; font-weight:600; color:var(--color-text-3); border-radius:8px 8px 0 0; border:1px solid transparent; }
+.mock-tab.active { color:var(--color-primary); border-color:var(--color-border); border-bottom-color:var(--color-surface); background:var(--color-surface); margin-bottom:-1px; }
+.mock-modal-body { padding:20px; background:var(--color-surface); }
+.fieldrow { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.score-line { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:16px; padding:12px 16px; border-radius:var(--radius); background:var(--color-primary-soft); border:1px solid var(--color-primary); }
+.score-value { font-size:24px; font-weight:800; font-family:var(--font-mono); color:var(--color-primary); }
+.src-card { border:1px solid var(--color-border); border-radius:var(--radius); padding:14px 16px; margin-bottom:12px; background:var(--color-surface); }
+.src-card-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.src-card-title { font-size:13.5px; font-weight:700; color:var(--color-text-2); }
+.src-remove { border:none; background:none; color:var(--color-text-3); cursor:pointer; font-size:14px; padding:4px 8px; border-radius:6px; }
+.src-remove:hover { background:var(--color-danger-bg); color:var(--color-danger-fg); }
+.src-score { margin-top:12px; padding-top:10px; border-top:1px dashed var(--color-border); font-size:13.5px; color:var(--color-text-2); display:flex; align-items:center; gap:8px; justify-content:flex-end; }
+.po-decision { border:1px solid var(--color-border); border-left:3px solid var(--color-primary); border-radius:var(--radius); padding:14px 16px; background:var(--color-surface); }
+.po-wishes { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.wish { font-size:12.5px; font-weight:600; color:var(--color-text-2); background:var(--color-surface-2); border-radius:999px; padding:4px 12px; }
+
+/* combobox поиска источника */
+.combo { position:relative; }
+.combo-input { display:flex; align-items:center; gap:8px; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-sm); padding:0 10px; }
+.combo-input.open { border-color:var(--color-primary); outline:2px solid var(--color-primary); outline-offset:0; }
+.combo-input svg { flex:none; color:var(--color-text-3); }
+.combo-input input { border:none; outline:none; background:none; padding:9px 0; font-size:14px; color:var(--color-text); width:100%; }
+.combo-menu { position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:5; background:var(--color-surface); border:1px solid var(--color-border); border-radius:var(--radius-sm); box-shadow:var(--shadow); overflow:hidden; }
+.combo-opt { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 12px; font-size:13.5px; cursor:pointer; }
+.combo-opt:hover, .combo-opt.active { background:var(--color-primary-soft); }
+.combo-opt .type { font-size:11.5px; color:var(--color-text-3); }
+.combo-opt b { color:var(--color-primary); }
+.combo-create { display:flex; align-items:center; gap:8px; padding:9px 12px; font-size:13px; font-weight:600; color:var(--color-primary); border-top:1px solid var(--color-border); cursor:pointer; }
+.combo-create:hover { background:var(--color-primary-soft); }
+
+/* приоритет как цветной бейдж с названием (без кодов) */
+.prio { display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:700; padding:2px 9px; border-radius:6px; white-space:nowrap; }
+.prio::before { content:""; width:7px; height:7px; border-radius:999px; background:currentColor; opacity:.9; }
+.prio-0 { background:var(--color-danger-bg); color:var(--color-danger-fg); }
+.prio-1 { background:var(--color-warning-bg); color:var(--color-warning-fg); }
+.prio-2 { background:var(--color-info-bg); color:var(--color-info-fg); }
+.prio-3 { background:var(--color-surface-2); color:var(--color-text-3); }
+
+/* инлайн-добавление приоритета (название + цвет) */
+.inline-add { margin-top:8px; border:1px dashed var(--color-primary); border-radius:var(--radius-sm); padding:10px 12px; background:var(--color-primary-soft); }
+.inline-add-title { font-size:12.5px; font-weight:700; color:var(--color-primary); margin-bottom:8px; }
+.swatches { display:flex; gap:6px; }
+.sw { width:20px; height:20px; border-radius:6px; cursor:pointer; border:2px solid transparent; }
+.sw.sel { border-color:var(--color-text); box-shadow:0 0 0 2px var(--color-surface) inset; }
+
+/* бледная валидация даты (не блокирует) */
+.input.warn { border-color:var(--color-warning); background:var(--color-warning-bg); }
+.warn-note { font-size:12px; color:var(--color-warning-fg); margin-top:4px; display:flex; align-items:center; gap:6px; }
+
+/* экран Справочники */
+.dict-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media (max-width:860px){ .dict-grid { grid-template-columns:1fr; } }
+.dict-card { border:1px solid var(--color-border); border-radius:var(--radius); overflow:hidden; background:var(--color-surface); }
+.dict-head { padding:12px 16px; border-bottom:1px solid var(--color-border); background:var(--color-surface-2); display:flex; justify-content:space-between; align-items:center; }
+.dict-head strong { font-size:14px; }
+.dict-row { display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid var(--color-border); font-size:13.5px; }
+.dict-row:last-child { border-bottom:none; }
+.drag { color:var(--color-text-3); cursor:grab; font-size:14px; }
+.dict-color { width:16px; height:16px; border-radius:5px; flex:none; }
+.dict-name { flex:1; font-weight:600; }
+.dict-actions { display:inline-flex; gap:4px; }
+.dict-actions button { border:none; background:none; color:var(--color-text-3); cursor:pointer; padding:3px 6px; border-radius:5px; }
+.dict-actions button:hover { background:var(--color-surface-2); color:var(--color-primary); }
+.dict-add { padding:10px 16px; font-size:13px; font-weight:600; color:var(--color-primary); cursor:pointer; }
+.dict-add:hover { background:var(--color-primary-soft); }
+.dict-default { font-size:11px; font-weight:700; color:var(--color-success); background:var(--color-success-bg); padding:1px 7px; border-radius:5px; }
+
+/* двухуровневая ячейка срока */
+.term { line-height:1.3; }
+.term .plan { font-weight:600; color:var(--color-text); }
+.term .release { display:block; font-size:11.5px; color:var(--color-text-3); margin-top:1px; }
+.term .done { color:var(--color-success); font-weight:600; }
+
+/* ===== Мок: таблица дерева ===== */
+table.tree { width:100%; border-collapse:collapse; font-size:13.5px; }
+table.tree th { text-align:left; font-size:12px; text-transform:none; color:var(--color-text-3); font-weight:600; padding:8px 10px; border-bottom:1px solid var(--color-border); background:var(--color-surface-2); white-space:nowrap; }
+table.tree td { padding:9px 10px; border-bottom:1px solid var(--color-border); vertical-align:middle; white-space:nowrap; }
+table.tree tr:last-child td { border-bottom:none; }
+.crit { font-size:11.5px; font-weight:700; padding:2px 9px; border-radius:999px; color:#fff; }
+.rice-cell { font-family:var(--font-mono); font-weight:700; }
+.src-badge { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--color-text-2); }
+.src-badge svg { flex:none; }
+.sp { font-size:11.5px; font-weight:800; padding:2px 8px; border-radius:6px; }
+.sp-s0 { background:var(--color-danger-bg); color:var(--color-danger-fg); }
+.sp-s1 { background:var(--color-warning-bg); color:var(--color-warning-fg); }
+.sp-s2 { background:var(--color-info-bg); color:var(--color-info-fg); }
+.sp-s3 { background:var(--color-surface-2); color:var(--color-text-3); }
+.row-actions { display:inline-flex; gap:6px; }
+.row-actions button { border:none; background:none; padding:4px; border-radius:6px; color:var(--color-text-3); cursor:pointer; display:inline-flex; }
+.row-actions button:hover { background:var(--color-surface-2); color:var(--color-primary); }
+.sort-arrow { color:var(--color-primary); font-weight:800; }
+
+/* ===== Мок: срез по источникам ===== */
+.slice { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+@media (max-width:860px){ .slice { grid-template-columns:1fr; } }
+.slice-card { border:1px solid var(--color-border); border-radius:var(--radius); padding:14px 16px; background:var(--color-surface); }
+.slice-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.slice-counts { display:flex; gap:6px; }
+.slice-item { display:flex; justify-content:space-between; gap:10px; padding:7px 0; border-top:1px dashed var(--color-border); font-size:13.5px; }
+
+/* ===== before/after ===== */
+.ba { display:grid; grid-template-columns:1fr 1fr; gap:0; border:1px solid var(--color-border); border-radius:var(--radius); overflow:hidden; }
+.ba > div { padding:14px 16px; }
+.ba .before { background:var(--color-surface-2); border-right:1px solid var(--color-border); }
+.ba .after { background:var(--color-surface); }
+.ba-label { font-size:11px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; margin-bottom:8px; }
+.ba .before .ba-label { color:var(--color-text-3); }
+.ba .after .ba-label { color:var(--color-success); }
+.mock-header-old .path { font-size:14px; font-weight:600; }
+.mock-header-new .project { font-size:18px; font-weight:800; letter-spacing:-.01em; }
+.mock-header-new .path { font-size:12px; color:var(--color-text-3); margin-top:2px; }
+
+.qa { counter-reset:q; }
+.qa li { margin-bottom:8px; }
+.footer-note { margin-top:44px; padding:18px 22px; }
+.gates { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+.gate { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; padding:8px 14px; border-radius:999px; border:1px solid var(--color-border); background:var(--color-surface); }
+.gate.current { border-color:var(--color-primary); color:var(--color-primary); background:var(--color-primary-soft); }
+.theme-toggle { border:1px solid var(--color-border); background:var(--color-surface); border-radius:999px; padding:8px 14px; cursor:pointer; font-size:13px; font-weight:600; color:var(--color-text-2); }
+code { font-family:var(--font-mono); font-size:.9em; background:var(--color-surface-2); padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="pagehead">
+    <div>
+      <h1>Предложения по замечаниям с демо портала</h1>
+      <div class="t2">todo_19 · Гейт 1 — макеты на утверждение · 8 июля 2026</div>
+    </div>
+    <button class="theme-toggle" onclick="document.documentElement.classList.toggle('dark')">◐ Тема</button>
+  </div>
+
+  <div class="quote">«Ключевая работа PO — приоритизация и учёт источников требований. Этого тут нет. Look-n-feel и UX надо причёсывать, атрибутивный состав объектов, слабая функциональность приоритизации».</div>
+
+  <div class="toc">
+    <a class="pill" href="#s1">1 · Модалка: приоритизация <span class="tag tag-new">новое</span></a>
+    <a class="pill" href="#s2">2 · Атрибуты требования <span class="tag tag-new">новое</span></a>
+    <a class="pill" href="#s3">3 · Меню «Справочники» <span class="tag tag-new">новое</span></a>
+    <a class="pill" href="#s4">4 · Дерево и срез по источникам</a>
+    <a class="pill" href="#s5">5 · Look-n-feel <span class="tag tag-fix">исправления</span></a>
+    <a class="pill" href="#s6">6 · Открытые вопросы</a>
+  </div>
+
+  <!-- ================= 1. RICE + источник + приоритет: модалка ================= -->
+  <section class="block" id="s1">
+    <div class="sec-head"><span class="sec-num">1</span><h2>Модалка требования: новая вкладка «Приоритизация»</h2></div>
+    <p class="t2">Модалка разгружается на вкладки (это же закрывает замечание UX-ревью о перегрузе). Всё новое — на одной вкладке «Приоритизация». <strong>У требования может быть несколько источников</strong>. Поле «Источник» — с поиском по уже заведённым источникам проекта (см. второй источник — выпадающий список совпадений). У каждого источника свой приоритет (справочник проекта, названия без кодов), своя RICE-оценка и свой желаемый срок (квартал+год и/или конкретная дата). Итог — агрегат, а <strong>план реализации выставляет PO</strong> в отдельном блоке, глядя на пожелания источников.</p>
+
+    <div class="card mock-modal">
+      <div class="mock-modal-head">
+        <strong>Требование: Экспорт реестра в Excel</strong>
+        <span class="t3">Esc — закрыть</span>
+      </div>
+      <div class="mock-tabs">
+        <span class="mock-tab">Основное</span>
+        <span class="mock-tab active">Приоритизация</span>
+        <span class="mock-tab">Описание и сценарии</span>
+        <span class="mock-tab">Связи</span>
+        <span class="mock-tab">Справочно</span>
+      </div>
+      <div class="mock-modal-body">
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <h3 style="margin:0;">Источники требования <span class="t3" style="font-weight:400;">— у каждого свой приоритет и своя оценка</span></h3>
+          <span class="btn btn-secondary" style="padding:6px 12px; font-size:13px;">＋ Добавить источник</span>
+        </div>
+
+        <!-- Источник 1 -->
+        <div class="src-card" data-card="1">
+          <div class="src-card-head">
+            <span class="src-card-title">💼 Источник 1 · Клиент / сделка</span>
+            <button class="src-remove" title="Убрать источник">✕</button>
+          </div>
+          <div class="fieldrow">
+            <div>
+              <label class="label">Тип источника</label>
+              <select class="input">
+                <option selected>Клиент / сделка</option>
+                <option>Стейкхолдер</option>
+                <option>Внутренний стандарт</option>
+                <option>Другое</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Источник <span class="t3" style="font-weight:400;">— поиск по источникам проекта</span></label>
+              <div class="combo">
+                <div class="combo-input">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+                  <input value="Альфа (сделка №247)" />
+                </div>
+              </div>
+              <div class="hint">Начните вводить — портал предложит уже заведённые источники этого проекта</div>
+            </div>
+          </div>
+          <div class="fieldrow" style="margin-top:12px; grid-template-columns:1fr 1fr;">
+            <div>
+              <label class="label">Приоритет этого источника <span class="t3" style="font-weight:400;">— из справочника проекта</span></label>
+              <select class="input">
+                <option selected>Критично для сделки</option>
+                <option>Квартальная цель</option>
+                <option>Демо совету директоров</option>
+                <option>＋ Добавить свой вариант…</option>
+              </select>
+              <!-- инлайн-добавление варианта: название + цвет -->
+              <div class="inline-add">
+                <div class="inline-add-title">Новый приоритет <span class="t3" style="font-weight:400;">— попадёт в справочник проекта</span></div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <input class="input" style="flex:1;" placeholder="Название, напр. «Регуляторное требование»" />
+                  <div class="swatches">
+                    <span class="sw" style="background:var(--color-danger)"></span>
+                    <span class="sw sel" style="background:#a21caf"></span>
+                    <span class="sw" style="background:var(--color-warning)"></span>
+                    <span class="sw" style="background:var(--color-info)"></span>
+                    <span class="sw" style="background:var(--color-success)"></span>
+                    <span class="sw" style="background:var(--color-text-3)"></span>
+                  </div>
+                  <span class="btn btn-primary" style="padding:7px 12px; font-size:13px;">Добавить</span>
+                </div>
+              </div>
+              <div class="hint">Или управляйте всем списком в меню «Справочники» (блок 3)</div>
+            </div>
+            <div>
+              <label class="label">Желаемый срок источника</label>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <select class="input"><option>Квартал: —</option><option>Q1</option><option>Q2</option><option selected>3 квартал</option><option>Q4</option></select>
+                <select class="input"><option>Год: —</option><option selected>2026</option><option>2027</option></select>
+              </div>
+              <label class="label" style="margin-top:8px;">…или конкретная дата <span class="t3" style="font-weight:400;">(если у источника жёсткий срок)</span></label>
+              <input class="input" type="date" value="2026-09-15" />
+            </div>
+          </div>
+          <div class="fieldrow" style="margin-top:12px; grid-template-columns:1fr 1fr 1fr 1fr;">
+            <div>
+              <label class="label">Reach</label>
+              <select class="input rice" data-card="1" data-k="r">
+                <option value="1">1 · единичные</option>
+                <option value="2">2 · малая группа</option>
+                <option value="3">3 · заметная часть</option>
+                <option value="4" selected>4 · большинство</option>
+                <option value="5">5 · почти все</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Impact</label>
+              <select class="input rice" data-card="1" data-k="i">
+                <option value="0.25">0.25</option>
+                <option value="0.5">0.5</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Confidence</label>
+              <select class="input rice" data-card="1" data-k="c">
+                <option value="0.5">50%</option>
+                <option value="0.8" selected>80%</option>
+                <option value="1">100%</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Effort, чел-нед</label>
+              <select class="input rice" data-card="1" data-k="e">
+                <option value="0.5">0.5</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+                <option value="8">8</option>
+              </select>
+            </div>
+          </div>
+          <div class="src-score">RICE этого источника: <span class="score-value" id="score1" style="font-size:18px;">3.2</span></div>
+        </div>
+
+        <!-- Источник 2 -->
+        <div class="src-card" data-card="2">
+          <div class="src-card-head">
+            <span class="src-card-title">👤 Источник 2 · Стейкхолдер</span>
+            <button class="src-remove" title="Убрать источник">✕</button>
+          </div>
+          <div class="fieldrow">
+            <div>
+              <label class="label">Тип источника</label>
+              <select class="input">
+                <option>Клиент / сделка</option>
+                <option selected>Стейкхолдер</option>
+                <option>Внутренний стандарт</option>
+                <option>Другое</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Источник <span class="t3" style="font-weight:400;">— поиск по источникам проекта</span></label>
+              <div class="combo">
+                <div class="combo-input open">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+                  <input value="Ив" />
+                </div>
+                <div class="combo-menu">
+                  <div class="combo-opt active"><span><b>Ив</b>анов П. (директор продаж)</span><span class="type">стейкхолдер</span></div>
+                  <div class="combo-opt"><span><b>Ив</b>ашко-Логистик</span><span class="type">клиент</span></div>
+                  <div class="combo-create">＋ Создать новый источник «Ив»</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="fieldrow" style="margin-top:12px; grid-template-columns:1fr 1fr;">
+            <div>
+              <label class="label">Приоритет этого источника <span class="t3" style="font-weight:400;">— справочник проекта</span></label>
+              <select class="input">
+                <option>Критично для сделки</option>
+                <option selected>Квартальная цель</option>
+                <option>Демо совету директоров</option>
+                <option>＋ Добавить свой вариант…</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Желаемый срок источника</label>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <select class="input"><option>Квартал: —</option><option>Q1</option><option>Q2</option><option>Q3</option><option selected>4 квартал</option></select>
+                <select class="input"><option>Год: —</option><option selected>2026</option><option>2027</option></select>
+              </div>
+              <label class="label" style="margin-top:8px;">…или конкретная дата</label>
+              <input class="input warn" type="date" value="2026-08-20" />
+              <div class="warn-note">⚠ 20.08.2026 вне 4 квартала — предупреждение, сохранить можно</div>
+            </div>
+          </div>
+          <div class="fieldrow" style="margin-top:12px; grid-template-columns:1fr 1fr 1fr 1fr;">
+            <div>
+              <label class="label">Reach</label>
+              <select class="input rice" data-card="2" data-k="r">
+                <option value="1">1 · единичные</option>
+                <option value="2">2 · малая группа</option>
+                <option value="3" selected>3 · заметная часть</option>
+                <option value="4">4 · большинство</option>
+                <option value="5">5 · почти все</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Impact</label>
+              <select class="input rice" data-card="2" data-k="i">
+                <option value="0.25">0.25</option>
+                <option value="0.5">0.5</option>
+                <option value="1">1</option>
+                <option value="2" selected>2</option>
+                <option value="3">3</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Confidence</label>
+              <select class="input rice" data-card="2" data-k="c">
+                <option value="0.5">50%</option>
+                <option value="0.8" selected>80%</option>
+                <option value="1">100%</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">Effort, чел-нед</label>
+              <select class="input rice" data-card="2" data-k="e">
+                <option value="0.5">0.5</option>
+                <option value="1">1</option>
+                <option value="2" selected>2</option>
+                <option value="3">3</option>
+                <option value="5">5</option>
+                <option value="8">8</option>
+              </select>
+            </div>
+          </div>
+          <div class="src-score">RICE этого источника: <span class="score-value" id="score2" style="font-size:18px;">2.4</span></div>
+        </div>
+
+        <div class="score-line">
+          <span class="t2"><strong>Итог требования</strong> — агрегат по источникам: приоритет <span class="prio prio-0" id="aggSp">Критично для сделки</span> (старший по справочнику), <span class="mono t3" style="font-size:12.5px;">RICE = max по источникам</span></span>
+          <span>RICE: <span class="score-value" id="aggScore">3.2</span></span>
+        </div>
+        <div class="hint">Наша «Критичность» (LOW…BLOCKER) остаётся на вкладке «Основное» — независимая шкала. Правило агрегации (max / сумма Reach) — открытый вопрос №2.</div>
+
+        <h3 style="margin:22px 0 10px;">Решение PO — план реализации <span class="tag tag-new">новое</span></h3>
+        <div class="po-decision">
+          <div class="po-wishes">
+            <span class="t3" style="font-size:12.5px; font-weight:600;">Пожелания источников:</span>
+            <span class="wish">💼 Альфа — 3 кв. 2026, к 15.09.2026</span>
+            <span class="wish">👤 Иванов П. — 4 кв. 2026</span>
+          </div>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1.4fr; gap:12px; margin-top:12px;">
+            <div>
+              <label class="label">Квартал реализации</label>
+              <select class="input"><option>1 квартал</option><option>2 квартал</option><option selected>3 квартал</option><option>4 квартал</option></select>
+            </div>
+            <div>
+              <label class="label">Год</label>
+              <select class="input"><option selected>2026</option><option>2027</option></select>
+            </div>
+            <div>
+              <label class="label">Дата выпуска <span class="t3" style="font-weight:400;">(если необходимо)</span></label>
+              <input class="input" type="date" value="2026-09-01" />
+            </div>
+          </div>
+          <div class="hint">Это существующие поля «Реализация» требования + новая опциональная дата выпуска. PO принимает решение, глядя на пожелания источников выше.</div>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:18px;">
+          <span class="btn btn-secondary">Отмена</span>
+          <span class="btn btn-primary">Сохранить</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 2/3 кратко: что появляется в данных ================= -->
+  <section class="block" id="s2">
+    <div class="sec-head"><span class="sec-num">2</span><h2>Что добавляется в атрибуты требования</h2></div>
+    <div class="grid2">
+      <div class="card panel">
+        <h3>Источники — список, 0..N на требование <span class="tag tag-new">новое</span></h3>
+        <p class="t2" style="margin:0 0 8px;">Вместо свободной строки <code>source</code> — список <code>sources[]</code>, каждый элемент:</p>
+        <ul class="t2" style="margin:0; padding-left:18px;">
+          <li><code>type</code>: клиент/сделка · стейкхолдер · внутренний стандарт · другое</li>
+          <li><code>name</code>: имя (справочник имён проекта собирается автоматически)</li>
+          <li><code>priority</code>: значение из конфигурируемого справочника приоритетов (в UI — только название, без кодов)</li>
+          <li><code>rice</code>: своя оценка этого источника (опционально)</li>
+          <li><code>targetQuarter/targetYear</code>, <code>targetDate</code>: желаемый срок источника (опционально)</li>
+          <li>Миграция: текущее <code>source</code> («АС21», «ПАО») → <code>sources[0].name</code></li>
+        </ul>
+        <p class="t2" style="margin:8px 0 0;">Итог требования — агрегаты: приоритет = старший по справочнику, RICE = max score. План реализации (квартал/год) + новая <code>releaseDate</code> — решение PO, не агрегат.</p>
+      </div>
+      <div class="card panel">
+        <h3>Приоритет источника <span class="tag tag-new">новое</span></h3>
+        <p class="t2" style="margin:0 0 8px;">Значения — из справочника проекта (порядок = старшинство). <strong>Поставка содержит один дефолтный вариант:</strong></p>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <span><span class="prio prio-1">Квартальная цель</span> &nbsp;<span class="dict-default">по умолчанию</span></span>
+        </div>
+        <p class="t2" style="margin:12px 0 6px;">Остальное пользователь заводит сам (название + цвет) — с формы («Добавить свой вариант…») или в меню «Справочники». Пример настроенного справочника:</p>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">
+          <span class="prio prio-0">Критично для сделки</span>
+          <span class="prio prio-1">Квартальная цель</span>
+          <span class="prio" style="background:#f3e8ff; color:#7e22ce;">Демо совету директоров</span>
+        </div>
+        <p class="t3" style="font-size:12.5px; margin:10px 0 0;">Цвет несёт срочность, кодов вроде «S0» пользователь не видит.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 3. Справочники ================= -->
+  <section class="block" id="s3">
+    <div class="sec-head"><span class="sec-num">3</span><h2>Новый пункт меню «Справочники»</h2></div>
+    <p class="t2">Управление справочниками проекта в одном месте: пользователь редактирует названия, порядок и <strong>выбирает цвет подсветки</strong>. Значения подтягиваются в карточку требования. Начинаем с двух справочников (приоритеты источников и источники), позже сюда же — прочие.</p>
+
+    <div class="dict-grid">
+      <!-- Справочник приоритетов -->
+      <div class="dict-card">
+        <div class="dict-head"><strong>Приоритеты источников</strong><span class="t3" style="font-size:12px;">порядок = старшинство</span></div>
+        <div class="dict-row"><span class="drag">⋮⋮</span><span class="dict-color" style="background:var(--color-danger)"></span><span class="dict-name">Критично для сделки</span><span class="dict-actions"><button title="Изменить">✎</button><button title="Удалить">🗑</button></span></div>
+        <div class="dict-row"><span class="drag">⋮⋮</span><span class="dict-color" style="background:var(--color-warning)"></span><span class="dict-name">Квартальная цель</span> <span class="dict-default">дефолт</span><span class="dict-actions"><button>✎</button><button>🗑</button></span></div>
+        <div class="dict-row"><span class="drag">⋮⋮</span><span class="dict-color" style="background:var(--color-info)"></span><span class="dict-name">Важно</span><span class="dict-actions"><button>✎</button><button>🗑</button></span></div>
+        <div class="dict-row"><span class="drag">⋮⋮</span><span class="dict-color" style="background:var(--color-text-3)"></span><span class="dict-name">Пожелание</span><span class="dict-actions"><button>✎</button><button>🗑</button></span></div>
+        <div class="dict-row"><span class="drag">⋮⋮</span><span class="dict-color" style="background:#a21caf"></span><span class="dict-name">Демо совету директоров</span><span class="dict-actions"><button>✎</button><button>🗑</button></span></div>
+        <div class="dict-add">＋ Добавить приоритет (название + цвет)</div>
+      </div>
+
+      <!-- Справочник источников -->
+      <div class="dict-card">
+        <div class="dict-head"><strong>Источники</strong><span class="t3" style="font-size:12px;">имя + тип + цвет</span></div>
+        <div class="dict-row"><span class="dict-color" style="background:var(--color-info)"></span><span class="dict-name">Альфа (сделка №247)</span><span class="t3" style="font-size:12px;">клиент</span><span class="dict-actions"><button>✎</button><button>🗑</button></span></div>
+        <div class="dict-row"><span class="dict-color" style="background:var(--color-success)"></span><span class="dict-name">Иванов П. (директор продаж)</span><span class="t3" style="font-size:12px;">стейкхолдер</span><span class="dict-actions"><button>✎</button><button>🗑</button></span></div>
+        <div class="dict-row"><span class="dict-color" style="background:var(--color-text-3)"></span><span class="dict-name">АС21</span><span class="t3" style="font-size:12px;">текст</span><span class="dict-actions"><button>✎</button><button>🗑</button></span></div>
+        <div class="dict-row"><span class="dict-color" style="background:var(--color-text-3)"></span><span class="dict-name">ПАО</span><span class="t3" style="font-size:12px;">текст</span><span class="dict-actions"><button>✎</button><button>🗑</button></span></div>
+        <div class="dict-add">＋ Добавить источник</div>
+      </div>
+    </div>
+    <div class="hint" style="margin:8px 2px 0;">«АС21», «ПАО» — существующие значения (тип «текст»), мигрируют сюда автоматически. Список источников также пополняется автосбором имён, введённых прямо в требованиях.</div>
+  </section>
+
+  <!-- ================= 4. Дерево + срез ================= -->
+  <section class="block" id="s4">
+    <div class="sec-head"><span class="sec-num">4</span><h2>Дерево требований: новые колонки, сортировка по RICE</h2></div>
+    <p class="t2">Колонки «RICE» (сортируемая, агрегат) и «Источники»: старший источник + чип «+N» с остальными (полный список — в title/поповере). Действия строки видимы всегда (исправление из UX-ревью), а не только по hover.</p>
+
+    <div class="card" style="overflow-x:auto;">
+      <table class="tree">
+        <thead>
+          <tr>
+            <th style="min-width:260px;">Требование</th>
+            <th>Критичность</th>
+            <th>RICE <span class="sort-arrow">↓</span></th>
+            <th>Источники · приоритет</th>
+            <th>Срок реализации</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>▸ Экспорт реестра в Excel</td>
+            <td><span class="crit" style="background:var(--crit-high);">HIGH</span></td>
+            <td class="rice-cell">3.2</td>
+            <td><span class="src-badge">💼 Альфа (сделка) <span class="prio prio-0">Критично для сделки</span> <span class="badge" style="background:var(--color-surface-2); color:var(--color-text-2); padding:2px 8px;" title="Иванов П. (директор продаж) · Квартальная цель">+1</span></span></td>
+            <td><span class="term"><span class="plan">3 кв. 2026</span><span class="release">выпуск 1 сен 2026</span></span></td>
+            <td><span class="row-actions"><button title="Редактировать">✎</button><button title="Связать">⛓</button><button title="Удалить">🗑</button></span></td>
+          </tr>
+          <tr>
+            <td style="padding-left:28px;">SSO-вход для клиента «Альфа»</td>
+            <td><span class="crit" style="background:var(--crit-blocker);">BLOCKER</span></td>
+            <td class="rice-cell">2.0</td>
+            <td><span class="src-badge">💼 Альфа (сделка) <span class="prio prio-0">Критично для сделки</span></span></td>
+            <td><span class="term"><span class="plan">3 кв. 2026</span></span></td>
+            <td><span class="row-actions"><button>✎</button><button>⛓</button><button>🗑</button></span></td>
+          </tr>
+          <tr>
+            <td style="padding-left:28px;">Журналирование доступа (ИБ-стандарт)</td>
+            <td><span class="crit" style="background:var(--crit-medium);">MEDIUM</span></td>
+            <td class="rice-cell">1.1</td>
+            <td><span class="src-badge">📘 Стандарт ИБ-04 <span class="prio prio-2">Важно</span></span></td>
+            <td><span class="term"><span class="plan">4 кв. 2026</span></span></td>
+            <td><span class="row-actions"><button>✎</button><button>⛓</button><button>🗑</button></span></td>
+          </tr>
+          <tr>
+            <td>▸ Тёмная тема в отчётах</td>
+            <td><span class="crit" style="background:var(--crit-low);">LOW</span></td>
+            <td class="rice-cell t3">—</td>
+            <td><span class="src-badge">👤 Сидорова А. <span class="prio prio-3">Пожелание</span></span></td>
+            <td><span class="term"><span class="done">Реализовано</span></span></td>
+            <td><span class="row-actions"><button>✎</button><button>⛓</button><button>🗑</button></span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="hint" style="margin:6px 2px 0;">Колонка срока двухуровневая: сверху квартал/год (план PO), под ним — дата выпуска, только если задана. Иконки условные — в реализации Lucide (Briefcase / User / BookMarked).</div>
+
+    <h3 style="margin-top:26px;">Срез «По источникам» — аргумент в разговоре со стейкхолдером</h3>
+    <p class="t2" style="margin-top:0;">Новый режим на главном экране (рядом с деревом): группировка по источнику, счётчики верхних приоритетов — «у вас уже N фичей с верхним приоритетом». Требование с несколькими источниками появляется в каждой группе со СВОИМ приоритетом (ниже «Экспорт реестра» — у Альфы «Критично для сделки», у Иванова «Квартальная цель»).</p>
+    <div class="slice">
+      <div class="slice-card">
+        <div class="slice-head">
+          <strong>💼 Альфа (сделка)</strong>
+          <span class="slice-counts"><span class="prio prio-0">Критично × 3</span><span class="prio prio-1">Квартальная × 1</span></span>
+        </div>
+        <div class="slice-item"><span>Экспорт реестра в Excel</span><span class="prio prio-0">Критично для сделки</span></div>
+        <div class="slice-item"><span>SSO-вход для клиента «Альфа»</span><span class="prio prio-0">Критично для сделки</span></div>
+        <div class="slice-item"><span>Изоляция данных по договору</span><span class="prio prio-0">Критично для сделки</span></div>
+        <div class="slice-item"><span>Выгрузка актов по шаблону</span><span class="prio prio-1">Квартальная цель</span></div>
+      </div>
+      <div class="slice-card">
+        <div class="slice-head">
+          <strong>👤 Иванов П. (директор продаж)</strong>
+          <span class="slice-counts"><span class="prio prio-1">Квартальная × 3</span><span class="prio prio-3">Пожелание × 1</span></span>
+        </div>
+        <div class="slice-item"><span>Экспорт реестра в Excel</span><span class="prio prio-1">Квартальная цель</span></div>
+        <div class="slice-item"><span>Воронка по требованиям</span><span class="prio prio-1">Квартальная цель</span></div>
+        <div class="slice-item"><span>Интеграция с CRM</span><span class="prio prio-1">Квартальная цель</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 5. Look-n-feel ================= -->
+  <section class="block" id="s5">
+    <div class="sec-head"><span class="sec-num">5</span><h2>Look-n-feel: полный проход по UX-ревью (независимый трек)</h2></div>
+    <p class="t2">По решению PO не ограничиваемся списком ниже — берём полный проход по <span class="mono">norman-review.md</span> (системные проблемы + по экранам) в разумном объёме итерации. Топ-3 наглядно, остальное списком.</p>
+
+    <h3>Шапка главного экрана: проект — главный, путь — вторичен</h3>
+    <div class="ba">
+      <div class="before">
+        <div class="ba-label">Сейчас</div>
+        <div class="mock-header-old">
+          <div class="path mono">/Users/aleksandr/…/Projects/portal-crm</div>
+          <div class="t3" style="font-size:13px;">portal-crm · 84 требования</div>
+        </div>
+      </div>
+      <div class="after">
+        <div class="ba-label">Предлагаем</div>
+        <div class="mock-header-new">
+          <div class="project">Портал CRM <span class="badge" style="background:var(--color-primary-soft); color:var(--color-primary);">84 требования</span></div>
+          <div class="path mono">Projects/portal-crm</div>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:20px;">Действия строки: видимы всегда</h3>
+    <div class="ba">
+      <div class="before">
+        <div class="ba-label">Сейчас</div>
+        <div class="t2" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Экспорт реестра в Excel</span>
+          <span class="t3" style="font-size:12px;">(иконки появляются только при hover — на тачах недоступны)</span>
+        </div>
+      </div>
+      <div class="after">
+        <div class="ba-label">Предлагаем</div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Экспорт реестра в Excel</span>
+          <span class="row-actions" style="opacity:.75;"><button>✎</button><button>＋</button><button>⛓</button><button>🗑</button></span>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:20px;">Остальные исправления</h3>
+    <div class="card panel">
+      <ul class="t2" style="margin:0; padding-left:18px;">
+        <li><strong>Модалка требования → вкладки</strong> (Основное / Приоритизация / Описание / Связи / Справочно) — показано в блоке 1.</li>
+        <li><strong>Lucide-иконки вместо эмодзи и символов</strong> на карточках Start и в дереве.</li>
+        <li><strong>Иконки «добавить ФТ» и «добавить НФТ»</strong> различать формой (Plus / ShieldPlus), не только цветом.</li>
+        <li><strong>Развести Toast-уведомления и кнопку чата</strong> по разным углам экрана.</li>
+        <li><strong>Дропзона импорта</strong>: подсветка при dragover, автоимя проекта из имени файла, прогресс при загрузке.</li>
+        <li class="t3">…и остальные пункты <span class="mono">norman-review.md</span> (Start-экран, список недавних проектов, читаемость чипов связей, объяснения дизейбла и т.д.) — по приоритету.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= 6. Вопросы ================= -->
+  <section class="block" id="s6">
+    <div class="sec-head"><span class="sec-num">6</span><h2>Решения PO (закрыто) и что осталось</h2></div>
+    <div class="card panel">
+      <ul class="t2" style="margin:0; padding-left:20px; list-style:none;">
+        <li>✅ <strong>RICE</strong> — базовых шкал-селектов достаточно.</li>
+        <li>✅ <strong>Агрегация</strong> — итоговый RICE = max по источникам; приоритет = старший по справочнику.</li>
+        <li>✅ <strong>Справочники</strong> — отдельный пункт меню «Справочники» с редактируемыми списками и выбором цвета (блок 3).</li>
+        <li>✅ <strong>Приоритеты</strong> — дефолт только «Квартальная цель»; остальное пользователь заводит сам (название + цвет).</li>
+        <li>✅ <strong>Даты</strong> — без времени; дата вне квартала → бледное предупреждение, не блокирует.</li>
+        <li>✅ <strong>«АС21», «ПАО»</strong> — источники типа «текст», мигрируют в справочник источников.</li>
+        <li>✅ <strong>Look-n-feel</strong> — полный проход по norman-review.md, не только блок 5.</li>
+      </ul>
+      <p class="t3" style="margin:12px 0 0; font-size:12.5px;">Осталось на Гейт 2 (Senior PO): формулы/шкалы RICE в деталях, точный состав первого этапа look-n-feel, сортировки/фильтры дерева.</p>
+    </div>
+  </section>
+
+  <div class="card footer-note">
+    <strong>Дальнейший процесс</strong>
+    <div class="gates">
+      <span class="gate current">Гейт 1 · вы утверждаете макеты ← сейчас</span>
+      <span class="gate">Гейт 2 · Senior PO: спека + сводная на валидацию</span>
+      <span class="gate">Гейт 3 · конвейер: architect → backend → frontend → QA</span>
+    </div>
+  </div>
+
+</div>
+<script>
+  function calc(){
+    const scores = [];
+    for (const card of ['1','2']) {
+      const v = k => parseFloat(document.querySelector(`select.rice[data-card="${card}"][data-k="${k}"]`).value);
+      const s = Math.round(v('r') * v('i') * v('c') / v('e') * 10) / 10;
+      scores.push(s);
+      document.getElementById('score' + card).textContent = s.toString();
+    }
+    document.getElementById('aggScore').textContent = Math.max(...scores).toString();
+  }
+  document.querySelectorAll('select.rice').forEach(el => el.addEventListener('change', calc));
+  calc();
+</script>
+</body>
+</html>

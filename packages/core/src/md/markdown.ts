@@ -6,6 +6,7 @@ import type {
   RequirementType,
   Scenario,
   ScenarioKeyword,
+  SourceEntry,
 } from '../domain/types.js';
 import { LINK_TYPES, SCENARIO_KEYWORDS } from '../domain/types.js';
 import type { ExportOptionalField } from '../domain/exportFields.js';
@@ -21,6 +22,13 @@ import { checkTargetRule } from '../validation/targetRule.js';
 export interface ParseContext {
   slug: string;
   type: RequirementType;
+  /**
+   * Default project priorityId used to migrate a legacy `source:string` into
+   * `sources[0]` (TEXT) when the file carries no explicit sources (todo_19
+   * §0.4 / T-105). When omitted, a legacy `source` is left as-is (pure
+   * round-trip: no migration side effect).
+   */
+  defaultPriorityId?: string;
 }
 
 const META_KEYS = [
@@ -30,11 +38,13 @@ const META_KEYS = [
   'createdAt',
   'updatedAt',
   'source',
+  'releaseDate',
 ] as const;
 const HEADER_RE = /^###\s+Requirement:\s*(.+?)\s*$/;
 const META_RE = /^-\s+(\w+):\s*(.*)$/;
 const SCENARIO_RE = /^####\s+Scenario:\s*(.+?)\s*$/;
 const LINKS_RE = /^####\s+Links\s*$/;
+const SOURCES_RE = /^####\s+Sources\s*$/;
 const INFO_RE = /^####\s+Info\s*$/;
 const STEP_RE = /^-\s+(GIVEN|WHEN|THEN|AND)\s+(.*)$/;
 const LINK_RE = /^-\s+(\w+):\s*(.+?)\s*$/;
@@ -76,6 +86,9 @@ export function serialize(req: Requirement, opts?: SerializeOptions): string {
   if (!req.implemented && req.targetQuarter && req.targetYear !== undefined) {
     lines.push(`- target: ${req.targetQuarter} ${String(req.targetYear)}`);
   }
+  if (!req.implemented && req.releaseDate !== undefined) {
+    lines.push(`- releaseDate: ${req.releaseDate}`);
+  }
   lines.push(`- createdAt: ${req.createdAt}`);
   lines.push(`- updatedAt: ${req.updatedAt}`);
   if (has('source') && req.source !== undefined) {
@@ -94,6 +107,14 @@ export function serialize(req: Requirement, opts?: SerializeOptions): string {
       for (const step of scenario.steps) {
         lines.push(`- ${step.keyword} ${step.text}`);
       }
+    }
+  }
+
+  if (req.sources && req.sources.length > 0) {
+    lines.push('');
+    lines.push('#### Sources');
+    for (const s of req.sources) {
+      lines.push(`- ${JSON.stringify(s)}`);
     }
   }
 
@@ -156,7 +177,8 @@ export function parse(md: string, ctx: ParseContext): Requirement {
   const scenarios: Scenario[] = [];
   const links: Link[] = [];
   const infoItems: InfoItem[] = [];
-  let mode: 'desc' | 'scenario' | 'links' | 'info' = 'desc';
+  const sources: SourceEntry[] = [];
+  let mode: 'desc' | 'scenario' | 'links' | 'info' | 'sources' = 'desc';
   let current: Scenario | null = null;
 
   for (const line of lines.slice(i)) {
@@ -165,6 +187,11 @@ export function parse(md: string, ctx: ParseContext): Requirement {
       current = { name: scenarioMatch[1]!, steps: [] };
       scenarios.push(current);
       mode = 'scenario';
+      continue;
+    }
+    if (SOURCES_RE.test(line)) {
+      mode = 'sources';
+      current = null;
       continue;
     }
     if (LINKS_RE.test(line)) {
@@ -199,6 +226,20 @@ export function parse(md: string, ctx: ParseContext): Requirement {
       }
       continue;
     }
+    if (mode === 'sources') {
+      const trimmed = line.trim();
+      if (trimmed.length === 0) continue;
+      const jsonMatch = /^-\s+(.*)$/.exec(trimmed);
+      if (!jsonMatch) continue;
+      let raw: unknown;
+      try {
+        raw = JSON.parse(jsonMatch[1]!);
+      } catch {
+        throw new ParseError(`Malformed source entry: "${jsonMatch[1]!}".`);
+      }
+      sources.push(raw as SourceEntry);
+      continue;
+    }
     // mode === 'info': tolerant — skip lines that don't match INFO_ITEM_RE
     const infoItem = INFO_ITEM_RE.exec(line);
     if (infoItem) {
@@ -224,6 +265,24 @@ export function parse(md: string, ctx: ParseContext): Requirement {
     candidate.source = meta.source.trim();
   }
   if (infoItems.length > 0) candidate.infoItems = infoItems;
+  if (sources.length > 0) candidate.sources = sources;
+  if (meta.releaseDate !== undefined && meta.releaseDate.trim().length > 0) {
+    candidate.releaseDate = meta.releaseDate.trim();
+  }
+
+  // Migration (T-105): a legacy `source:string` with no explicit sources becomes
+  // a single TEXT source carrying the project's default priority. Only runs when
+  // the caller supplies a default priorityId (repository read path).
+  if (
+    candidate.sources === undefined &&
+    typeof candidate.source === 'string' &&
+    ctx.defaultPriorityId !== undefined
+  ) {
+    candidate.sources = [
+      { type: 'TEXT', name: candidate.source, priorityId: ctx.defaultPriorityId },
+    ];
+    delete candidate.source;
+  }
   if (meta.target !== undefined) {
     const t = TARGET_RE.exec(meta.target);
     if (!t) {

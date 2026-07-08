@@ -9,6 +9,7 @@ import { pinoOpLogger } from './lib/logger.js';
 import { registerOpenApi } from './openapi/plugin.js';
 import { projectRoutes } from './routes/projects.js';
 import { requirementRoutes } from './routes/requirements.js';
+import { dictionaryRoutes } from './routes/dictionaries.js';
 import { linkRoutes } from './routes/links.js';
 import { archiveRoutes } from './routes/archive.js';
 import { aiRoutes } from './routes/ai.js';
@@ -91,6 +92,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
 
   await app.register(projectRoutes, deps);
   await app.register(requirementRoutes, deps);
+  await app.register(dictionaryRoutes, deps);
   await app.register(linkRoutes, deps);
   await app.register(archiveRoutes, deps);
   await app.register(aiRoutes, deps);

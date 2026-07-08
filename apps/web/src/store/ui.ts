@@ -26,6 +26,9 @@ export type Theme = 'light' | 'dark';
 /** "Раскрыть все" (default) vs "Скрыть зависимости" (B1). */
 export type TreeMode = 'expand-all' | 'collapse';
 
+/** Main-screen layout: requirements tree vs source-slice (todo_19 T-208). */
+export type MainView = 'tree' | 'sources';
+
 interface UiState {
   theme: Theme;
   setTheme: (t: Theme) => void;
@@ -38,6 +41,10 @@ interface UiState {
   /** Tree display mode (B1, T-1101). */
   treeMode: TreeMode;
   setTreeMode: (m: TreeMode) => void;
+
+  /** Main-screen view: hierarchical tree vs «По источникам» slice (todo_19 T-208). */
+  mainView: MainView;
+  setMainView: (v: MainView) => void;
 
   /** Branches manually expanded while in collapse mode (FR-7). */
   expanded: Set<string>;
@@ -89,6 +96,9 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   treeMode: 'expand-all',
   setTreeMode: (treeMode) => set({ treeMode }),
+
+  mainView: 'tree',
+  setMainView: (mainView) => set({ mainView }),
 
   expanded: new Set<string>(),
   isExpanded: (id) => get().expanded.has(id),

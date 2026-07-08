@@ -1,48 +1,38 @@
 import { expect, test } from '@playwright/test';
 import { addRequirement, createProject, openEdit, rowByName, uniqueName } from './helpers/app.js';
+import { addSourceCard, openPriorityTab, saveRequirementModal } from './helpers/todo19.js';
 
 /**
  * Iteration 6 E2E tests covering FR-17, FR-18, FR-19, FR-20, FR-22.
  *
- * FR-17: Поле "Источник требования" в RequirementModal (req-source)
- * FR-18: Колонка "Источник" в TreeTable (req-source-cell)
+ * FR-17: Поле "Источник требования" в RequirementModal — todo_19: карточки
+ *        источников на вкладке «Приоритизация» (src-add / src-name-*-input)
+ * FR-18: Колонка "Источник" в TreeTable — todo_19: мультиисточники (req-sources-cell)
  * FR-19: Фильтр "Источник" в TreeToolbar (source-filter / source-dropdown)
  * FR-20: Справочная информация в RequirementModal (info-add-btn / info-*)
  * FR-22: Фильтры в TrackerSelectModal (tasks-filter-zone / tasks-filter-crit-*) — внутри «Выбор ФТ/НФТ для TaskTracker»
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 1: FR-17 + FR-18 · Source field saved and shown in tree column
+// Test 1: FR-17 + FR-18 · Source saved (Приоритизация tab) and shown in tree column
 // ─────────────────────────────────────────────────────────────────────────────
 test('FR-17/18: поле источника сохраняется и отображается в колонке дерева', async ({ page }) => {
   const project = uniqueName('src-field');
   const reqName = uniqueName('Auth');
+  const sourceName = 'АС21';
 
   await createProject(page, project);
+  await addRequirement(page, { kind: 'function', name: reqName, criticality: 'HIGH' });
 
-  // Open create-requirement modal and fill in source field
-  await page.getByTestId('add-function').click();
-  const modal = page.getByTestId('requirement-modal');
-  await expect(modal).toBeVisible();
+  // FR-17 (todo_19): источник задаётся карточкой на вкладке «Приоритизация».
+  await openPriorityTab(page, reqName);
+  await addSourceCard(page, 0, { type: 'CLIENT', name: sourceName });
+  await saveRequirementModal(page);
 
-  await page.getByTestId('req-name').fill(reqName);
-  await page.getByTestId('req-criticality-high').click();
-
-  // Fill source field (FR-17) — T4 (todo_17): now a select with presets
-  await page.getByTestId('req-source').selectOption('АС21');
-
-  // Set implementation status
-  await page.getByTestId('req-implemented-yes').click();
-  await expect(page.getByTestId('req-target')).toBeHidden();
-
-  await page.getByTestId('req-submit').click();
-  await expect(modal).toBeHidden();
-  await expect(rowByName(page, reqName)).toBeVisible();
-
-  // FR-18: source value visible in the "Источник" column
-  const sourceCell = rowByName(page, reqName).getByTestId('req-source-cell');
+  // FR-18: имя источника видно в колонке «Источник» (мультиисточники).
+  const sourceCell = rowByName(page, reqName).getByTestId('req-sources-cell');
   await expect(sourceCell).toBeVisible();
-  await expect(sourceCell).toContainText('АС21');
+  await expect(sourceCell).toContainText(sourceName);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -55,7 +45,7 @@ test('FR-18: требование без источника показывает
   await createProject(page, project);
   await addRequirement(page, { kind: 'function', name: reqName, criticality: 'MEDIUM' });
 
-  const sourceCell = rowByName(page, reqName).getByTestId('req-source-cell');
+  const sourceCell = rowByName(page, reqName).getByTestId('req-sources-cell');
   await expect(sourceCell).toBeVisible();
   await expect(sourceCell).toContainText('—');
 });
@@ -70,15 +60,12 @@ test('FR-19: фильтр "Источник" скрывает требовани
 
   await createProject(page, project);
 
-  // Create requirement with source
-  await page.getByTestId('add-function').click();
-  await expect(page.getByTestId('requirement-modal')).toBeVisible();
-  await page.getByTestId('req-name').fill(withSource);
-  await page.getByTestId('req-criticality-high').click();
-  await page.getByTestId('req-source').selectOption('АС21');
-  await page.getByTestId('req-implemented-yes').click();
-  await page.getByTestId('req-submit').click();
-  await expect(page.getByTestId('requirement-modal')).toBeHidden();
+  // Create requirement, then attach a real source[] entry «АС21» via the
+  // «Приоритизация» tab (todo_19: фильтр берёт источники из sources[]).
+  await addRequirement(page, { kind: 'function', name: withSource, criticality: 'HIGH' });
+  await openPriorityTab(page, withSource);
+  await addSourceCard(page, 0, { type: 'CLIENT', name: 'АС21' });
+  await saveRequirementModal(page);
   await expect(rowByName(page, withSource)).toBeVisible();
 
   // Create requirement without source

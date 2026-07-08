@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CRITICALITIES, LINK_TYPES, REQUIREMENT_TYPES, TARGET_QUARTERS } from '../domain/types.js';
-import { infoItemSchema } from './schema.js';
+import { infoItemSchema, isoDateSchema, sourceEntrySchema } from './schema.js';
 
 /**
  * Canonical input contracts shared by the REST routes and the MCP tools
@@ -27,6 +27,8 @@ export const requirementCreateShape = {
   targetYear: z.number().int().min(2020).max(2100).optional(),
   source: z.string().max(100).optional(),
   infoItems: z.array(infoItemSchema).optional(),
+  sources: z.array(sourceEntrySchema).optional(),
+  releaseDate: isoDateSchema.optional(),
 } as const;
 
 /** Object schema for requirement creation (REST body + OpenAPI component). */
@@ -46,6 +48,8 @@ export const requirementUpdateShape = {
   targetYear: requirementCreateShape.targetYear,
   source: requirementCreateShape.source,
   infoItems: requirementCreateShape.infoItems,
+  sources: requirementCreateShape.sources,
+  releaseDate: requirementCreateShape.releaseDate,
 } as const;
 
 /** Object schema for requirement update (REST body + OpenAPI component). */

@@ -37,7 +37,9 @@ async function setupProject(page: Page, prefix: string, seeds: Seed[]): Promise<
       name: s.name,
       criticality: s.criticality,
       implemented: s.implemented,
-      source: s.source,
+      // todo_19: сидируем ИМЕННО через sources[] (не легаси scalar source), чтобы
+      // тест проверял починенный путь фильтра «Источник» (имена из sources[]).
+      sources: s.source ? [{ name: s.source }] : undefined,
       quarter: s.quarter,
       year: s.year,
     });

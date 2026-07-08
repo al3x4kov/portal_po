@@ -141,7 +141,9 @@ async function checkRowActions(
 async function checkLinkChips(page: Page, name: string): Promise<void> {
   const row = rowByName(page, name);
   const linksCell = row.getByTestId('req-links-cell');
-  const implCell = row.getByTestId('req-implemented-cell');
+  // todo_19: статус реализации свёрнут в двухуровневую колонку «Срок» (req-term-cell),
+  // которая теперь является левым соседом колонки «Связи».
+  const implCell = row.getByTestId('req-term-cell');
   const cellBox = await box(linksCell);
   const implBox = await box(implCell);
 
@@ -158,8 +160,8 @@ async function checkLinkChips(page: Page, name: string): Promise<void> {
     expect(cb.x + cb.width, `чип связи "${name}" заходит в колонку «Описание»`).toBeLessThanOrEqual(
       cellBox.x + cellBox.width + TOL,
     );
-    // не заходит в «Реализация» (левый сосед)
-    expect(cb.x, `чип связи "${name}" заходит в колонку «Реализация»`).toBeGreaterThanOrEqual(
+    // не заходит в «Срок» (левый сосед — req-term-cell)
+    expect(cb.x, `чип связи "${name}" заходит в колонку «Срок»`).toBeGreaterThanOrEqual(
       implBox.x + implBox.width - TOL,
     );
   }

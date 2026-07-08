@@ -1,8 +1,10 @@
 import { ProjectService } from './services/ProjectService.js';
 import { RequirementService } from './services/RequirementService.js';
 import { LinkService } from './services/LinkService.js';
+import { DictionariesService } from './services/DictionariesService.js';
 import { FsProjectRepo } from './repositories/FsProjectRepo.js';
 import { FsRequirementRepo } from './repositories/FsRequirementRepo.js';
+import { FsDictionariesRepo } from './repositories/FsDictionariesRepo.js';
 import { ArchiveRepo } from './repositories/ArchiveRepo.js';
 import { AiConfigRepo } from './repositories/AiConfigRepo.js';
 import { AiHubService, type AiClientFactory } from './services/AiHubService.js';
@@ -38,13 +40,38 @@ export function createProjectRepo(ctx: ServiceContext): FsProjectRepo {
   return new FsProjectRepo(ctx.projectsRoot);
 }
 
+/** Per-project dictionaries repository (single place that touches dictionaries.json). */
+export function createDictionariesRepo(ctx: ServiceContext, projectId: string): FsDictionariesRepo {
+  return new FsDictionariesRepo(ctx.projectsRoot, projectId);
+}
+
+/**
+ * Requirement filesystem repo that migrates a legacy `source:string` into a
+ * TEXT `sources[0]` on read (todo_19 T-105). Used ONLY by the interactive
+ * requirement use case so the app sees normalized sources. Export / archive
+ * reserialization deliberately uses the plain repo below to keep on-disk
+ * fidelity (lossless export, NFR-2).
+ */
+function migratingRequirementRepo(ctx: ServiceContext, projectId: string): FsRequirementRepo {
+  return new FsRequirementRepo(ctx.projectsRoot, projectId, {
+    dictionaries: new FsDictionariesRepo(ctx.projectsRoot, projectId),
+  });
+}
+
+/** Plain requirement filesystem repo (no legacy-source migration on read). */
+function plainRequirementRepo(ctx: ServiceContext, projectId: string): FsRequirementRepo {
+  return new FsRequirementRepo(ctx.projectsRoot, projectId);
+}
+
 /** Project use-case service, with repo + archive composed in (facade: {@link ProjectServicePort}). */
 export function createProjectService(ctx: ServiceContext): ProjectServicePort {
   return new ProjectService({
     projectsRoot: ctx.projectsRoot,
     repo: new FsProjectRepo(ctx.projectsRoot),
     archive: new ArchiveRepo(ctx.projectsRoot, {}, ctx.log),
-    makeRequirementRepo: (projectId) => new FsRequirementRepo(ctx.projectsRoot, projectId),
+    makeRequirementRepo: (projectId) => plainRequirementRepo(ctx, projectId),
+    seedDictionaries: (projectId) =>
+      new FsDictionariesRepo(ctx.projectsRoot, projectId).seedDefault().then(() => undefined),
     now: ctx.now,
     log: ctx.log,
   });
@@ -55,7 +82,22 @@ export function createRequirementService(
   ctx: ServiceContext,
   projectId: string,
 ): RequirementServicePort {
-  return new RequirementService(new FsRequirementRepo(ctx.projectsRoot, projectId), ctx.now, {
+  return new RequirementService(migratingRequirementRepo(ctx, projectId), ctx.now, {
+    log: ctx.log,
+    projectId,
+    dictionaries: new FsDictionariesRepo(ctx.projectsRoot, projectId),
+  });
+}
+
+/** Dictionaries use-case service for one project. */
+export function createDictionariesService(
+  ctx: ServiceContext,
+  projectId: string,
+): DictionariesService {
+  return new DictionariesService({
+    dict: new FsDictionariesRepo(ctx.projectsRoot, projectId),
+    requirements: plainRequirementRepo(ctx, projectId),
+    now: ctx.now,
     log: ctx.log,
     projectId,
   });

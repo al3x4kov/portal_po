@@ -7,6 +7,7 @@ export * from './domain/folders.js';
 export * from './domain/exportFields.js';
 export * from './domain/nameKey.js';
 export * from './domain/quarters.js';
+export * from './domain/dates.js';
 
 // Validation
 export * from './validation/schema.js';
@@ -26,5 +27,9 @@ export * from './graph/cascade.js';
 export * from './graph/tree.js';
 export * from './graph/parentCycles.js';
 
+// Scoring (todo_19)
+export * from './scoring/rice.js';
+
 // Presentation
 export * from './presentation/labels.js';
+export * from './presentation/sources.js';

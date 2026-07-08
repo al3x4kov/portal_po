@@ -9,6 +9,7 @@ import { Modal } from './Modal';
 import { buildForest, type TreeNode } from '../lib/tree';
 import { buildLineGuides } from '../lib/treeLines';
 import type { VisibleRow } from '../lib/visibility';
+import { sourceNamesOf } from '../lib/sources';
 
 export interface RequirementPickerModalProps {
   title: string;
@@ -74,10 +75,15 @@ export function RequirementPickerModal({
   const availableSources = useMemo(() => {
     const map = new Map<string, string>();
     for (const r of requirements) {
-      const raw = r.source ?? '';
-      const key = raw.trim().toLowerCase();
-      if (!map.has(key)) {
-        map.set(key, key === '' ? '' : raw.trim());
+      // todo_19: names from sources[], falling back to the legacy scalar source.
+      const names = sourceNamesOf(r);
+      if (names.length === 0) {
+        if (!map.has('')) map.set('', '');
+        continue;
+      }
+      for (const name of names) {
+        const key = name.trim().toLowerCase();
+        if (!map.has(key)) map.set(key, name.trim());
       }
     }
     return [...map.entries()]
@@ -109,8 +115,13 @@ export function RequirementPickerModal({
         !quarterFilter.has(`${r.targetQuarter}-${r.targetYear}`))
     )
       return false;
-    if (sourceFilter.size > 0 && !sourceFilter.has((r.source ?? '').trim().toLowerCase()))
-      return false;
+    if (sourceFilter.size > 0) {
+      // todo_19: match ANY of the requirement's source names (case-insensitive),
+      // or the «Не задан» key '' when it has no source at all.
+      const names = sourceNamesOf(r);
+      const keys = names.length === 0 ? [''] : names.map((n) => n.trim().toLowerCase());
+      if (!keys.some((k) => sourceFilter.has(k))) return false;
+    }
     return true;
   }
 

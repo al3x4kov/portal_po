@@ -106,6 +106,41 @@ describe('RequirementPickerModal', () => {
     expect(screen.queryByTestId('export-item-f3')).not.toBeInTheDocument();
   });
 
+  it('builds the «Источник» filter from sources[] (todo_19) and matches any name', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <RequirementPickerModal
+        title="Выбор требований"
+        requirements={[
+          makeReq({
+            slug: 'f1',
+            name: 'Оплата',
+            type: 'FUNCTION',
+            sources: [
+              { type: 'TEXT', name: 'АС21', priorityId: 'p1' },
+              { type: 'STANDARD', name: 'ПАО', priorityId: 'p1' },
+            ],
+          }),
+          // legacy scalar source keeps working alongside sources[].
+          makeReq({ slug: 'f2', name: 'Возвраты', type: 'FUNCTION', source: 'Регламент' }),
+        ]}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    // Both a sources[] name and the legacy scalar produce chips.
+    expect(screen.getByRole('group', { name: 'Источник' })).toBeInTheDocument();
+    expect(screen.getByTestId('export-filter-src-АС21')).toBeInTheDocument();
+    expect(screen.getByTestId('export-filter-src-ПАО')).toBeInTheDocument();
+    expect(screen.getByTestId('export-filter-src-Регламент')).toBeInTheDocument();
+
+    // Filtering by one of f1's several sources keeps f1, drops the other.
+    await user.click(screen.getByTestId('export-filter-src-ПАО'));
+    expect(screen.getByTestId('export-item-f1')).toBeInTheDocument();
+    expect(screen.queryByTestId('export-item-f2')).not.toBeInTheDocument();
+  });
+
   // ── Task 12 · F-2.2: filter/selection branches ─────────────────────────────
   describe('implementation & quarter filters', () => {
     const plannedQ1 = makeReq({

@@ -231,6 +231,9 @@ test.describe('AI против реального MockServer', () => {
     await expect(page.getByTestId('requirement-modal')).toBeVisible();
     await page.getByTestId('req-name').fill(uniqueName('MS-Req'));
     await page.getByTestId('req-criticality-high').click();
+    // ФТ-E3 (todo_19): описание и AI-панель — за вкладкой «Описание».
+    await page.getByTestId('req-tab-desc').click();
+    await expect(page.getByTestId('req-description')).toBeVisible();
     await page.getByTestId('req-description').fill('Черновик описания от пользователя.');
 
     const genOpen = page.getByTestId('ai-gen-open');

@@ -21,10 +21,11 @@ export function validateRequirement(input: unknown): Requirement {
   const req = parsed.data;
 
   if (req.implemented) {
-    // Implemented requirements never carry a target quarter/year — normalize
-    // by clearing rather than rejecting.
+    // Implemented requirements never carry a target quarter/year or a planned
+    // release date — normalize by clearing rather than rejecting (todo_19 D3).
     delete req.targetQuarter;
     delete req.targetYear;
+    delete req.releaseDate;
   }
 
   // Shared implemented ⟺ target rule (BE-2). After the clearing above only the

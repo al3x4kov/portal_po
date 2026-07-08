@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import {
   CRITICALITY_LABEL,
+  formatSourceCell,
   LINK_TYPE_LABEL,
   orderTree,
   type Criticality,
@@ -74,7 +75,9 @@ const OPTIONAL_COLUMNS: readonly OptionalColumn[] = [
     header: 'Источник',
     key: 'source',
     width: 18,
-    render: (req) => req.source ?? '',
+    // todo_19: render names from `sources[]` («; »-joined), falling back to the
+    // legacy scalar `source`; empty string when neither is set (see formatSourceCell).
+    render: (req) => formatSourceCell(req),
   },
   {
     field: 'description',

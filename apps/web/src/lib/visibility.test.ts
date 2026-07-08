@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Criticality, Requirement } from '@po/core';
+import type { Criticality, Requirement, SourceEntry } from '@po/core';
 import { buildForest } from './tree';
 import { computeVisibleRows } from './visibility';
 
@@ -268,5 +268,97 @@ describe('computeVisibleRows — implementation filter (T1, E15)', () => {
     });
     expect(res.rows).toHaveLength(5);
     expect(res.rows.every((r) => r.kind === 'match')).toBe(true);
+  });
+});
+
+function src(name: string): SourceEntry {
+  return { type: 'TEXT', name, priorityId: 'p1' };
+}
+
+/**
+ * Flat forest exercising the todo_19 source shapes:
+ *   a — sources[] = [АС21]
+ *   b — sources[] = [ПАО, АС21]  (multi-source, union)
+ *   c — legacy scalar source = 'Регламент'
+ *   d — no source at all («Не задан»)
+ */
+function sourceForest() {
+  const a = req('a', 'A', 'HIGH');
+  a.sources = [src('АС21')];
+  const b = req('b', 'B', 'HIGH');
+  b.sources = [src('ПАО'), src('АС21')];
+  const c = req('c', 'C', 'HIGH');
+  c.source = 'Регламент';
+  const d = req('d', 'D', 'HIGH');
+  return buildForest([a, b, c, d]);
+}
+
+describe('computeVisibleRows — source filter (FR-19, todo_19 sources[])', () => {
+  const base = {
+    search: '',
+    collapsed: false,
+    expanded: NONE,
+    criticalityFilter: NO_CRIT,
+  } as const;
+
+  it('matches requirements whose sources[] contains the selected name', () => {
+    const res = computeVisibleRows({
+      ...base,
+      forest: sourceForest(),
+      sourceFilter: new Set(['АС21']),
+    });
+    // a (АС21) and b (contains АС21 among many) match; c/d drop out.
+    expect(res.rows.map((r) => r.requirement.slug).sort()).toEqual(['a', 'b']);
+  });
+
+  it('unions across selected source names', () => {
+    const res = computeVisibleRows({
+      ...base,
+      forest: sourceForest(),
+      sourceFilter: new Set(['ПАО', 'Регламент']),
+    });
+    expect(res.rows.map((r) => r.requirement.slug).sort()).toEqual(['b', 'c']);
+  });
+
+  it('still matches the legacy scalar source', () => {
+    const res = computeVisibleRows({
+      ...base,
+      forest: sourceForest(),
+      sourceFilter: new Set(['Регламент']),
+    });
+    expect(res.rows.map((r) => r.requirement.slug)).toEqual(['c']);
+  });
+
+  it('«Не задан» (empty string) matches only requirements with no source', () => {
+    const res = computeVisibleRows({
+      ...base,
+      forest: sourceForest(),
+      sourceFilter: new Set(['']),
+    });
+    expect(res.rows.map((r) => r.requirement.slug)).toEqual(['d']);
+  });
+
+  it('an empty source filter behaves like no filter', () => {
+    const res = computeVisibleRows({
+      ...base,
+      forest: sourceForest(),
+      sourceFilter: new Set<string>(),
+    });
+    expect(res.rows).toHaveLength(4);
+  });
+
+  it('intersects (AND) with the criticality filter', () => {
+    const a = req('a', 'A', 'HIGH');
+    a.sources = [src('АС21')];
+    const b = req('b', 'B', 'LOW');
+    b.sources = [src('АС21')];
+    const res = computeVisibleRows({
+      ...base,
+      forest: buildForest([a, b]),
+      criticalityFilter: new Set<Criticality>(['HIGH']),
+      sourceFilter: new Set(['АС21']),
+    });
+    // Both share the source, but only the HIGH one survives the AND.
+    expect(res.rows.map((r) => r.requirement.slug)).toEqual(['a']);
   });
 });

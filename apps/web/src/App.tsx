@@ -10,6 +10,7 @@ import { Import } from './pages/Import';
 import { OpenExisting } from './pages/OpenExisting';
 import { Main } from './pages/Main';
 import { Dashboard } from './pages/Dashboard';
+import { Dictionaries } from './pages/Dictionaries';
 import { AiPage } from './pages/AiPage';
 
 export function createQueryClient(): QueryClient {
@@ -38,6 +39,7 @@ export function AppRoutes(): React.ReactElement {
       <Route path="/open" element={<OpenExisting />} />
       <Route path="/p/:id" element={<Main />} />
       <Route path="/p/:id/dashboard" element={<Dashboard />} />
+      <Route path="/p/:id/dictionaries" element={<Dictionaries />} />
       <Route path="/p/:id/ai" element={<AiPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

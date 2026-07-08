@@ -3,12 +3,16 @@ import {
   cascadeUnlink,
   cascadeUnlinkSubtree,
   dedupe,
+  newId,
   toSlug,
   validateRequirement,
+  ValidationError,
   type Criticality,
   type InfoItem,
+  type ProjectDictionaries,
   type Requirement,
   type RequirementType,
+  type SourceEntry,
   type TargetQuarter,
   UniquenessError,
 } from '@po/core';
@@ -22,6 +26,17 @@ import { withOpLog, type OpLogger } from '../lib/logger.js';
 import { NotFoundError } from '../lib/errors.js';
 import type { RequirementServicePort } from './ports.js';
 
+/**
+ * Read/write port for a project's dictionaries, as consumed by the requirement
+ * use case for priorityId validation (T-114) and source auto-collect (T-115).
+ * {@link FsDictionariesRepo} satisfies it. Lock-free: the requirement service
+ * already holds the project lock when it calls these methods.
+ */
+export interface RequirementDictionariesPort {
+  read(): Promise<ProjectDictionaries>;
+  write(dict: ProjectDictionaries): Promise<ProjectDictionaries>;
+}
+
 /** Editable fields a client may supply when creating a requirement. */
 export interface RequirementInput {
   type: RequirementType;
@@ -33,10 +48,17 @@ export interface RequirementInput {
   targetYear?: number;
   source?: string;
   infoItems?: InfoItem[];
+  sources?: SourceEntry[];
+  releaseDate?: string;
 }
 
 /** Editable fields on update; `type` is immutable and therefore omitted. */
 export type RequirementUpdate = Omit<RequirementInput, 'type'>;
+
+/** Drop an empty sources array so the field is present only when non-empty (like scenarios). */
+function normalizeSources(sources?: SourceEntry[]): SourceEntry[] | undefined {
+  return sources && sources.length > 0 ? sources : undefined;
+}
 
 /** Result of a real-time name check (FR-6.6): availability + the slug that would be assigned. */
 export interface CheckNameResult {
@@ -53,14 +75,46 @@ export interface CheckNameResult {
 export class RequirementService implements RequirementServicePort {
   private readonly log?: OpLogger;
   private readonly projectId: string;
+  private readonly dictionaries?: RequirementDictionariesPort;
 
   constructor(
     private readonly repo: RequirementRepo,
     private readonly now: () => string = () => new Date().toISOString(),
-    opts: { log?: OpLogger; projectId?: string } = {},
+    opts: { log?: OpLogger; projectId?: string; dictionaries?: RequirementDictionariesPort } = {},
   ) {
     this.log = opts.log;
     this.projectId = opts.projectId ?? '';
+    this.dictionaries = opts.dictionaries;
+  }
+
+  /**
+   * Cross-check a requirement's sources against the project dictionaries while
+   * the project lock is held (T-114/T-115): reject any unknown `priorityId`
+   * (422) and auto-collect never-seen source names into the source dictionary
+   * (type from the entry). No-op when no dictionaries port is wired.
+   */
+  private async reconcileSources(sources: readonly SourceEntry[] | undefined): Promise<void> {
+    if (!this.dictionaries) return;
+    const entries = sources ?? [];
+    const dict = await this.dictionaries.read();
+
+    const validIds = new Set(dict.priorities.map((p) => p.id));
+    for (const s of entries) {
+      if (!validIds.has(s.priorityId)) {
+        throw new ValidationError(`Unknown priorityId "${s.priorityId}" for source "${s.name}".`);
+      }
+    }
+
+    const known = new Set(dict.sources.map((s) => s.name.trim().toLowerCase()));
+    let changed = false;
+    for (const s of entries) {
+      const key = s.name.trim().toLowerCase();
+      if (known.has(key)) continue;
+      known.add(key);
+      dict.sources.push({ id: newId(), name: s.name.trim(), type: s.type });
+      changed = true;
+    }
+    if (changed) await this.dictionaries.write(dict);
   }
 
   /** Structured observability wrapper for a mutating use case (ARCH-7). */
@@ -117,11 +171,14 @@ export class RequirementService implements RequirementServicePort {
             targetYear: input.targetYear,
             source: input.source,
             infoItems: input.infoItems,
+            sources: normalizeSources(input.sources),
+            releaseDate: input.releaseDate,
             links: [],
             createdAt: ts,
             updatedAt: ts,
           };
           const req = validateRequirement(candidate); // ValidationError (422)
+          await this.reconcileSources(req.sources); // priorityId check + auto-collect
 
           await this.repo.applyBatch([{ kind: 'write', req }]);
           return req;
@@ -151,12 +208,15 @@ export class RequirementService implements RequirementServicePort {
           targetYear: input.targetYear,
           source: input.source,
           infoItems: input.infoItems,
+          sources: normalizeSources(input.sources),
+          releaseDate: input.releaseDate,
           links: existing.links,
           createdAt: existing.createdAt,
           updatedAt: this.now(),
         };
         const req = validateRequirement(candidate);
         assertUniqueName(requirements, { slug: req.slug, type: req.type, name: req.name });
+        await this.reconcileSources(req.sources); // priorityId check + auto-collect
 
         await this.repo.applyBatch([{ kind: 'write', req }]);
         return req;

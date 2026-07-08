@@ -5,6 +5,7 @@ import {
   incompleteScenarios,
   parse,
   serialize,
+  type ProjectDictionaries,
   type Requirement,
   type RequirementType,
 } from '@po/core';
@@ -41,12 +42,28 @@ const SPECS_DIR = path.join('openspec', 'specs');
  */
 export class FsRequirementRepo implements RequirementRepo {
   private readonly specsDir: string;
+  private readonly dictionaries?: { read(): Promise<ProjectDictionaries> };
 
   constructor(
     private readonly projectsRoot: string,
     private readonly projectId: string,
+    opts: { dictionaries?: { read(): Promise<ProjectDictionaries> } } = {},
   ) {
     this.specsDir = resolveSafe(projectsRoot, projectId, SPECS_DIR);
+    this.dictionaries = opts.dictionaries;
+  }
+
+  /**
+   * The default priorityId used to migrate a legacy `source:string` into a TEXT
+   * source on read (todo_19 T-105): the senior-most (smallest `order`) priority
+   * of the project. `undefined` when no dictionaries port is wired — parse then
+   * leaves any legacy `source` untouched.
+   */
+  private async defaultPriorityId(): Promise<string | undefined> {
+    if (!this.dictionaries) return undefined;
+    const { priorities } = await this.dictionaries.read();
+    if (priorities.length === 0) return undefined;
+    return priorities.reduce((a, b) => (b.order < a.order ? b : a)).id;
   }
 
   /**
@@ -71,6 +88,7 @@ export class FsRequirementRepo implements RequirementRepo {
   async loadAll(): Promise<LoadResult> {
     const requirements: Requirement[] = [];
     const broken: BrokenRequirement[] = [];
+    const defaultPriorityId = await this.defaultPriorityId();
 
     for (const type of ['FUNCTION', 'NFR'] as RequirementType[]) {
       const dir = this.dirOf(type);
@@ -82,7 +100,7 @@ export class FsRequirementRepo implements RequirementRepo {
         const full = path.join(dir, entry.name);
         try {
           const raw = await fs.readFile(full, 'utf8');
-          requirements.push(parse(raw, { slug, type }));
+          requirements.push(parse(raw, { slug, type, defaultPriorityId }));
         } catch (err) {
           broken.push({
             file: path.join(FOLDER[type], entry.name),

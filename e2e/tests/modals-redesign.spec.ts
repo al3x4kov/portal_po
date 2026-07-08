@@ -9,6 +9,7 @@ import {
   rowByName,
   uniqueName,
 } from './helpers/app.js';
+import { addSourceCard, openPriorityTab, saveRequirementModal } from './helpers/todo19.js';
 
 /**
  * T4 (todo_17) · Редизайн модалок по new_design/screens/*:
@@ -59,6 +60,8 @@ test.describe('T4 · RequirementModal (requirement-modal.html)', () => {
     await addRequirement(page, { kind: 'function', name, description: 'исходное описание' });
 
     const modal = await openEdit(page, name);
+    // ФТ-E3 (todo_19): модалка вкладочная, дефолт — «Основное»; описание за вкладкой.
+    await page.getByTestId('req-tab-desc').click();
     await page.getByTestId('req-description').fill('несохранённое изменение');
     await page.getByTestId('req-cancel').click();
 
@@ -82,7 +85,7 @@ test.describe('T4 · RequirementModal (requirement-modal.html)', () => {
     await expect(page.getByTestId('req-description')).toHaveValue('исходное описание');
   });
 
-  test('табы: «Описание» по умолчанию; «Связи» и «Справочно» — за табами (edit); в create-режиме таба «Связи» нет', async ({
+  test('табы: «Основное» по умолчанию; «Описание»/«Связи»/«Справочно» — за табами (edit); в create-режиме таба «Связи» нет', async ({
     page,
   }) => {
     await createProject(page, uniqueName('tabs-proj'));
@@ -107,8 +110,15 @@ test.describe('T4 · RequirementModal (requirement-modal.html)', () => {
     await page.getByTestId('req-cancel').click(); // create-режим: без confirm
     await expect(modal).toBeHidden();
 
-    // Edit-режим: «Описание» активен по умолчанию, связи скрыты за табом.
+    // Edit-режим (todo_19): по умолчанию активна вкладка «Основное»; описание и
+    // связи скрыты за своими табами.
     await openEdit(page, a);
+    await expect(page.getByTestId('req-name')).toBeVisible();
+    await expect(page.getByTestId('req-description')).toBeHidden();
+    await expect(page.getByTestId('req-links-ft')).toBeHidden();
+
+    // Таб «Описание»: описание видно.
+    await page.getByTestId('req-tab-desc').click();
     await expect(page.getByTestId('req-description')).toBeVisible();
     await expect(page.getByTestId('req-links-ft')).toBeHidden();
 
@@ -128,24 +138,53 @@ test.describe('T4 · RequirementModal (requirement-modal.html)', () => {
     await expect(page.getByTestId('req-description')).toBeVisible();
   });
 
-  test('источник: select с пресетами и «Другой…» с кастомным вводом', async ({ page }) => {
+  test('источник: карточка на «Приоритизации» сидирует sources[], виден в дереве и round-trip’ится', async ({
+    page,
+  }) => {
+    // todo_18: легаси-поле «Источник» (быстрый select + «Другой…») удалено с вкладки
+    // «Основное». Источники задаются ТОЛЬКО карточками на вкладке «Приоритизация»
+    // (src-add). Значение после сохранения видно в колонке дерева «Источник» (sources[])
+    // и round-trip’ится карточкой src-name-0-input при переоткрытии.
     await createProject(page, uniqueName('source-proj'));
-    const preset = uniqueName('F-src-preset');
-    const custom = uniqueName('F-src-custom');
-    await addRequirement(page, { kind: 'function', name: preset, source: 'АС21' });
-    await addRequirement(page, { kind: 'function', name: custom, source: 'Регламент 42' });
+    const first = uniqueName('F-src-first');
+    const second = uniqueName('F-src-second');
 
-    // Пресет сохранился и отображается выбранным в select.
-    let modal = await openEdit(page, preset);
-    await expect(page.getByTestId('req-source')).toHaveValue('АС21');
+    // На вкладке «Основное» легаси-поля «Источник»/«Другой…» больше нет.
+    await page.getByTestId('add-function').click();
+    await expect(page.getByTestId('requirement-modal')).toBeVisible();
+    await expect(page.getByTestId('req-source')).toHaveCount(0);
     await expect(page.getByTestId('req-source-custom')).toHaveCount(0);
-    await page.getByTestId('requirement-modal-close').click();
-    await expect(modal).toBeHidden();
+    await page.getByTestId('req-cancel').click();
+    await expect(page.getByTestId('requirement-modal')).toBeHidden();
 
-    // Кастомный источник: select в положении «Другой…», значение — в текстовом поле.
-    modal = await openEdit(page, custom);
-    await expect(page.getByTestId('req-source')).toHaveValue('__custom__');
-    await expect(page.getByTestId('req-source-custom')).toHaveValue('Регламент 42');
+    // Источник задаётся карточкой на вкладке «Приоритизация».
+    await addRequirement(page, { kind: 'function', name: first });
+    await addRequirement(page, { kind: 'function', name: second });
+
+    await openPriorityTab(page, first);
+    await addSourceCard(page, 0, { name: 'АС21' });
+    await saveRequirementModal(page);
+
+    await openPriorityTab(page, second);
+    await addSourceCard(page, 0, { name: 'Регламент 42' });
+    await saveRequirementModal(page);
+
+    // Оба видны в колонке дерева «Источник» (sources[]).
+    await expect(rowByName(page, first).getByTestId('req-sources-cell')).toContainText('АС21');
+    await expect(rowByName(page, second).getByTestId('req-sources-cell')).toContainText(
+      'Регламент 42',
+    );
+
+    // Источник round-trip’ится карточкой на вкладке «Приоритизация».
+    await openPriorityTab(page, first);
+    await expect(page.getByTestId('src-name-0-input')).toHaveValue('АС21');
+    await page.getByTestId('requirement-modal-close').click();
+    await expect(page.getByTestId('requirement-modal')).toBeHidden();
+
+    await openPriorityTab(page, second);
+    await expect(page.getByTestId('src-name-0-input')).toHaveValue('Регламент 42');
+    await page.getByTestId('requirement-modal-close').click();
+    await expect(page.getByTestId('requirement-modal')).toBeHidden();
   });
 });
 

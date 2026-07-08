@@ -32,6 +32,12 @@ export interface ProjectServiceDeps {
   now?: () => string;
   /** Optional structured logger (ARCH-7). */
   log?: OpLogger;
+  /**
+   * Seed a freshly created project's dictionaries (todo_19 T-113). Runs inside
+   * the project-create lock, after the OpenSpec scaffold. Optional so existing
+   * callers/tests that don't care about dictionaries stay unaffected.
+   */
+  seedDictionaries?: (projectId: string) => Promise<void>;
 }
 
 /**
@@ -46,6 +52,7 @@ export class ProjectService implements ProjectServicePort {
   private readonly makeRequirementRepo?: (projectId: string) => Pick<RequirementRepo, 'loadAll'>;
   private readonly now: () => string;
   private readonly log?: OpLogger;
+  private readonly seedDictionaries?: (projectId: string) => Promise<void>;
 
   constructor(deps: ProjectServiceDeps) {
     this.projectsRoot = deps.projectsRoot;
@@ -54,6 +61,7 @@ export class ProjectService implements ProjectServicePort {
     this.makeRequirementRepo = deps.makeRequirementRepo;
     this.now = deps.now ?? (() => new Date().toISOString());
     this.log = deps.log;
+    this.seedDictionaries = deps.seedDictionaries;
   }
 
   list(): Promise<ProjectSummary[]> {
@@ -67,9 +75,11 @@ export class ProjectService implements ProjectServicePort {
   /** Create a project; serialized on its target directory so concurrent
    * same-name creates cannot both scaffold the same folder (ADR-003). */
   create(name: string): Promise<ProjectSummary> {
-    return withProjectLock(this.projectsRoot, sanitizeProjectName(name), () =>
-      this.repo.create(name, this.now),
-    );
+    return withProjectLock(this.projectsRoot, sanitizeProjectName(name), async () => {
+      const summary = await this.repo.create(name, this.now);
+      if (this.seedDictionaries) await this.seedDictionaries(summary.id);
+      return summary;
+    });
   }
 
   /**

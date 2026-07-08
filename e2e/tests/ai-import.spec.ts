@@ -992,13 +992,18 @@ test.describe('Task 13 · AI-импорт: структура, поля, рет�
     expect(req?.targetQuarter).toBeUndefined();
     expect(req?.targetYear).toBeUndefined();
 
-    // UI: модалка редактирования показывает пустой «Источник» и активную
-    // кнопку «Реализовано» без блока квартала/года.
+    // UI: модалка редактирования показывает активную кнопку «Реализовано» без
+    // блока квартала/года. todo_18: легаси-поле «Источник» удалено с вкладки
+    // «Основное» — пустой источник подтверждается отсутствием карточек на вкладке
+    // «Приоритизация» (src-empty).
     await openEdit(page, REQ_LOGS);
-    await expect(page.getByTestId('req-source')).toHaveValue('');
+    await expect(page.getByTestId('req-source')).toHaveCount(0);
     await expect(page.getByTestId('req-implemented-yes')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('req-target')).toHaveCount(0);
     await attachShot(page, testInfo, 'imported-fields-modal');
+    await page.getByTestId('req-tab-priority').click();
+    await expect(page.getByTestId('req-priority-tab')).toBeVisible();
+    await expect(page.getByTestId('src-empty')).toBeVisible();
     await page.getByTestId('req-cancel').click();
     await expect(page.getByTestId('requirement-modal')).toBeHidden();
   });

@@ -8,16 +8,19 @@ import {
   useCreateRequirement,
   useCreateLink,
   useDeleteRequirement,
+  useDictionaries,
 } from '../api/hooks';
 import { ApiError, errorMessage } from '../api/client';
 import { useUiStore } from '../store/ui';
 import { ancestorNamesOf, buildForest, descendantCountOf } from '../lib/tree';
 import { computeVisibleRows } from '../lib/visibility';
+import { sourceNamesOf } from '../lib/sources';
 import { matchesLabel, requirementsLabel } from '../lib/plural';
 import { Sidebar } from '../components/Sidebar';
 import { PathHeader } from '../components/PathHeader';
 import { TreeToolbar } from '../components/TreeToolbar';
 import { TreeTable } from '../components/TreeTable';
+import { SourceSlice } from '../components/SourceSlice';
 import { DescPanel } from '../components/DescPanel';
 import { RequirementModal } from '../components/RequirementModal';
 import { LinkModal } from '../components/LinkModal';
@@ -36,6 +39,8 @@ export function Main(): React.ReactElement {
   const closeModal = useUiStore((s) => s.closeModal);
 
   const graphView = useUiStore((s) => s.graphView);
+  const mainView = useUiStore((s) => s.mainView);
+  const setMainView = useUiStore((s) => s.setMainView);
   const treeMode = useUiStore((s) => s.treeMode);
   const search = useUiStore((s) => s.search);
   const expanded = useUiStore((s) => s.expanded);
@@ -49,6 +54,8 @@ export function Main(): React.ReactElement {
   const deleteMut = useDeleteRequirement(id);
   const createReqMut = useCreateRequirement(id);
   const createLinkMut = useCreateLink(id);
+  const dictionariesQuery = useDictionaries(id);
+  const priorities = dictionariesQuery.data?.priorities ?? [];
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [descReq, setDescReq] = useState<Requirement | null>(null);
   // Task 11: AI-import modal lives outside the ui-store modal union — it must
@@ -75,11 +82,13 @@ export function Main(): React.ReactElement {
     [requirements],
   );
 
-  // FR-19: unique source values from all requirements + presets, sorted.
+  // FR-19: unique source names across all requirements + presets, sorted.
+  // Names come from `sources[]` (todo_19), falling back to the legacy scalar
+  // `source` for not-yet-migrated requirements (see sourceNamesOf).
   const availableSources = useMemo(() => {
     const srcSet = new Set<string>(SOURCE_PRESETS);
     for (const r of requirements) {
-      if (r.source) srcSet.add(r.source);
+      for (const name of sourceNamesOf(r)) srcSet.add(name);
     }
     return [...srcSet].sort();
   }, [requirements]);
@@ -333,75 +342,115 @@ export function Main(): React.ReactElement {
             <GraphView projectId={id} />
           ) : (
             <>
-              {searchActive ? (
-                <p
-                  className="mb-3 text-xs"
-                  style={{ color: 'var(--color-text-3)' }}
-                  data-testid="search-count"
+              {/* todo_19 (T-208): Дерево ↔ «По источникам» срез. */}
+              <div
+                className="mb-3 inline-flex rounded-lg p-1"
+                style={{ background: 'var(--color-surface-2)' }}
+                role="tablist"
+                aria-label="Режим главного экрана"
+                data-testid="main-view-toggle"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mainView === 'tree'}
+                  className={`rounded-md px-3 py-1.5 text-sm ${mainView === 'tree' ? 'surface font-semibold shadow-sm' : ''}`}
+                  style={mainView === 'tree' ? undefined : { color: 'var(--color-text-2)' }}
+                  data-testid="main-view-tree"
+                  onClick={() => setMainView('tree')}
                 >
-                  {matchesLabel(matchCount)} · показаны предки
-                </p>
-              ) : null}
-              {filtersActive ? (
-                <div
-                  className="mb-3 flex flex-wrap items-center gap-2 text-xs"
-                  data-testid="filters-applied"
+                  Дерево
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mainView === 'sources'}
+                  className={`rounded-md px-3 py-1.5 text-sm ${mainView === 'sources' ? 'surface font-semibold shadow-sm' : ''}`}
+                  style={mainView === 'sources' ? undefined : { color: 'var(--color-text-2)' }}
+                  data-testid="main-view-sources"
+                  onClick={() => setMainView('sources')}
                 >
-                  <span
-                    className="badge"
-                    style={{
-                      background: 'var(--color-primary-soft)',
-                      color: 'var(--color-primary)',
-                    }}
-                  >
-                    Фильтры применены
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn-ghost px-2 py-0.5 text-xs"
-                    data-testid="filters-reset-all"
-                    onClick={resetFilters}
-                  >
-                    Сбросить все фильтры
-                  </button>
-                </div>
-              ) : null}
-              <TreeTable
-                title="Функциональные требования"
-                addLabel="+ Функция"
-                testidPrefix="function"
-                count={functional.length}
-                rows={fnVis.rows}
-                nameBySlug={nameBySlug}
-                onAdd={() => openModal({ kind: 'requirement', reqType: 'FUNCTION' })}
-                onEdit={onEdit}
-                onLink={onLink}
-                onAddNfr={onAddNfr}
-                onAddChild={handleAddChild}
-                onDelete={onDelete}
-                onDescExpand={setDescReq}
-                onAddDesc={onAddDesc}
-                onExpandNode={toggleExpanded}
-                onToggleNode={toggleExpanded}
-                interactiveChevron={collapsed}
-              />
-              <TreeTable
-                title="Нефункциональные требования"
-                addLabel="+ НФТ"
-                testidPrefix="nfr"
-                count={nfr.length}
-                rows={nfrVis.rows}
-                nameBySlug={nameBySlug}
-                onAdd={() => openModal({ kind: 'requirement', reqType: 'NFR' })}
-                onEdit={onEdit}
-                onLink={onLink}
-                onDelete={onDelete}
-                onDescExpand={setDescReq}
-                onAddDesc={onAddDesc}
-                onExpandNode={toggleExpanded}
-                onToggleNode={toggleExpanded}
-                interactiveChevron={collapsed}
-              />
+                  По источникам
+                </button>
+              </div>
+
+              {mainView === 'sources' ? (
+                <SourceSlice requirements={requirements} priorities={priorities} onOpen={onEdit} />
+              ) : (
+                <>
+                  {searchActive ? (
+                    <p
+                      className="mb-3 text-xs"
+                      style={{ color: 'var(--color-text-3)' }}
+                      data-testid="search-count"
+                    >
+                      {matchesLabel(matchCount)} · показаны предки
+                    </p>
+                  ) : null}
+                  {filtersActive ? (
+                    <div
+                      className="mb-3 flex flex-wrap items-center gap-2 text-xs"
+                      data-testid="filters-applied"
+                    >
+                      <span
+                        className="badge"
+                        style={{
+                          background: 'var(--color-primary-soft)',
+                          color: 'var(--color-primary)',
+                        }}
+                      >
+                        Фильтры применены
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost px-2 py-0.5 text-xs"
+                        data-testid="filters-reset-all"
+                        onClick={resetFilters}
+                      >
+                        Сбросить все фильтры
+                      </button>
+                    </div>
+                  ) : null}
+                  <TreeTable
+                    title="Функциональные требования"
+                    addLabel="+ Функция"
+                    testidPrefix="function"
+                    count={functional.length}
+                    rows={fnVis.rows}
+                    nameBySlug={nameBySlug}
+                    priorities={priorities}
+                    onAdd={() => openModal({ kind: 'requirement', reqType: 'FUNCTION' })}
+                    onEdit={onEdit}
+                    onLink={onLink}
+                    onAddNfr={onAddNfr}
+                    onAddChild={handleAddChild}
+                    onDelete={onDelete}
+                    onDescExpand={setDescReq}
+                    onAddDesc={onAddDesc}
+                    onExpandNode={toggleExpanded}
+                    onToggleNode={toggleExpanded}
+                    interactiveChevron={collapsed}
+                  />
+                  <TreeTable
+                    title="Нефункциональные требования"
+                    addLabel="+ НФТ"
+                    testidPrefix="nfr"
+                    count={nfr.length}
+                    rows={nfrVis.rows}
+                    nameBySlug={nameBySlug}
+                    priorities={priorities}
+                    onAdd={() => openModal({ kind: 'requirement', reqType: 'NFR' })}
+                    onEdit={onEdit}
+                    onLink={onLink}
+                    onDelete={onDelete}
+                    onDescExpand={setDescReq}
+                    onAddDesc={onAddDesc}
+                    onExpandNode={toggleExpanded}
+                    onToggleNode={toggleExpanded}
+                    interactiveChevron={collapsed}
+                  />
+                </>
+              )}
             </>
           )}
         </main>

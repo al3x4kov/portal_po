@@ -25,6 +25,18 @@ vi.mock('../api/endpoints', () => ({
     create: (...a: unknown[]) => linkCreate(...a),
     remove: (...a: unknown[]) => linkRemove(...a),
   },
+  dictionariesApi: {
+    get: vi.fn().mockResolvedValue({
+      priorities: [{ id: 'default', name: 'Квартальная цель', color: 'amber', order: 0 }],
+      sources: [],
+    }),
+    addPriority: vi.fn(),
+    updatePriority: vi.fn(),
+    deletePriority: vi.fn(),
+    addSource: vi.fn(),
+    updateSource: vi.fn(),
+    deleteSource: vi.fn(),
+  },
   aiApi: {
     getConfig: vi.fn().mockResolvedValue({ baseURL: '', hasApiKey: false }),
     saveConfig: vi.fn(),
@@ -47,6 +59,8 @@ describe('RequirementModal (T-1106, FR-6)', () => {
     const user = userEvent.setup();
     renderWithProviders(<RequirementModal projectId="p1" reqType="NFR" onClose={vi.fn()} />);
     expect(screen.getByTestId('requirement-modal-badge')).toHaveTextContent('Нефункциональное');
+    // ФТ-E3: описание и счётчик — на вкладке «Описание и сценарии».
+    await user.click(screen.getByTestId('req-tab-desc'));
     expect(screen.getByTestId('req-desc-count')).toHaveTextContent('0 / 5000');
     await user.type(screen.getByTestId('req-description'), 'Привет');
     expect(screen.getByTestId('req-desc-count')).toHaveTextContent('6 / 5000');
@@ -192,6 +206,47 @@ describe('RequirementModal (T-1106, FR-6)', () => {
     expect(screen.queryByTestId('req-links-nfr')).not.toBeInTheDocument();
     // T4: no «Связи» tab either (the footer hint appears once the form is fillable).
     expect(screen.queryByTestId('req-tab-links')).not.toBeInTheDocument();
+  });
+
+  // ── ФТ-E3 · табовая структура модалки ────────────────────────────────────────
+  it('ФТ-E3: renders the 5-tab structure with «Основное» active by default', () => {
+    renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />);
+    // Пять вкладок (Связи — только в режиме редактирования, тут create → 4 видимых).
+    expect(screen.getByTestId('req-tab-main')).toHaveTextContent('Основное');
+    expect(screen.getByTestId('req-tab-priority')).toHaveTextContent('Приоритизация');
+    expect(screen.getByTestId('req-tab-desc')).toHaveTextContent('Описание и сценарии');
+    expect(screen.getByTestId('req-tab-info')).toHaveTextContent('Справочно');
+    // «Основное» активна по умолчанию: её панель видна, поле имени в ней.
+    expect(screen.getByTestId('req-tab-main')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('req-name')).toBeVisible();
+  });
+
+  it('T-205: «Приоритизация» renders the sources tab with add + aggregate', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />);
+    await user.click(screen.getByTestId('req-tab-priority'));
+    // Dictionaries load asynchronously; the real tab replaces the loading note.
+    const tab = await screen.findByTestId('req-priority-tab');
+    expect(tab).toBeVisible();
+    expect(screen.getByTestId('src-add')).toBeInTheDocument();
+    // No sources yet → aggregate priority/RICE show «—».
+    expect(screen.getByTestId('req-aggregate-rice')).toHaveTextContent('—');
+    expect(screen.getByTestId('po-decision')).toBeInTheDocument();
+  });
+
+  it('T-205: adding a source card creates RICE fields with a live score', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<RequirementModal projectId="p1" reqType="FUNCTION" onClose={vi.fn()} />);
+    await user.click(screen.getByTestId('req-tab-priority'));
+    await screen.findByTestId('req-priority-tab');
+    await user.click(screen.getByTestId('src-add'));
+    expect(screen.getByTestId('src-card-0')).toBeInTheDocument();
+    // riceScore(4,3,0.8,3) = 3.2 (computed in @po/core).
+    await user.selectOptions(screen.getByTestId('src-rice-reach-0'), '4');
+    await user.selectOptions(screen.getByTestId('src-rice-impact-0'), '3');
+    await user.selectOptions(screen.getByTestId('src-rice-confidence-0'), '0.8');
+    await user.selectOptions(screen.getByTestId('src-rice-effort-0'), '3');
+    expect(screen.getByTestId('src-score-0')).toHaveTextContent('3.2');
   });
 
   // ── T3 · inline delete of a link ─────────────────────────────────────────────

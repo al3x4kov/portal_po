@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Check } from 'lucide-react';
-import type { Requirement } from '@po/core';
+import { aggregateRiceScore, type Requirement } from '@po/core';
 import { useProject, useRequirements } from '../api/hooks';
 import { Sidebar } from '../components/Sidebar';
 import { PathHeader } from '../components/PathHeader';
@@ -286,6 +286,15 @@ export function Dashboard(): React.ReactElement {
 
   const noDescTotal = fnNoDesc.length + nfrNoDesc.length;
 
+  // T-209 (ФТ-B4): top-5 requirements by aggregate RICE (undefined scores excluded).
+  const topRice = useMemo(() => {
+    return requirements
+      .map((r) => ({ req: r, score: aggregateRiceScore(r.sources ?? []) }))
+      .filter((x): x is { req: Requirement; score: number } => x.score !== undefined)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+  }, [requirements]);
+
   const modal = useUiStore((s) => s.modal);
   const openModal = useUiStore((s) => s.openModal);
   const closeModal = useUiStore((s) => s.closeModal);
@@ -345,6 +354,65 @@ export function Dashboard(): React.ReactElement {
                   detail="нет связанного нефункц. требования"
                   tone={functionsWithoutNfr.length > 0 ? 'warning' : 'success'}
                 />
+              </div>
+
+              {/* T-209 (ФТ-B4): топ-5 требований по итоговому RICE. */}
+              <div className="card" data-testid="dash-top-rice">
+                <div
+                  className="flex items-center gap-2 border-b px-5 py-3.5"
+                  style={{ borderColor: 'var(--color-border)' }}
+                >
+                  <h2 className="text-sm font-semibold">Топ-5 по RICE</h2>
+                </div>
+                {topRice.length === 0 ? (
+                  <p
+                    className="px-5 py-6 text-sm"
+                    style={{ color: 'var(--color-text-3)' }}
+                    data-testid="dash-top-rice-empty"
+                  >
+                    Ни у одного требования пока нет RICE-оценки. Заполните её на вкладке
+                    «Приоритизация» — рейтинг появится здесь.
+                  </p>
+                ) : (
+                  <ol className="p-5">
+                    {topRice.map(({ req, score }, i) => (
+                      <li
+                        key={req.slug}
+                        className="flex items-center gap-3 border-b py-2 last:border-b-0"
+                        style={{ borderColor: 'var(--color-border)' }}
+                        data-testid={`dash-top-rice-item-${req.slug}`}
+                      >
+                        <span
+                          className="grid h-6 w-6 flex-none place-items-center rounded-full text-xs font-bold"
+                          style={{
+                            background: 'var(--color-surface-2)',
+                            color: 'var(--color-text-2)',
+                          }}
+                          aria-hidden="true"
+                        >
+                          {i + 1}
+                        </span>
+                        <CriticalityBadge criticality={req.criticality} />
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 truncate text-left text-sm underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                          title={`Открыть «${req.name}»`}
+                          onClick={() =>
+                            openModal({ kind: 'requirement', reqType: req.type, requirement: req })
+                          }
+                        >
+                          {req.name}
+                        </button>
+                        <span
+                          className="mono flex-none text-sm font-bold"
+                          data-testid={`dash-top-rice-score-${req.slug}`}
+                        >
+                          {score.toFixed(1)}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </div>
 
               {/* §2.19.1: карточка «Качество описаний» видна всегда — при нуле

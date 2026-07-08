@@ -1,13 +1,92 @@
-import { ChevronDown, ChevronRight, GitBranchPlus, Link2, ShieldPlus, Trash2 } from 'lucide-react';
-import type { LinkType, Requirement } from '@po/core';
+import { useState } from 'react';
+import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronRight,
+  GitBranchPlus,
+  Link2,
+  ShieldPlus,
+  Trash2,
+} from 'lucide-react';
+import {
+  aggregatePriorityId,
+  aggregateRiceScore,
+  type LinkType,
+  type Requirement,
+  type SourceEntry,
+  type SourcePriority,
+} from '@po/core';
 import type { VisibleRow } from '../lib/visibility';
 import { buildLineGuides, type LineGuide } from '../lib/treeLines';
 import { nestedLabel } from '../lib/plural';
 import { LINK_TYPE_LABEL, describeLink } from '../lib/linkTypes';
-import { CriticalityBadge, ImplementationBadge } from './badges';
+import { SOURCE_TYPE_ICON, SOURCE_TYPE_LABEL } from '../lib/sourceTypes';
+import { CriticalityBadge } from './badges';
+import { PriorityBadge } from './PriorityBadge';
 
 /** Link types shown as inline relationship chips (hierarchy is shown by the tree itself). */
 const REL_TYPES: readonly LinkType[] = ['RELATES_TO', 'DEPENDS_ON', 'BLOCKED_BY'];
+
+export type RiceSort = 'none' | 'desc' | 'asc';
+
+/** Aggregate RICE score of a requirement (max across its sources; undefined = none). */
+function riceOf(req: Requirement): number | undefined {
+  return aggregateRiceScore(req.sources ?? []);
+}
+
+/** The most senior source (min priority order) or the first one as a fallback. */
+function seniorSource(
+  sources: readonly SourceEntry[],
+  priorities: readonly SourcePriority[],
+): SourceEntry | undefined {
+  if (sources.length === 0) return undefined;
+  const seniorId = aggregatePriorityId(sources, priorities);
+  return sources.find((s) => s.priorityId === seniorId) ?? sources[0];
+}
+
+function priorityOf(priorities: readonly SourcePriority[], id: string): SourcePriority | undefined {
+  return priorities.find((p) => p.id === id);
+}
+
+/** Compare two rows by aggregate RICE; undefined always sinks to the end. */
+function compareRice(a: VisibleRow, b: VisibleRow, dir: 'desc' | 'asc'): number {
+  const sa = riceOf(a.requirement);
+  const sb = riceOf(b.requirement);
+  if (sa === undefined && sb === undefined) return 0;
+  if (sa === undefined) return 1;
+  if (sb === undefined) return -1;
+  return dir === 'desc' ? sb - sa : sa - sb;
+}
+
+/** Two-level term cell content: plan (quarter/year) + optional release date, or «Реализовано». */
+function TermCell({ req }: { req: Requirement }): React.ReactElement {
+  if (req.implemented) {
+    return (
+      <span className="font-semibold" style={{ color: 'var(--color-success-fg)' }}>
+        Реализовано
+      </span>
+    );
+  }
+  const plan = `${req.targetQuarter ?? ''} ${req.targetYear ?? ''}`.trim();
+  return (
+    <span className="leading-tight">
+      {plan ? (
+        <span className="block font-medium">{plan}</span>
+      ) : (
+        <span className="block" style={{ color: 'var(--color-text-3)' }}>
+          —
+        </span>
+      )}
+      {req.releaseDate ? (
+        <span className="block text-[11.5px]" style={{ color: 'var(--color-text-3)' }}>
+          выпуск {req.releaseDate}
+        </span>
+      ) : null}
+    </span>
+  );
+}
 
 function relChipStyle(type: LinkType): React.CSSProperties {
   switch (type) {
@@ -29,6 +108,8 @@ interface TreeTableProps {
   rows: VisibleRow[];
   /** Project-wide slug → name map, to render link targets by name. */
   nameBySlug: Map<string, string>;
+  /** todo_19 (T-207): project priority dictionary, to resolve source priorities. */
+  priorities?: readonly SourcePriority[];
   onAdd: () => void;
   onEdit: (req: Requirement) => void;
   onLink: (req: Requirement) => void;
@@ -57,6 +138,7 @@ interface TreeTableProps {
 function Row({
   row,
   lineGuides,
+  priorities,
   nameBySlug,
   onEdit,
   onLink,
@@ -71,6 +153,7 @@ function Row({
 }: {
   row: VisibleRow;
   lineGuides: LineGuide[];
+  priorities: readonly SourcePriority[];
   nameBySlug: Map<string, string>;
   onEdit: (r: Requirement) => void;
   onLink: (r: Requirement) => void;
@@ -94,6 +177,21 @@ function Row({
   // UX-2: deletion of a node with children is allowed as a reinforced cascade
   // (Main opens the confirm dialog); the row button only signals the intent.
   const cascadeDelete = row.hasChildren;
+
+  // todo_19 (T-207): aggregate RICE + senior source/priority for the new columns.
+  const sources = req.sources ?? [];
+  const rice = riceOf(req);
+  const senior = seniorSource(sources, priorities);
+  const seniorPriority = senior ? priorityOf(priorities, senior.priorityId) : undefined;
+  const extraCount = sources.length > 0 ? sources.length - 1 : 0;
+  const SeniorIcon = senior ? SOURCE_TYPE_ICON[senior.type] : null;
+  const extraTitle = sources
+    .filter((s) => s !== senior)
+    .map((s) => {
+      const p = priorityOf(priorities, s.priorityId);
+      return `${s.name}${p ? ` · ${p.name}` : ''}`;
+    })
+    .join(' · ');
 
   return (
     <tr
@@ -195,15 +293,57 @@ function Row({
       <td className="w-[130px] py-2.5 pr-3 align-middle" data-testid="req-criticality-cell">
         <CriticalityBadge criticality={req.criticality} />
       </td>
-      <td className="w-[140px] py-2.5 pr-3 align-middle" data-testid="req-implemented-cell">
-        <ImplementationBadge req={req} />
+      <td
+        className="w-[80px] py-2.5 pr-3 align-middle mono font-bold"
+        data-testid="req-rice-cell"
+        data-rice={rice ?? ''}
+      >
+        {rice === undefined ? (
+          <span style={{ color: 'var(--color-text-3)' }}>—</span>
+        ) : (
+          rice.toFixed(1)
+        )}
       </td>
-      <td className="w-[130px] py-2.5 pr-3 align-middle" data-testid="req-source-cell">
-        {req.source ? (
-          <span>{req.source}</span>
+      <td className="py-2.5 pr-3 align-middle" data-testid="req-sources-cell">
+        {senior ? (
+          <span className="flex flex-wrap items-center gap-1.5">
+            {SeniorIcon ? (
+              <SeniorIcon
+                className="icon-sm"
+                aria-hidden="true"
+                style={{ color: 'var(--color-text-3)' }}
+              />
+            ) : null}
+            <span
+              className="font-medium"
+              title={`${SOURCE_TYPE_LABEL[senior.type]}: ${senior.name}`}
+            >
+              {senior.name}
+            </span>
+            {seniorPriority ? (
+              <PriorityBadge
+                name={seniorPriority.name}
+                color={seniorPriority.color}
+                size="sm"
+                testid={`req-priority-badge-${req.slug}`}
+              />
+            ) : null}
+            {extraCount > 0 ? (
+              <span
+                className="chip"
+                data-testid={`req-sources-extra-${req.slug}`}
+                title={extraTitle}
+              >
+                +{extraCount}
+              </span>
+            ) : null}
+          </span>
         ) : (
           <span style={{ color: 'var(--color-text-3)' }}>—</span>
         )}
+      </td>
+      <td className="w-[150px] py-2.5 pr-3 align-middle text-[13px]" data-testid="req-term-cell">
+        <TermCell req={req} />
       </td>
       <td className="py-2.5 pr-3 align-top" data-testid="req-links-cell">
         {relLinks.length > 0 ? (
@@ -213,7 +353,7 @@ function Row({
               return (
                 <span
                   key={`${l.type}-${l.targetSlug}`}
-                  className="inline-flex max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium"
+                  className="inline-flex max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-medium"
                   style={relChipStyle(l.type)}
                   data-testid={`rel-chip-${req.slug}-${l.targetSlug}`}
                   data-rel-type={l.type}
@@ -339,6 +479,7 @@ export function TreeTable({
   count,
   rows,
   nameBySlug,
+  priorities = [],
   onAdd,
   onEdit,
   onLink,
@@ -351,8 +492,25 @@ export function TreeTable({
   onToggleNode,
   interactiveChevron,
 }: TreeTableProps): React.ReactElement {
-  // T-507: compute tree line guides for all visible rows in one pass.
-  const guides = buildLineGuides(rows);
+  // todo_19 (T-207): optional RICE sort. Default keeps the tree order + line
+  // guides; sorting flattens to a RICE-ranked list (undefined scores last) and
+  // drops the hierarchy guides (a ranked list is no longer a tree).
+  const [riceSort, setRiceSort] = useState<RiceSort>('none');
+  const cycleRiceSort = (): void =>
+    setRiceSort((s) => (s === 'none' ? 'desc' : s === 'desc' ? 'asc' : 'none'));
+
+  const sorted = riceSort === 'none' ? rows : [...rows].sort((a, b) => compareRice(a, b, riceSort));
+  // T-507: compute tree line guides for all visible rows in one pass (only when
+  // the natural tree order is preserved).
+  const guides =
+    riceSort === 'none' ? buildLineGuides(sorted) : sorted.map(() => [] as LineGuide[]);
+
+  const RiceSortIcon =
+    riceSort === 'desc'
+      ? ArrowDownWideNarrow
+      : riceSort === 'asc'
+        ? ArrowUpNarrowWide
+        : ArrowUpDown;
 
   return (
     <section className="card mb-5 overflow-hidden" data-testid={`section-${testidPrefix}`}>
@@ -392,7 +550,12 @@ export function TreeTable({
       ) : (
         <div className="overflow-x-auto">
           {/* Правка PO: шрифт таблицы дерева чуть мельче макета — 13px в ячейках. */}
-          <table className="w-full table-fixed text-[13px]" data-testid={`table-${testidPrefix}`}>
+          {/* todo_19 fix: min-width + explicit «Описание» width so no column
+              collapses to 0px on narrow viewports — the wrapper scrolls instead. */}
+          <table
+            className="w-full min-w-[1200px] table-fixed text-[13px]"
+            data-testid={`table-${testidPrefix}`}
+          >
             <thead>
               <tr
                 className="text-left text-xs uppercase tracking-wide"
@@ -400,21 +563,41 @@ export function TreeTable({
               >
                 {/* A2: «Требование» is the priority (flexible) column — long names
                     truncate with an ellipsis and expose the full text via title. */}
-                <th className="w-[34%] px-4 py-2 font-semibold">Требование</th>
-                <th className="w-[130px] px-4 py-2 font-semibold">Критичность</th>
-                <th className="w-[140px] px-4 py-2 font-semibold">Реализация</th>
-                <th className="w-[130px] px-4 py-2 font-semibold">Источник</th>
-                <th className="w-[15%] px-4 py-2 font-semibold">Связи</th>
-                <th className="px-4 py-2 font-semibold">Описание</th>
+                <th className="w-[22%] px-4 py-2 font-semibold">Требование</th>
+                <th className="w-[120px] px-4 py-2 font-semibold">Критичность</th>
+                <th className="w-[90px] px-4 py-2 font-semibold">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 font-semibold uppercase tracking-wide hover:text-[var(--color-primary)]"
+                    style={riceSort !== 'none' ? { color: 'var(--color-primary)' } : undefined}
+                    data-testid={`sort-rice-${testidPrefix}`}
+                    data-sort={riceSort}
+                    aria-label={`Сортировать по RICE (${
+                      riceSort === 'none'
+                        ? 'выкл'
+                        : riceSort === 'desc'
+                          ? 'по убыванию'
+                          : 'по возрастанию'
+                    })`}
+                    onClick={cycleRiceSort}
+                  >
+                    RICE <RiceSortIcon className="icon-sm" aria-hidden="true" />
+                  </button>
+                </th>
+                <th className="w-[15%] px-4 py-2 font-semibold">Источники · приоритет</th>
+                <th className="w-[150px] px-4 py-2 font-semibold">Срок реализации</th>
+                <th className="w-[12%] px-4 py-2 font-semibold">Связи</th>
+                <th className="w-[180px] px-4 py-2 font-semibold">Описание</th>
                 <th className="w-[140px] px-4 py-2" />
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, i) => (
+              {sorted.map((row, i) => (
                 <Row
                   key={row.requirement.slug}
                   row={row}
                   lineGuides={guides[i]}
+                  priorities={priorities}
                   nameBySlug={nameBySlug}
                   onEdit={onEdit}
                   onLink={onLink}

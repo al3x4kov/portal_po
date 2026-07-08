@@ -10,19 +10,33 @@ import type {
   AiModelsView,
   GenerateDescriptionRequest,
   GenerateDescriptionResponse,
+  ProjectDictionaries,
   Requirement,
+  SourcePriority,
+  SourceRef,
 } from '@po/core';
 import { useToast } from '../components/Toast';
 import { useUiStore } from '../store/ui';
 import { errorMessage } from './client';
-import { aiApi, aiImportApi, linksApi, projectsApi, requirementsApi } from './endpoints';
+import {
+  aiApi,
+  aiImportApi,
+  dictionariesApi,
+  linksApi,
+  projectsApi,
+  requirementsApi,
+} from './endpoints';
 import type {
+  AddPriorityInput,
+  AddSourceInput,
   DeleteRequirementResult,
   LinkInput,
   ProjectSummary,
   RequirementCreateInput,
   RequirementListResult,
   RequirementUpdateInput,
+  UpdatePriorityInput,
+  UpdateSourceInput,
 } from './types';
 import { requirementsLabel } from '../lib/plural';
 
@@ -30,6 +44,7 @@ export const queryKeys = {
   projects: ['projects'] as const,
   project: (id: string) => ['projects', id] as const,
   requirements: (projectId: string) => ['projects', projectId, 'requirements'] as const,
+  dictionaries: (projectId: string) => ['projects', projectId, 'dictionaries'] as const,
   /** Prefix matching every cached AI config (any project + the global '' key). */
   aiConfigAll: ['ai', 'config'] as const,
   aiConfig: (projectId: string) => ['ai', 'config', projectId] as const,
@@ -149,6 +164,79 @@ export function useDeleteRequirement(projectId: string) {
       const deleted = result?.deleted ?? 1;
       toast.show(`Удалено ${requirementsLabel(deleted)}`);
     },
+  });
+}
+
+/* ── todo_19 · Project dictionaries (T-201) ──────────────────────────────── */
+
+/**
+ * Project dictionaries (source priorities + auto-collected sources). Shared by
+ * the «Справочники» screen, the priority tab and the tree/slice views. Enabled
+ * only once a project id is known.
+ */
+export function useDictionaries(
+  projectId: string | undefined,
+): UseQueryResult<ProjectDictionaries> {
+  return useQuery({
+    queryKey: queryKeys.dictionaries(projectId ?? ''),
+    queryFn: () => dictionariesApi.get(projectId as string),
+    enabled: Boolean(projectId),
+  });
+}
+
+function invalidateDictionaries(qc: ReturnType<typeof useQueryClient>, projectId: string): void {
+  void qc.invalidateQueries({ queryKey: queryKeys.dictionaries(projectId) });
+}
+
+export function useAddPriority(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<SourcePriority, Error, AddPriorityInput>({
+    mutationFn: (input) => dictionariesApi.addPriority(projectId, input),
+    onSuccess: () => invalidateDictionaries(qc, projectId),
+  });
+}
+
+export function useUpdatePriority(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<SourcePriority, Error, { pid: string; input: UpdatePriorityInput }>({
+    mutationFn: ({ pid, input }) => dictionariesApi.updatePriority(projectId, pid, input),
+    onSuccess: () => invalidateDictionaries(qc, projectId),
+  });
+}
+
+export function useDeletePriority(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<null, Error, { pid: string; reassignTo?: string }>({
+    mutationFn: ({ pid, reassignTo }) => dictionariesApi.deletePriority(projectId, pid, reassignTo),
+    onSuccess: () => {
+      invalidateDictionaries(qc, projectId);
+      // A reassignment rewrites requirement sources server-side — refresh the tree.
+      invalidateRequirements(qc, projectId);
+    },
+  });
+}
+
+export function useAddSource(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<SourceRef, Error, AddSourceInput>({
+    mutationFn: (input) => dictionariesApi.addSource(projectId, input),
+    onSuccess: () => invalidateDictionaries(qc, projectId),
+  });
+}
+
+export function useUpdateSource(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<SourceRef, Error, { sid: string; input: UpdateSourceInput }>({
+    mutationFn: ({ sid, input }) => dictionariesApi.updateSource(projectId, sid, input),
+    onSuccess: () => invalidateDictionaries(qc, projectId),
+  });
+}
+
+export function useDeleteSource(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<null, Error, string>({
+    mutationFn: (sid) => dictionariesApi.deleteSource(projectId, sid),
+    onSuccess: () => invalidateDictionaries(qc, projectId),
   });
 }
 

@@ -84,6 +84,10 @@ async function openNewRequirement(
   await expect(page.getByTestId('requirement-modal')).toBeVisible();
   await page.getByTestId('req-name').fill(opts.name);
   await page.getByTestId('req-criticality-high').click();
+  // ФТ-E3 (todo_19): модалка стала вкладочной — описание и AI-панель живут за
+  // вкладкой «Описание». Переходим на неё перед вводом/AI-генерацией.
+  await page.getByTestId('req-tab-desc').click();
+  await expect(page.getByTestId('req-description')).toBeVisible();
   if (opts.description) await page.getByTestId('req-description').fill(opts.description);
 }
 

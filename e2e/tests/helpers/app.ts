@@ -7,6 +7,7 @@ export type LinkType = 'CHILD_OF' | 'PARENT_OF' | 'RELATES_TO' | 'DEPENDS_ON' | 
 export type ReqKind = 'function' | 'nfr';
 export type Criticality = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'BLOCKER';
 export type Quarter = 'Q1' | 'Q2' | 'Q3' | 'Q4';
+export type SourceType = 'CLIENT' | 'STAKEHOLDER' | 'STANDARD' | 'TEXT';
 
 let counter = 0;
 
@@ -24,8 +25,14 @@ export interface RequirementOptions {
   quarter?: Quarter;
   year?: number;
   description?: string;
-  /** FR-19: «Источник требования». Filter chips group case-insensitively. */
+  /** FR-19 (legacy): scalar «Источник требования». Kept for old fixtures. */
   source?: string;
+  /**
+   * todo_19: structured sources. Each needs a real `priorityId` from the project
+   * dictionaries — new projects seed a priority with id `default`, so that is a
+   * safe default for fixtures. The tree/picker «Источник» filter reads these.
+   */
+  sources?: Array<{ name: string; type?: SourceType; priorityId?: string }>;
 }
 
 /** Extract the current project id from the `/p/:id` main-screen URL. */
@@ -58,6 +65,13 @@ export async function apiCreateRequirement(
   }
   if (opts.description) body.description = opts.description;
   if (opts.source) body.source = opts.source;
+  if (opts.sources && opts.sources.length > 0) {
+    body.sources = opts.sources.map((s) => ({
+      type: s.type ?? 'TEXT',
+      name: s.name,
+      priorityId: s.priorityId ?? 'default',
+    }));
+  }
 
   const res = await page.request.post(
     `/api/projects/${encodeURIComponent(projectId)}/requirements`,
@@ -122,20 +136,29 @@ export async function addRequirement(page: Page, opts: RequirementOptions): Prom
   }
 
   if (opts.source) {
-    // T4 (todo_17): «Источник» is now a select with presets + «Другой…» (custom input).
-    const presetValues = await page
-      .getByTestId('req-source')
-      .locator('option')
-      .evaluateAll((els) => els.map((el) => (el as HTMLOptionElement).value));
-    if (presetValues.includes(opts.source)) {
-      await page.getByTestId('req-source').selectOption(opts.source);
-    } else {
-      await page.getByTestId('req-source').selectOption('__custom__');
-      await page.getByTestId('req-source-custom').fill(opts.source);
-    }
+    // todo_18: легаси-поле «Источник» удалено с вкладки «Основное». Источники
+    // задаются карточками на вкладке «Приоритизация» (src-add). Здесь сидируем
+    // один источник по имени, чтобы старые UI-фикстуры с `source` продолжали
+    // работать (эквивалент одной карточки type=TEXT, приоритет проекта = default).
+    await page.getByTestId('req-tab-priority').click();
+    await expect(page.getByTestId('req-priority-tab')).toBeVisible();
+    await page.getByTestId('src-add').click();
+    const card = page.getByTestId('src-card-0');
+    await expect(card).toBeVisible();
+    const nameInput = page.getByTestId('src-name-0-input');
+    await nameInput.click();
+    await nameInput.fill(opts.source);
+    await nameInput.blur();
+    await expect(page.getByTestId('src-name-0-menu')).toBeHidden();
   }
 
-  if (opts.description) await page.getByTestId('req-description').fill(opts.description);
+  if (opts.description) {
+    // ФТ-E3 (todo_19): модалка стала вкладочной — описание живёт за вкладкой
+    // «Описание». Переходим на неё перед вводом.
+    await page.getByTestId('req-tab-desc').click();
+    await expect(page.getByTestId('req-description')).toBeVisible();
+    await page.getByTestId('req-description').fill(opts.description);
+  }
 
   await page.getByTestId('req-submit').click();
   await expect(modal).toBeHidden();

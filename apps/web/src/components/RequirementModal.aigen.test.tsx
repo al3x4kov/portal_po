@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
 import { RequirementModal } from './RequirementModal';
 import { renderWithProviders } from '../test/utils';
@@ -46,6 +46,16 @@ function renderModal(): void {
   );
 }
 
+/**
+ * ФТ-E3: описание и AI-генерация живут на вкладке «Описание и сценарии».
+ * Сначала имя (вкладка «Основное» активна по умолчанию), затем переход на
+ * вкладку описания, чтобы её элементы стали видимы для взаимодействия.
+ */
+async function typeNameThenOpenDescTab(user: UserEvent, name: string): Promise<void> {
+  await user.type(screen.getByTestId('req-name'), name);
+  await user.click(screen.getByTestId('req-tab-desc'));
+}
+
 describe('RequirementModal — AI generation (T-803)', () => {
   beforeEach(() => {
     checkName.mockReset().mockResolvedValue({ available: true, slug: 'x' });
@@ -68,7 +78,7 @@ describe('RequirementModal — AI generation (T-803)', () => {
     renderModal();
 
     // Requirement needs a name for generation to be enabled.
-    await user.type(screen.getByTestId('req-name'), 'Валидация имени');
+    await typeNameThenOpenDescTab(user, 'Валидация имени');
     await user.type(screen.getByTestId('req-description'), 'Исходное описание.');
 
     await user.click(await screen.findByTestId('ai-gen-open'));
@@ -102,7 +112,7 @@ describe('RequirementModal — AI generation (T-803)', () => {
     const user = userEvent.setup();
     renderModal();
 
-    await user.type(screen.getByTestId('req-name'), 'Требование');
+    await typeNameThenOpenDescTab(user, 'Требование');
     await user.type(screen.getByTestId('req-description'), 'Старый текст.');
     await user.click(await screen.findByTestId('ai-gen-open'));
     await user.click(screen.getByTestId('ai-gen-submit'));
@@ -118,7 +128,7 @@ describe('RequirementModal — AI generation (T-803)', () => {
     const user = userEvent.setup();
     renderModal();
 
-    await user.type(screen.getByTestId('req-name'), 'Новое требование');
+    await typeNameThenOpenDescTab(user, 'Новое требование');
     await user.click(await screen.findByTestId('ai-gen-open'));
     await user.click(screen.getByTestId('ai-gen-submit'));
     await screen.findByTestId('ai-gen-preview');
@@ -132,7 +142,7 @@ describe('RequirementModal — AI generation (T-803)', () => {
     const user = userEvent.setup();
     renderModal();
 
-    await user.type(screen.getByTestId('req-name'), 'Требование');
+    await typeNameThenOpenDescTab(user, 'Требование');
     await user.type(screen.getByTestId('req-description'), 'Не трогать.');
     await user.click(await screen.findByTestId('ai-gen-open'));
     await user.click(screen.getByTestId('ai-gen-cancel'));
@@ -147,7 +157,7 @@ describe('RequirementModal — AI generation (T-803)', () => {
     const user = userEvent.setup();
     renderModal();
 
-    await user.type(screen.getByTestId('req-name'), 'Требование');
+    await typeNameThenOpenDescTab(user, 'Требование');
     await user.type(screen.getByTestId('req-description'), 'Исходное.');
     await user.click(await screen.findByTestId('ai-gen-open'));
     await user.click(screen.getByTestId('ai-gen-submit'));

@@ -1,5 +1,6 @@
 import type { Criticality, Requirement } from '@po/core';
 import type { TreeNode } from './tree';
+import { sourceNamesOf } from './sources';
 
 /**
  * A row is a `match` when it satisfies the active filters on its own merit, or
@@ -48,7 +49,9 @@ export interface VisibilityInput {
   implementationFilter?: ReadonlySet<'DONE' | 'PLANNED'>;
   /**
    * Selected source values; empty set = no source filter (FR-19).
-   * Empty string '' matches requirements with no source set (source === undefined).
+   * A requirement matches when ANY of its `sources[]` names (or its legacy
+   * scalar `source`) is selected. Empty string '' matches requirements with no
+   * source at all («Не задан»). See {@link sourceNamesOf} (todo_19).
    */
   sourceFilter?: ReadonlySet<string>;
 }
@@ -100,8 +103,16 @@ export function computeVisibleRows(input: VisibilityInput): VisibilityResult {
     const okSearch = !searchActive || req.name.toLowerCase().includes(query);
     const okCrit = !critActive || criticalityFilter.has(req.criticality);
     const okImpl = !implActive || implementationFilter.has(req.implemented ? 'DONE' : 'PLANNED');
-    const okSource = !srcActive || sourceFilter.has(req.source ?? '');
+    const okSource = !srcActive || matchesSource(req);
     return okSearch && okCrit && okImpl && okSource; // intersection (AND) of the active predicates
+  };
+
+  const matchesSource = (req: Requirement): boolean => {
+    const names = sourceNamesOf(req);
+    // No source at all → matches the «Не задан» option ('').
+    if (names.length === 0) return sourceFilter.has('');
+    // Otherwise ANY of the requirement's source names must be selected (union).
+    return names.some((name) => sourceFilter.has(name));
   };
 
   const rows: VisibleRow[] = [];

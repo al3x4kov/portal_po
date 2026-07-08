@@ -1,4 +1,13 @@
-import type { Criticality, LinkType, Requirement, RequirementType, TargetQuarter } from '@po/core';
+import type {
+  Criticality,
+  LinkType,
+  PriorityColor,
+  Requirement,
+  RequirementType,
+  SourceEntry,
+  SourceType,
+  TargetQuarter,
+} from '@po/core';
 
 /** Project descriptor returned by the API (mirrors server ProjectSummary). */
 export interface ProjectSummary {
@@ -41,10 +50,43 @@ export interface RequirementCreateInput {
   implemented: boolean;
   targetQuarter?: TargetQuarter;
   targetYear?: number;
+  /** todo_19: multiple requirement sources (present only when non-empty). */
+  sources?: SourceEntry[];
+  /** todo_19: PO release date (cleared when implemented === true). */
+  releaseDate?: string;
 }
 
 /** Body for PUT /api/projects/:id/requirements/:rid (type is immutable). */
 export type RequirementUpdateInput = Omit<RequirementCreateInput, 'type'>;
+
+/* ── todo_19 · Project dictionaries (priorities + sources) ─────────────────── */
+
+/** Body for POST /api/projects/:id/dictionaries/priorities. */
+export interface AddPriorityInput {
+  name: string;
+  color: PriorityColor;
+}
+
+/** Body for PUT /api/projects/:id/dictionaries/priorities/:pid (all optional). */
+export interface UpdatePriorityInput {
+  name?: string;
+  color?: PriorityColor;
+  order?: number;
+}
+
+/** Body for POST /api/projects/:id/dictionaries/sources. */
+export interface AddSourceInput {
+  name: string;
+  type: SourceType;
+  color?: string;
+}
+
+/** Body for PUT /api/projects/:id/dictionaries/sources/:sid (all optional). */
+export interface UpdateSourceInput {
+  name?: string;
+  type?: SourceType;
+  color?: string;
+}
 
 /**
  * Response of DELETE /api/projects/:id/requirements/:rid?cascade=true (UX-2):
