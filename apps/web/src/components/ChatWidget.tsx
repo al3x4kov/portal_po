@@ -697,9 +697,11 @@ export function ChatWidget(): React.ReactElement {
   const isOpen = useChatStore((s) => s.isOpen);
   const location = useLocation();
   // The widget lives outside <Routes>, so the project id (if a project screen
-  // is open) is derived from the path: /p/:id[/...].
+  // is open) is derived from the path: /p/:id[/...]. Unlike useParams,
+  // matchPath keeps the raw percent-encoded segment — decode it, or projects
+  // with non-ASCII names never match their saved AI config/model.
   const match = matchPath({ path: '/p/:id', end: false }, location.pathname);
-  const projectId = match?.params.id;
+  const projectId = match?.params.id ? decodeURIComponent(match.params.id) : undefined;
 
   return isOpen ? <ChatPanel projectId={projectId} /> : <ChatFab />;
 }
