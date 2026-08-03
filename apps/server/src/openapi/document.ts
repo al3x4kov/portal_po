@@ -1,10 +1,12 @@
 import type { OpenAPIV3 } from 'openapi-types';
 import { z } from 'zod';
 import {
+  aiBacklogApplyBodySchema,
   aiChatRequestSchema,
   aiChatResponseSchema,
   aiConfigUpdateSchema,
   aiConfigViewSchema,
+  aiImportConfirmBodySchema,
   aiImportJobListSchema,
   aiImportJobViewSchema,
   aiImportStartResponseSchema,
@@ -122,6 +124,10 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
     // API key — only `hasApiKey` is exposed (security invariant).
     AiConfigView: toSchema(aiConfigViewSchema),
     AiConfigUpdate: toSchema(aiConfigUpdateSchema),
+    // todo_22: backlog-import bodies (the job view/list already carry the
+    // backlog fields — they are derived from the same extended zod schemas).
+    AiImportConfirmBody: toSchema(aiImportConfirmBodySchema),
+    AiBacklogApplyBody: toSchema(aiBacklogApplyBodySchema),
     AiModelsView: toSchema(aiModelsViewSchema),
     AiChatRequest: toSchema(aiChatRequestSchema),
     AiChatResponse: toSchema(aiChatResponseSchema),
@@ -620,14 +626,81 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
         },
       },
     },
+    '/api/projects/{id}/ai-backlog-import': {
+      post: {
+        tags: ['ai'],
+        summary: 'Запустить AI-импорт бэклога из xlsx (todo_22)',
+        description:
+          'Асинхронно: возвращает `jobId` (202); тот же реестр заданий, что и импорт документации ' +
+          '(`kind: "backlog"`). Поток: parse → `awaiting-confirmation` (предпросмотр `backlogPreview`) → ' +
+          '`POST …/confirm` {целевой квартал} → match → `awaiting-review` (разметка `backlogReview`, ' +
+          'в проект ещё НИЧЕГО не записано) → `POST …/apply` {rowIds} → populate → `succeeded` + `backlogReport`.',
+        parameters: [idParam],
+        requestBody: {
+          required: true,
+          content: {
+            'multipart/form-data': {
+              schema: {
+                type: 'object',
+                required: ['file'],
+                properties: {
+                  file: {
+                    type: 'string',
+                    format: 'binary',
+                    description: 'Выгрузка бэклога (.xlsx, до 10 МБ / 5000 строк).',
+                  },
+                  model: {
+                    type: 'string',
+                    description: 'Необязательная модель-переопределение для этого импорта.',
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          202: jsonResponse(
+            'Задание импорта бэклога поставлено в очередь.',
+            'AiImportStartResponse',
+          ),
+          400: errorResponse('Файл не передан или AI-хаб не настроен.'),
+          404: errorResponse('Проект не найден.'),
+          409: errorResponse('У проекта уже есть активное задание AI-импорта.'),
+        },
+      },
+    },
+    '/api/ai-import/{jobId}/apply': {
+      post: {
+        tags: ['ai'],
+        summary: 'Записать выверенную разметку бэклога в проект (todo_22)',
+        description:
+          'Единственный шаг, который пишет в проект: создаёт новые узлы (родитель→дитя), требования ' +
+          'выбранных строк, связи CHILD_OF и источники типа `BACKLOG` с дефолтным приоритетом словаря. ' +
+          'Идемпотентен: повторный запуск не дублирует уже созданное. Дубли (`duplicateOf`) не создаются.',
+        parameters: [jobIdParam],
+        requestBody: jsonBody('AiBacklogApplyBody'),
+        responses: {
+          200: jsonResponse(
+            'Запись запущена; прогресс — через `GET /api/ai-import/{jobId}`.',
+            'AiImportJobView',
+          ),
+          400: errorResponse('Некорректное тело запроса или неизвестные rowIds.'),
+          404: errorResponse('Задание не найдено.'),
+          409: errorResponse('Задание не находится в статусе `awaiting-review`.'),
+        },
+      },
+    },
     '/api/ai-import/{jobId}/confirm': {
       post: {
         tags: ['ai'],
-        summary: 'Подтвердить смету и запустить извлечение (todo_20)',
+        summary: 'Подтвердить смету и запустить извлечение (todo_20) / анализ бэклога (todo_22)',
         description:
           'Задание со сметой выше порога (`estimateThresholdTokens` пресета) останавливается в статусе ' +
-          '`awaiting-confirmation` ДО первого LLM-вызова извлечения. Подтверждение продолжает конвейер.',
+          '`awaiting-confirmation` ДО первого LLM-вызова извлечения. Подтверждение продолжает конвейер. ' +
+          'Для заданий `kind: "backlog"` необязательное тело задаёт общий целевой квартал/год для строк ' +
+          'без срока из файла (по умолчанию — `backlogPreview.defaultTarget`).',
         parameters: [jobIdParam],
+        requestBody: jsonBody('AiImportConfirmBody', false),
         responses: {
           200: jsonResponse(
             'Смета подтверждена, задание продолжает выполняться.',

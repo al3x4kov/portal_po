@@ -495,6 +495,20 @@ export const AI_IMPORT_ERROR_CODES = {
       'Продолжите прогон с места остановки; если ошибка повторяется — обратитесь к администратору.',
     resumable: true,
   },
+  // todo_22 · T-301: детерминированный парсинг xlsx-бэклога (П2, Н6).
+  'DATA-04': {
+    category: 'data',
+    message: 'В файле не найдена колонка с формулировками — проверьте, что это выгрузка бэклога.',
+    action:
+      'Убедитесь, что первый лист содержит колонку с текстами задач (например «Summary»), и повторите загрузку.',
+    resumable: false,
+  },
+  'DATA-05': {
+    category: 'data',
+    message: 'Файл не читается как xlsx: он повреждён или сохранён в другом формате.',
+    action: 'Сохраните выгрузку бэклога в формате .xlsx и повторите загрузку.',
+    resumable: false,
+  },
 } as const satisfies Record<string, AiImportErrorInfo>;
 export type AiImportErrorCode = keyof typeof AI_IMPORT_ERROR_CODES;
 
@@ -559,7 +573,9 @@ export type AiImportStage = (typeof AI_IMPORT_STAGES)[number];
  * Job lifecycle statuses. todo_20 adds `awaiting-confirmation` (estimate over
  * the threshold — LLM extraction does not start until confirmed) and
  * `interrupted` (an unfinished job discovered after a server restart).
- * The historical four are NOT renamed.
+ * todo_22 adds `awaiting-review` (backlog import paused after the match stage:
+ * the FULL mapping is in the view, NOTHING is written to the project until
+ * `apply` — PO decision №1). The historical statuses are NOT renamed.
  */
 export const AI_IMPORT_STATUSES = [
   'running',
@@ -568,6 +584,7 @@ export const AI_IMPORT_STATUSES = [
   'cancelled',
   'awaiting-confirmation',
   'interrupted',
+  'awaiting-review',
 ] as const;
 export type AiImportStatus = (typeof AI_IMPORT_STATUSES)[number];
 
@@ -641,6 +658,175 @@ export const aiRelatePairSchema = z.object({
 });
 export type AiRelatePair = z.infer<typeof aiRelatePairSchema>;
 
+/*
+ * ── todo_22 · T-301: AI-импорт бэклога из xlsx ─────────────────────────────
+ * One job machine (AiImportJobs) serves two kinds: `docs` (historical
+ * documentation import) and `backlog` (xlsx backlog import). The backlog flow:
+ * parse → awaiting-confirmation (preview) → confirm {target} → match →
+ * awaiting-review (full mapping, NO writes) → apply {rowIds} → populate →
+ * succeeded + report. Everything below is the shared REST contract.
+ */
+
+/** Job kinds. Absent in old views ⇒ `docs` (backward compatibility). */
+export const AI_IMPORT_JOB_KINDS = ['docs', 'backlog'] as const;
+export type AiImportJobKind = (typeof AI_IMPORT_JOB_KINDS)[number];
+
+/** Upload limit for a backlog xlsx — 10 МБ (todo_22 Н1). */
+export const AI_BACKLOG_MAX_BYTES = 10 * 1024 * 1024;
+/** Max data rows of a backlog file (todo_22 Н1). */
+export const AI_BACKLOG_MAX_ROWS = 5000;
+/** Max backlog rows per one match call (todo_22 Н2). */
+export const AI_BACKLOG_MATCH_BATCH = 20;
+
+/**
+ * Recognized columns of the backlog sheet (deterministic parse, П2). Each value
+ * is a UI-chip label «<буква> — <заголовок>» (e.g. «A — Issue key»); the header
+ * part is omitted when the sheet has no header row.
+ */
+export const aiBacklogColumnsSchema = z.object({
+  /** Key column (ABC-123 style), optional — a file of bare texts is valid. */
+  keyColumn: z.string().min(1).optional(),
+  textColumn: z.string().min(1),
+  /** Optional due-date / fix-version / target column (PO decision №3). */
+  targetColumn: z.string().min(1).optional(),
+});
+export type AiBacklogColumns = z.infer<typeof aiBacklogColumnsSchema>;
+
+/** One preview line (first rows of the parsed sheet). */
+export const aiBacklogSampleRowSchema = z.object({
+  rowId: z.string().min(1),
+  key: z.string().optional(),
+  text: z.string(),
+});
+export type AiBacklogSampleRow = z.infer<typeof aiBacklogSampleRowSchema>;
+
+/**
+ * Preview shown while the job is `awaiting-confirmation` (kind `backlog`):
+ * recognized columns, first ≤5 rows, totals and the mini-estimate. The client
+ * confirms with an optional shared target ({@link aiImportConfirmBodySchema});
+ * `defaultTarget` (next calendar quarter) is used when nothing is chosen.
+ */
+export const aiBacklogPreviewSchema = z.object({
+  columns: aiBacklogColumnsSchema,
+  sampleRows: z.array(aiBacklogSampleRowSchema).max(5),
+  totalRows: z.number().int().min(0),
+  skippedRows: z.number().int().min(0),
+  estimate: z.object({
+    calls: z.number().int().min(0),
+    tokens: z.number().int().min(0),
+  }),
+  fileName: z.string().min(1),
+  defaultTarget: z.object({
+    quarter: z.enum(TARGET_QUARTERS),
+    year: z.number().int().min(2020).max(2100),
+  }),
+});
+export type AiBacklogPreview = z.infer<typeof aiBacklogPreviewSchema>;
+
+/**
+ * Parent proposed for one backlog row: an `existing` node of the project tree
+ * or a `new` BUSINESS node (technical dump groups are forbidden by the prompt —
+ * PO decision №1). For a new node `parentName` refers to an existing node or
+ * `null` for a new root.
+ */
+export const aiBacklogParentSchema = z.object({
+  kind: z.enum(['existing', 'new']),
+  name: z.string().min(1).max(200),
+  parentName: z.string().max(200).nullable().optional(),
+});
+export type AiBacklogParent = z.infer<typeof aiBacklogParentSchema>;
+
+/** One row of the review mapping (`awaiting-review` view). */
+export const aiBacklogMappingSchema = z.object({
+  rowId: z.string().min(1),
+  key: z.string().optional(),
+  sourceText: z.string().min(1),
+  businessName: z.string().min(1).max(200),
+  type: z.enum(REQUIREMENT_TYPES),
+  parent: aiBacklogParentSchema,
+  /** Name of the existing requirement this row duplicates (skipped on apply). */
+  duplicateOf: z.string().optional(),
+  targetQuarter: z.enum(TARGET_QUARTERS),
+  targetYear: z.number().int().min(2020).max(2100),
+  /** True when the target came from the file's own target column. */
+  targetFromFile: z.boolean(),
+});
+export type AiBacklogMapping = z.infer<typeof aiBacklogMappingSchema>;
+
+/** Full review payload of an `awaiting-review` backlog job. */
+export const aiBacklogReviewSchema = z.object({
+  mappings: z.array(aiBacklogMappingSchema),
+  /** New nodes to be created, with the number of rows under each. */
+  newNodes: z.array(
+    z.object({
+      name: z.string().min(1).max(200),
+      parentName: z.string().max(200).nullable(),
+      rowCount: z.number().int().min(0),
+    }),
+  ),
+  duplicates: z.number().int().min(0),
+});
+export type AiBacklogReview = z.infer<typeof aiBacklogReviewSchema>;
+
+/** Final counters of a finished backlog import. */
+export const aiBacklogReportSchema = z.object({
+  rowsTotal: z.number().int().min(0),
+  rowsSelected: z.number().int().min(0),
+  created: z.object({
+    functions: z.number().int().min(0),
+    nfrs: z.number().int().min(0),
+    links: z.number().int().min(0),
+    newNodes: z.number().int().min(0),
+  }),
+  duplicatesSkipped: z.number().int().min(0),
+  deselected: z.number().int().min(0),
+  usage: aiImportUsageViewSchema,
+});
+export type AiBacklogReport = z.infer<typeof aiBacklogReportSchema>;
+
+/**
+ * Body of `POST /api/ai-import/:jobId/confirm`. Empty for `docs` jobs
+ * (historical semantics). For `backlog` jobs the shared target applies to
+ * every row without a file-provided target; omitted fields fall back to
+ * `preview.defaultTarget`. Both fields must come together.
+ */
+export const aiImportConfirmBodySchema = z
+  .object({
+    targetQuarter: z.enum(TARGET_QUARTERS).optional(),
+    targetYear: z.number().int().min(2020).max(2100).optional(),
+  })
+  .refine((v) => (v.targetQuarter === undefined) === (v.targetYear === undefined), {
+    message: 'targetQuarter и targetYear задаются вместе.',
+  });
+export type AiImportConfirmBody = z.infer<typeof aiImportConfirmBodySchema>;
+
+/** Body of `POST /api/ai-import/:jobId/apply` — the reviewed row selection. */
+export const aiBacklogApplyBodySchema = z.object({
+  rowIds: z.array(z.string().min(1)).min(1).max(AI_BACKLOG_MAX_ROWS),
+});
+export type AiBacklogApplyBody = z.infer<typeof aiBacklogApplyBodySchema>;
+
+/**
+ * One element of the match-stage model answer (todo_22 T-303). Exactly one of
+ * `parentExisting` / `parentNew` should be meaningful; the server validates
+ * both against the real tree and neutralizes hallucinations deterministically.
+ */
+export const aiBacklogMatchAnswerSchema = z.object({
+  rowId: z.string().min(1),
+  businessName: z.string().min(1).max(200),
+  type: z.enum(REQUIREMENT_TYPES),
+  parentExisting: z.string().max(200).nullable().optional(),
+  parentNew: z
+    .object({
+      name: z.string().min(1).max(200),
+      parentName: z.string().max(200).nullable(),
+    })
+    .nullable()
+    .optional(),
+  duplicateOf: z.string().max(200).nullable().optional(),
+});
+export type AiBacklogMatchAnswer = z.infer<typeof aiBacklogMatchAnswerSchema>;
+
 /** Response of `GET /api/ai-import/:jobId` (polled by the modal). */
 export const aiImportJobViewSchema = z.object({
   jobId: z.string(),
@@ -672,6 +858,15 @@ export const aiImportJobViewSchema = z.object({
   inventory: aiImportInventoryViewSchema.optional(),
   estimate: aiImportEstimateViewSchema.optional(),
   report: aiImportReportViewSchema.optional(),
+  /* ── todo_22 backlog-kind fields (absent on `docs` jobs and in old views) ── */
+  /** Job kind; absent in pre-todo_22 views ⇒ `docs`. */
+  kind: z.enum(AI_IMPORT_JOB_KINDS).optional(),
+  /** Present while `awaiting-confirmation` (and later) on backlog jobs. */
+  backlogPreview: aiBacklogPreviewSchema.optional(),
+  /** Present from `awaiting-review` on backlog jobs (nothing written yet). */
+  backlogReview: aiBacklogReviewSchema.optional(),
+  /** Present when a backlog job finished (also partial on failure). */
+  backlogReport: aiBacklogReportSchema.optional(),
 });
 export type AiImportJobView = z.infer<typeof aiImportJobViewSchema>;
 
@@ -690,6 +885,8 @@ export const aiImportJobSummarySchema = z.object({
   result: aiImportResultSchema.optional(),
   /** True when the job can be continued from its checkpoint. */
   resumable: z.boolean(),
+  /** Job kind (todo_22); absent in pre-todo_22 summaries ⇒ `docs`. */
+  kind: z.enum(AI_IMPORT_JOB_KINDS).optional(),
 });
 export type AiImportJobSummary = z.infer<typeof aiImportJobSummarySchema>;
 

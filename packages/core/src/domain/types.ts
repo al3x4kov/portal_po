@@ -34,8 +34,12 @@ export type ScenarioKeyword = (typeof SCENARIO_KEYWORDS)[number];
 // todo_19 — multiple requirement sources, RICE scoring and project dictionaries
 // ---------------------------------------------------------------------------
 
-/** Kind of a requirement source (todo_19 §0.1). */
-export const SOURCE_TYPES = ['CLIENT', 'STAKEHOLDER', 'STANDARD', 'TEXT'] as const;
+/**
+ * Kind of a requirement source (todo_19 §0.1). todo_22 adds `BACKLOG` —
+ * a requirement imported from a backlog file (PO decision №4); reading old
+ * `.md` files without it stays valid (enum only widens).
+ */
+export const SOURCE_TYPES = ['CLIENT', 'STAKEHOLDER', 'STANDARD', 'TEXT', 'BACKLOG'] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 
 /** Base RICE selector scales (fixed by PO). */

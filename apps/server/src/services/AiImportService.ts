@@ -3,7 +3,9 @@ import {
   AI_IMPORT_MAX_ARCHIVE_BYTES,
   AI_IMPORT_STRUCTURE_BATCH,
   aiImportErrorFromCode,
+  nextQuarterOf,
   resolveModelPreset,
+  type AiImportConfirmBody,
   type AiImportErrorCode,
   type AiImportJobList,
   type AiImportJobSummary,
@@ -12,6 +14,8 @@ import {
   type AiImportStartResponse,
   type AiImportStatus,
   type AiModelPreset,
+  type ProjectDictionaries,
+  type TargetQuarter,
 } from '@po/core';
 import type { AiConfigRepo } from '../repositories/AiConfigRepo.js';
 import type { FsAiJobsRepo } from '../repositories/AiJobsRepo.js';
@@ -43,6 +47,9 @@ import { runStructureStage } from './aiImport/structureStage.js';
 import { runAggregateStage } from './aiImport/aggregateStage.js';
 import { runPopulateStage } from './aiImport/populateStage.js';
 import { runRelateStage } from './aiImport/relateStage.js';
+import { buildBacklogPreview, parseBacklogXlsx, type BacklogRow } from './aiImport/backlogXlsx.js';
+import { runBacklogMatchStage } from './aiImport/backlogMatchStage.js';
+import { runBacklogPopulateStage } from './aiImport/backlogPopulateStage.js';
 
 // Re-exported so the public surface (routes, tests) is unchanged after the
 // BE-1/BE-3 decomposition: the pure domain helpers now live in @po/core, and
@@ -91,6 +98,28 @@ export interface AiImportServiceDeps {
   callTimeoutMs?: number;
   /** todo_20 T-213: millisecond clock for the ETA extrapolation (tests inject). */
   nowMs?: () => number;
+  /**
+   * todo_22: project dictionaries reader — the BACKLOG SourceEntry of every
+   * created item carries the DEFAULT priority of the dictionary (PO №4).
+   * Absent (old unit tests) ⇒ the seeded `default` priority id is used.
+   */
+  readDictionaries?: (projectId: string) => Promise<ProjectDictionaries>;
+  /** todo_22: match-batch size override for tests; production uses 20. */
+  backlogBatch?: number;
+}
+
+/** Shared target of a backlog run (confirm choice or the preview default). */
+interface BacklogTarget {
+  quarter: TargetQuarter;
+  year: number;
+}
+
+/** Per-job context of a backlog run kept across the confirm/apply gates. */
+interface BacklogRunCtx {
+  recorder: CheckpointRecorder;
+  rows: BacklogRow[];
+  fileName: string;
+  model: string;
 }
 
 /** Everything one run (fresh or resumed) needs besides the live job. */
@@ -121,6 +150,8 @@ export class AiImportService {
   private readonly running = new Map<string, Promise<void>>();
   /** Deferred confirmations of jobs paused on the estimate gate (T-204). */
   private readonly confirmWaiters = new Map<string, (confirmed: boolean) => void>();
+  /** todo_22: live context of backlog jobs (rebuilt from the checkpoint after a restart). */
+  private readonly backlogRuns = new Map<string, BacklogRunCtx>();
 
   constructor(deps: AiImportServiceDeps) {
     this.deps = deps;
@@ -223,6 +254,8 @@ export class AiImportService {
         `AI import job "${jobId}" cannot be resumed from status "${status}".`,
       );
     }
+    // todo_22: backlog jobs resume from their parsed rows / paid mappings.
+    if (checkpoint.kind === 'backlog') return this.resumeBacklog(memJob, checkpoint);
     if (!checkpoint.analyze || !(await repo!.hasDocs(checkpoint.projectId, checkpoint.jobId))) {
       throw new ConflictError(
         `AI import job "${jobId}" has no resumable checkpoint data — start a new analysis.`,
@@ -273,21 +306,27 @@ export class AiImportService {
   }
 
   /**
-   * Confirm the estimate of a job paused on the gate (todo_20 T-204).
-   * 404 unknown job, 409 when the job is not awaiting confirmation (including
-   * jobs that only exist as on-disk history — they exist, but cannot confirm).
+   * Confirm a job paused on a gate. Docs kind (todo_20 T-204): release the
+   * estimate gate. Backlog kind (todo_22): accept the optional shared target
+   * and launch the match stage. 404 unknown job, 409 wrong status. A paused
+   * BACKLOG job that only lives on disk (server restarted) is re-adopted.
    */
-  async confirm(jobId: string): Promise<AiImportJobView> {
-    const job = this.deps.jobs.get(jobId);
+  async confirm(jobId: string, target?: AiImportConfirmBody): Promise<AiImportJobView> {
+    let job = this.deps.jobs.get(jobId);
     if (!job) {
-      if (await this.deps.checkpoints?.findByJobId(jobId)) {
+      const cp = await this.deps.checkpoints?.findByJobId(jobId);
+      if (cp?.kind === 'backlog' && cp.status === 'awaiting-confirmation') {
+        job = this.deps.jobs.adopt(AiImportService.jobFromCheckpoint(cp, cp.status));
+      } else if (cp) {
         throw new ConflictError(`AI import job "${jobId}" is not awaiting confirmation.`);
+      } else {
+        throw new NotFoundError(`AI import job not found: "${jobId}".`);
       }
-      throw new NotFoundError(`AI import job not found: "${jobId}".`);
     }
     if (job.status !== 'awaiting-confirmation') {
       throw new ConflictError(`AI import job "${jobId}" is not awaiting confirmation.`);
     }
+    if (job.kind === 'backlog') return this.confirmBacklog(job, target);
     job.status = 'running';
     this.logLine(job, 'info', 'Смета подтверждена пользователем — продолжаю анализ.');
     const waiter = this.confirmWaiters.get(jobId);
@@ -326,6 +365,10 @@ export class AiImportService {
       ...(cp.inventory ? { inventory: cp.inventory } : {}),
       ...(cp.estimate ? { estimate: cp.estimate } : {}),
       ...(cp.report ? { report: cp.report } : {}),
+      ...(cp.kind !== undefined ? { kind: cp.kind } : {}),
+      ...(cp.backlog?.preview ? { backlogPreview: cp.backlog.preview } : {}),
+      ...(cp.backlog?.review ? { backlogReview: cp.backlog.review } : {}),
+      ...(cp.backlog?.report ? { backlogReport: cp.backlog.report } : {}),
     };
   }
 
@@ -345,6 +388,7 @@ export class AiImportService {
           ...(cp.finishedAt ? { finishedAt: cp.finishedAt } : {}),
           ...(cp.result ? { result: cp.result } : {}),
           resumable: AiImportService.isResumable(cp.status, cp.error?.resumable),
+          ...(cp.kind !== undefined ? { kind: cp.kind } : {}),
         });
       }
     }
@@ -362,6 +406,7 @@ export class AiImportService {
         resumable:
           this.deps.checkpoints !== undefined &&
           AiImportService.isResumable(job.status, job.error?.resumable),
+        ...(job.kind !== undefined ? { kind: job.kind } : {}),
       });
     }
     const jobs = [...summaries.values()].sort(
@@ -396,6 +441,17 @@ export class AiImportService {
         outcome: 'ok',
       });
     }
+    // todo_22: backlog jobs paused on a user gate survive a restart AS the
+    // same pause (never `interrupted`) — re-adopt them so confirm/apply work.
+    for (const cp of await repo.listPausedBacklog()) {
+      if (this.deps.jobs.get(cp.jobId)) continue;
+      try {
+        this.deps.jobs.adopt(AiImportService.jobFromCheckpoint(cp, cp.status));
+      } catch {
+        // Another active job of the project won the conflict — the paused one
+        // stays visible via history and can be re-adopted later.
+      }
+    }
   }
 
   /**
@@ -406,7 +462,10 @@ export class AiImportService {
   cancel(jobId: string): AiImportJobView {
     const job = this.deps.jobs.get(jobId);
     if (!job) throw new NotFoundError(`AI import job not found: "${jobId}".`);
-    const active = job.status === 'running' || job.status === 'awaiting-confirmation';
+    const active =
+      job.status === 'running' ||
+      job.status === 'awaiting-confirmation' ||
+      job.status === 'awaiting-review';
     if (active && !job.cancelRequested) {
       job.cancelRequested = true;
       this.logLine(job, 'info', 'Получен запрос на остановку автоматизации.');
@@ -415,6 +474,21 @@ export class AiImportService {
         this.confirmWaiters.delete(jobId);
         job.status = 'running'; // transitional: the runner finishes it as cancelled
         waiter(false);
+      } else if (
+        job.kind === 'backlog' &&
+        (job.status === 'awaiting-confirmation' || job.status === 'awaiting-review') &&
+        !this.running.has(jobId)
+      ) {
+        // todo_22: a PAUSED backlog job has no runner to honour the flag —
+        // finish it here (nothing was written to the project before apply).
+        this.logLine(job, 'warn', 'Импорт бэклога отменён — в проект ничего не записано.');
+        this.deps.jobs.finish(job, 'cancelled');
+        void this.ensureBacklogCtx(job)
+          .then((ctx) => {
+            ctx.recorder.save(job, ctx.recorder.state.counters);
+            return ctx.recorder.flush();
+          })
+          .catch(() => {});
       }
     }
     return this.deps.jobs.view(job);
@@ -453,6 +527,11 @@ export class AiImportService {
       ...(cp.estimate ? { estimate: cp.estimate } : {}),
       ...(cp.report ? { report: cp.report } : {}),
       ...(cp.relate ? { relate: cp.relate } : {}),
+      // todo_22: backlog kind + payloads restored for the client view.
+      ...(cp.kind !== undefined ? { kind: cp.kind } : {}),
+      ...(cp.backlog?.preview ? { backlogPreview: structuredClone(cp.backlog.preview) } : {}),
+      ...(cp.backlog?.review ? { backlogReview: structuredClone(cp.backlog.review) } : {}),
+      ...(cp.backlog?.report ? { backlogReport: structuredClone(cp.backlog.report) } : {}),
     };
   }
 
@@ -689,6 +768,395 @@ export class AiImportService {
       'Смета выше порога подтверждения — анализ приостановлен. Нажмите «Запустить всё равно», чтобы продолжить, или отмените прогон.',
     );
     return new Promise<boolean>((resolve) => this.confirmWaiters.set(job.jobId, resolve));
+  }
+
+  /*
+   * ── todo_22 · T-304: backlog import (kind='backlog', same job machine) ────
+   * parse → awaiting-confirmation (preview) → confirm {target} → match →
+   * awaiting-review (mapping only, NO project writes) → apply {rowIds} →
+   * populate → succeeded + report. The gates are REST calls, not in-process
+   * waiters — a paused job survives a restart as the same pause.
+   */
+
+  /**
+   * Start a backlog import: validate preconditions like {@link start} (project
+   * 404 → key/model 400 → running job 409) and launch the deterministic parse
+   * stage. The xlsx itself is deleted right after parsing — the parsed rows in
+   * the checkpoint are the resumable payload.
+   */
+  async startBacklog(
+    projectId: string,
+    uploadPath: string,
+    fileName: string,
+    modelOverride?: string,
+  ): Promise<AiImportStartResponse> {
+    if (!(await this.deps.projectExists(projectId))) {
+      throw new NotFoundError(`Project not found: "${projectId}".`);
+    }
+    const cfg = await this.deps.configRepo.read();
+    const model = modelOverride ?? cfg.modelByProject[projectId];
+    if (!cfg.apiKey || !model) {
+      throw new BadRequestError(AI_IMPORT_HINT_CONFIGURE);
+    }
+    const apiKey = cfg.apiKey;
+
+    const job = this.deps.jobs.create(projectId); // ConflictError (409) when running
+    job.kind = 'backlog';
+    const recorder = new CheckpointRecorder(
+      this.deps.checkpoints,
+      {
+        version: 1,
+        kind: 'backlog',
+        jobId: job.jobId,
+        projectId,
+        model,
+        inferLinks: false,
+        startedAt: job.startedAt ?? this.deps.now(),
+        status: 'running',
+        stage: 'unpack',
+        progress: 0,
+        confirmed: false,
+        log: [],
+        counters: AiImportService.zeroCounters(),
+        backlog: { fileName, rows: [] },
+      },
+      this.deps.now,
+    );
+    this.backlogRuns.set(job.jobId, { recorder, rows: [], fileName, model });
+
+    const run = this.runBacklogParse(job, recorder, uploadPath, fileName)
+      .catch((err: unknown) => this.handleInternalError(job, recorder, apiKey, err))
+      .finally(async () => {
+        this.running.delete(job.jobId);
+        await fs.rm(uploadPath, { force: true }).catch(() => {});
+      });
+    this.running.set(job.jobId, run);
+    return { jobId: job.jobId };
+  }
+
+  /** Stage «parse» (deterministic, no AI): rows/columns/preview → the confirm gate. */
+  private async runBacklogParse(
+    job: AiImportJobState,
+    recorder: CheckpointRecorder,
+    uploadPath: string,
+    fileName: string,
+  ): Promise<void> {
+    const counters = AiImportService.zeroCounters();
+    const budget = BudgetTracker.fromJSON({ limit: null, promptTokens: 0, completionTokens: 0 });
+    const rt = this.buildRuntime(job, counters, budget, recorder);
+    try {
+      this.logLine(job, 'info', `Читаю файл бэклога «${fileName}»…`);
+      const buffer = await fs.readFile(uploadPath);
+      const parsed = parseBacklogXlsx(buffer);
+      if (!parsed.ok) {
+        rt.failCode(parsed.code, parsed.message ? { message: parsed.message } : undefined);
+        return;
+      }
+      const ctx = this.backlogRuns.get(job.jobId);
+      if (ctx) ctx.rows = parsed.rows;
+      job.progress = 5;
+      job.backlogPreview = buildBacklogPreview(parsed, fileName, this.deps.now());
+      const withTarget = parsed.rows.filter((r) => r.target !== undefined).length;
+      this.logLine(
+        job,
+        'info',
+        `Файл разобран: строк к обработке ${parsed.rows.length}, пропущено пустых ${parsed.skippedRows}` +
+          (withTarget > 0 ? `, сроков из файла ${withTarget}` : '') +
+          '. Проверьте предпросмотр и запустите анализ.',
+      );
+      job.status = 'awaiting-confirmation';
+      rt.checkpoint((state) => {
+        if (state.backlog) state.backlog.rows = structuredClone(parsed.rows);
+      });
+    } finally {
+      await recorder.flush();
+    }
+  }
+
+  /** Rebuild the run context from the checkpoint after a restart (or reuse). */
+  private async ensureBacklogCtx(job: AiImportJobState): Promise<BacklogRunCtx> {
+    const existing = this.backlogRuns.get(job.jobId);
+    if (existing) return existing;
+    const cp = await this.deps.checkpoints?.load(job.projectId, job.jobId);
+    if (!cp?.backlog) {
+      throw new ConflictError(
+        `AI import job "${job.jobId}" has no backlog checkpoint — start a new import.`,
+      );
+    }
+    const recorder = new CheckpointRecorder(
+      this.deps.checkpoints,
+      { ...structuredClone(cp), error: undefined, finishedAt: undefined },
+      this.deps.now,
+    );
+    const ctx: BacklogRunCtx = {
+      recorder,
+      rows: cp.backlog.rows,
+      fileName: cp.backlog.fileName,
+      model: cp.model,
+    };
+    this.backlogRuns.set(job.jobId, ctx);
+    return ctx;
+  }
+
+  /** Effective shared target: confirm body ← persisted choice ← preview default. */
+  private backlogTargetOf(job: AiImportJobState, ctx: BacklogRunCtx): BacklogTarget {
+    const persisted = ctx.recorder.state.backlog?.target;
+    if (persisted) return persisted;
+    const preview = job.backlogPreview?.defaultTarget;
+    if (preview) return { quarter: preview.quarter, year: preview.year };
+    const next = nextQuarterOf(this.deps.now());
+    return { quarter: next.targetQuarter, year: next.targetYear };
+  }
+
+  /** Backlog confirm: accept the shared target and launch the match stage. */
+  private async confirmBacklog(
+    job: AiImportJobState,
+    body?: AiImportConfirmBody,
+  ): Promise<AiImportJobView> {
+    const ctx = await this.ensureBacklogCtx(job);
+    const cfg = await this.deps.configRepo.read();
+    if (!cfg.apiKey) throw new BadRequestError(AI_IMPORT_HINT_CONFIGURE);
+    const apiKey = cfg.apiKey;
+    const preset = resolveModelPreset(ctx.model, cfg.modelPresets?.[ctx.model]);
+    const target: BacklogTarget =
+      body?.targetQuarter !== undefined && body.targetYear !== undefined
+        ? { quarter: body.targetQuarter, year: body.targetYear }
+        : this.backlogTargetOf(job, ctx);
+    ctx.recorder.state.backlog!.target = target;
+
+    job.status = 'running';
+    job.stage = 'analyze';
+    this.logLine(
+      job,
+      'info',
+      `Запуск разметки: строк ${ctx.rows.length}; целевой квартал для строк без срока — ${target.quarter} ${target.year}.`,
+    );
+    const run = this.runBacklogMatch(job, ctx, {
+      apiKey,
+      baseURL: cfg.baseURL,
+      preset,
+      target,
+    })
+      .catch((err: unknown) => this.handleInternalError(job, ctx.recorder, apiKey, err))
+      .finally(() => this.running.delete(job.jobId));
+    this.running.set(job.jobId, run);
+    return this.deps.jobs.view(job);
+  }
+
+  /** Stage «match» (batched AI): full mapping → the review gate. NO writes. */
+  private async runBacklogMatch(
+    job: AiImportJobState,
+    ctx: BacklogRunCtx,
+    opts: { apiKey: string; baseURL: string; preset: AiModelPreset; target: BacklogTarget },
+  ): Promise<void> {
+    const cp = ctx.recorder.state;
+    const counters: AiImportResult = { ...cp.counters };
+    const budget = BudgetTracker.fromJSON({
+      limit: opts.preset.runBudgetTokens,
+      promptTokens: cp.usage?.promptTokens ?? 0,
+      completionTokens: cp.usage?.completionTokens ?? 0,
+    });
+    if (cp.usage) job.usage = budget.view();
+    const rt = this.buildRuntime(job, counters, budget, ctx.recorder);
+    try {
+      const client = this.deps.makeAiClient(opts.apiKey, opts.baseURL);
+      const existing = (await this.deps.makeRequirementService(job.projectId).list()).requirements;
+      const outcome = await runBacklogMatchStage(rt, {
+        rows: ctx.rows,
+        target: opts.target,
+        existing,
+        client,
+        model: ctx.model,
+        apiKey: opts.apiKey,
+        preset: opts.preset,
+        negotiator: new ResponseFormatNegotiator(),
+        batchSize: this.deps.backlogBatch,
+        resume: cp.backlog?.match ? { mappings: cp.backlog.match.mappings } : undefined,
+      });
+      if (!outcome.ok) return;
+      job.backlogReview = outcome.review;
+      job.status = 'awaiting-review';
+      job.progress = 80;
+      this.logLine(
+        job,
+        'info',
+        `Разметка готова: строк ${outcome.review.mappings.length}, новых узлов ${outcome.review.newNodes.length}, ` +
+          `дублей ${outcome.review.duplicates}. До подтверждения в проект ничего не записано — проверьте и нажмите «Записать в проект».`,
+      );
+      rt.checkpoint();
+    } finally {
+      await ctx.recorder.flush();
+    }
+  }
+
+  /**
+   * Apply the reviewed selection: launch populate for the chosen rows.
+   * 409 when the job is not on the review gate (a `failed` backlog job with a
+   * saved review may re-apply — the populate is idempotent); 400 on unknown
+   * rowIds. Nothing was written to the project before this call.
+   */
+  async apply(jobId: string, rowIds: string[]): Promise<AiImportJobView> {
+    let job = this.deps.jobs.get(jobId);
+    if (!job) {
+      const cp = await this.deps.checkpoints?.findByJobId(jobId);
+      if (cp?.kind === 'backlog' && cp.status === 'awaiting-review') {
+        job = this.deps.jobs.adopt(AiImportService.jobFromCheckpoint(cp, cp.status));
+      } else if (cp) {
+        throw new ConflictError(`AI import job "${jobId}" is not awaiting review.`);
+      } else {
+        throw new NotFoundError(`AI import job not found: "${jobId}".`);
+      }
+    }
+    if (job.kind !== 'backlog') {
+      throw new ConflictError(`AI import job "${jobId}" is not a backlog import.`);
+    }
+    const review = job.backlogReview;
+    const reApplicable = job.status === 'failed' && review !== undefined;
+    if ((job.status !== 'awaiting-review' && !reApplicable) || !review) {
+      throw new ConflictError(`AI import job "${jobId}" is not awaiting review.`);
+    }
+    const known = new Set(review.mappings.map((m) => m.rowId));
+    const unknown = rowIds.filter((id) => !known.has(id));
+    if (unknown.length > 0) {
+      throw new BadRequestError(`Неизвестные строки в выборе: ${unknown.slice(0, 5).join(', ')}.`);
+    }
+    const ctx = await this.ensureBacklogCtx(job);
+    if (reApplicable) this.deps.jobs.reactivate(job);
+    job.status = 'running';
+    job.stage = 'populate';
+    job.progress = 85;
+    job.error = undefined;
+    this.logLine(
+      job,
+      'info',
+      `Запись в проект: выбрано строк ${rowIds.length} из ${review.mappings.length}.`,
+    );
+    const run = this.runBacklogApply(job, ctx, new Set(rowIds))
+      .catch((err: unknown) =>
+        this.handleInternalError(job, ctx.recorder, 'no-api-key-in-populate', err),
+      )
+      .finally(() => this.running.delete(job.jobId));
+    this.running.set(job.jobId, run);
+    return this.deps.jobs.view(job);
+  }
+
+  /** Stage «populate» for the selected rows (deterministic, idempotent). */
+  private async runBacklogApply(
+    job: AiImportJobState,
+    ctx: BacklogRunCtx,
+    selectedRowIds: ReadonlySet<string>,
+  ): Promise<void> {
+    const cp = ctx.recorder.state;
+    const counters: AiImportResult = { ...cp.counters };
+    const budget = BudgetTracker.fromJSON({
+      limit: null,
+      promptTokens: cp.usage?.promptTokens ?? 0,
+      completionTokens: cp.usage?.completionTokens ?? 0,
+    });
+    const rt = this.buildRuntime(job, counters, budget, ctx.recorder);
+    try {
+      const dict = await this.deps.readDictionaries?.(job.projectId);
+      const priorities = dict ? [...dict.priorities].sort((a, b) => a.order - b.order) : [];
+      const outcome = await runBacklogPopulateStage(rt, {
+        review: job.backlogReview!,
+        selectedRowIds,
+        fileName: ctx.fileName,
+        requirementService: this.deps.makeRequirementService(job.projectId),
+        linkService: this.deps.makeLinkService(job.projectId),
+        defaultPriorityId: priorities[0]?.id ?? 'default',
+        nodeTarget: this.backlogTargetOf(job, ctx),
+        usage: job.usage ?? { promptTokens: 0, completionTokens: 0 },
+      });
+      if (!outcome.ok) return;
+      const r = outcome.report;
+      job.backlogReport = r;
+      job.stage = 'done';
+      job.progress = 100;
+      job.result = { ...counters };
+      this.logLine(
+        job,
+        'info',
+        `Готово: создано ФТ ${r.created.functions}, НФТ ${r.created.nfrs}, новых узлов ${r.created.newNodes}, ` +
+          `связей ${r.created.links}; пропущено дублей ${r.duplicatesSkipped}; не выбрано строк ${r.deselected}.`,
+      );
+      this.deps.jobs.finish(job, 'succeeded');
+      rt.checkpoint();
+    } finally {
+      await ctx.recorder.flush();
+    }
+  }
+
+  /** Resume a backlog job: match continues from paid batches; a saved review re-opens the gate. */
+  private async resumeBacklog(
+    memJob: AiImportJobState | undefined,
+    checkpoint: AiJobCheckpoint,
+  ): Promise<AiImportStartResponse> {
+    if (!checkpoint.backlog || checkpoint.backlog.rows.length === 0) {
+      throw new ConflictError(
+        `AI import job "${checkpoint.jobId}" has no resumable checkpoint data — start a new analysis.`,
+      );
+    }
+    const cfg = await this.deps.configRepo.read();
+    if (!cfg.apiKey) throw new BadRequestError(AI_IMPORT_HINT_CONFIGURE);
+    const apiKey = cfg.apiKey;
+    const model = checkpoint.model;
+    const preset = resolveModelPreset(model, cfg.modelPresets?.[model]);
+
+    const job: AiImportJobState =
+      memJob ??
+      this.deps.jobs.adopt(AiImportService.jobFromCheckpoint(checkpoint, checkpoint.status));
+    this.deps.jobs.reactivate(job); // 409 when the project has another active job
+    const recorder = new CheckpointRecorder(
+      this.deps.checkpoints,
+      {
+        ...structuredClone(checkpoint),
+        status: 'running',
+        error: undefined,
+        finishedAt: undefined,
+      },
+      this.deps.now,
+    );
+    const ctx: BacklogRunCtx = {
+      recorder,
+      rows: checkpoint.backlog.rows,
+      fileName: checkpoint.backlog.fileName,
+      model,
+    };
+    this.backlogRuns.set(job.jobId, ctx);
+
+    if (checkpoint.backlog.review) {
+      // The paid mapping is complete — back to the review gate, no AI calls.
+      job.status = 'awaiting-review';
+      job.stage = 'analyze';
+      job.progress = 80;
+      job.backlogReview = structuredClone(checkpoint.backlog.review);
+      job.error = undefined;
+      this.logLine(
+        job,
+        'info',
+        'Разметка восстановлена из контрольной точки — проверьте её и запишите в проект.',
+      );
+      recorder.save(job, recorder.state.counters);
+      await recorder.flush();
+      return { jobId: job.jobId };
+    }
+
+    const matched = checkpoint.backlog.match?.mappings.length ?? 0;
+    this.logLine(
+      job,
+      'info',
+      `Продолжаю разметку бэклога с контрольной точки: размечено строк ${matched} — они повторно не оплачиваются.`,
+    );
+    const run = this.runBacklogMatch(job, ctx, {
+      apiKey,
+      baseURL: cfg.baseURL,
+      preset,
+      target: this.backlogTargetOf(job, ctx),
+    })
+      .catch((err: unknown) => this.handleInternalError(job, recorder, apiKey, err))
+      .finally(() => this.running.delete(job.jobId));
+    this.running.set(job.jobId, run);
+    return { jobId: job.jobId };
   }
 
   /**

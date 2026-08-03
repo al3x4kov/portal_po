@@ -29,6 +29,7 @@ import { ExportModal } from '../components/ExportModal';
 import { ExportTasksModal } from '../components/ExportTasksModal';
 import { GraphView } from '../components/GraphView/GraphView';
 import { AiImportModal } from '../components/AiImportModal';
+import { AiBacklogImportModal } from '../components/AiBacklogImportModal';
 
 export function Main(): React.ReactElement {
   const { id = '' } = useParams<{ id: string }>();
@@ -63,6 +64,8 @@ export function Main(): React.ReactElement {
   // Task 11: AI-import modal lives outside the ui-store modal union — it must
   // survive job polling regardless of other modals opening from the tree.
   const [aiImportOpen, setAiImportOpen] = useState(false);
+  // todo_22 (T-305): the backlog import modal follows the same pattern.
+  const [aiBacklogOpen, setAiBacklogOpen] = useState(false);
 
   const requirements = reqQuery.data?.requirements ?? [];
   const broken = reqQuery.data?.broken ?? [];
@@ -510,6 +513,28 @@ export function Main(): React.ReactElement {
               </svg>
               AI подгрузка из документации
             </button>
+            <button
+              type="button"
+              className="btn btn-secondary inline-flex items-center gap-1.5 text-sm"
+              style={{ color: 'var(--color-primary)', borderColor: 'var(--color-primary)' }}
+              data-testid="footer-ai-backlog-import"
+              onClick={() => setAiBacklogOpen(true)}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="3" y1="9" x2="21" y2="9" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+              </svg>
+              AI подгрузка из бэклога
+            </button>
           </div>
         </footer>
 
@@ -647,6 +672,10 @@ export function Main(): React.ReactElement {
 
         {aiImportOpen ? (
           <AiImportModal projectId={id} onClose={() => setAiImportOpen(false)} />
+        ) : null}
+
+        {aiBacklogOpen ? (
+          <AiBacklogImportModal projectId={id} onClose={() => setAiBacklogOpen(false)} />
         ) : null}
       </div>
     </>

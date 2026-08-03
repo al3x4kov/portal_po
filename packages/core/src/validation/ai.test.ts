@@ -314,7 +314,8 @@ describe('T11 AI import contract constants', () => {
       'populate',
       'done',
     ]);
-    // todo_20 appends awaiting-confirmation / interrupted; the first four stay.
+    // todo_20 appends awaiting-confirmation / interrupted, todo_22 appends
+    // awaiting-review (backlog review gate); the historical statuses stay.
     expect(AI_IMPORT_STATUSES).toEqual([
       'running',
       'succeeded',
@@ -322,6 +323,7 @@ describe('T11 AI import contract constants', () => {
       'cancelled',
       'awaiting-confirmation',
       'interrupted',
+      'awaiting-review',
     ]);
   });
 });

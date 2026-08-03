@@ -151,6 +151,8 @@ export function createAiImportService(ctx: ServiceContext, jobs: AiImportJobs): 
     // todo_20 T-211: checkpoints in Projects/<project>/.ai-jobs/ — resume,
     // job history and interrupted-job recovery all read from here.
     checkpoints: new FsAiJobsRepo(ctx.projectsRoot),
+    // todo_22: BACKLOG SourceEntry carries the default dictionary priority.
+    readDictionaries: (projectId) => new FsDictionariesRepo(ctx.projectsRoot, projectId).read(),
     log: ctx.log,
   });
 }

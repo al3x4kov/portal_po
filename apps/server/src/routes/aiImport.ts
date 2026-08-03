@@ -6,6 +6,8 @@ import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  aiBacklogApplyBodySchema,
+  aiImportConfirmBodySchema,
   aiImportInferLinksFieldSchema,
   DomainError,
   type AiImportJobList,
@@ -101,6 +103,51 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
     }
   });
 
+  // todo_22: AI-импорт бэклога из xlsx (kind='backlog', same job machine).
+  app.post('/api/projects/:id/ai-backlog-import', async (req, reply) => {
+    const { id } = parseInput(idParams, req.params);
+
+    let uploadPath: string | undefined;
+    let fileName = 'backlog.xlsx';
+    let model: string | undefined;
+    try {
+      const parts = req.parts();
+      for await (const part of parts) {
+        if (part.type === 'file') {
+          if (part.filename && part.filename.trim().length > 0) fileName = part.filename.trim();
+          uploadPath = path.join(
+            os.tmpdir(),
+            `po-ai-backlog-upload-${randomBytes(8).toString('hex')}`,
+          );
+          await pipeline(part.file, createWriteStream(uploadPath));
+          if (part.file.truncated) {
+            throw new BadRequestError(
+              `Файл превышает лимит ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} МБ.`,
+            );
+          }
+        } else if (part.fieldname === 'model') {
+          const value = String(part.value).trim();
+          if (value.length > 0) model = value;
+        }
+      }
+    } catch (err) {
+      if (uploadPath) await fs.rm(uploadPath, { force: true }).catch(() => {});
+      if (err instanceof DomainError) throw err;
+      throw new BadRequestError(`Malformed multipart upload: ${(err as Error).message}`);
+    }
+    if (!uploadPath) {
+      throw new BadRequestError('No xlsx file provided in upload.');
+    }
+    try {
+      const started = await service.startBacklog(id, uploadPath, fileName, model);
+      reply.code(202);
+      return started;
+    } catch (err) {
+      await fs.rm(uploadPath, { force: true }).catch(() => {});
+      throw err;
+    }
+  });
+
   // todo_20 PO №4: full run history of a project (disk checkpoints ∪ memory).
   app.get('/api/projects/:id/ai-import/jobs', async (req): Promise<AiImportJobList> => {
     const { id } = parseInput(idParams, req.params);
@@ -118,9 +165,18 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
   });
 
   // todo_20 T-204: confirm the estimate of a job paused on the gate (409 otherwise).
+  // todo_22: for kind='backlog' the optional body carries the shared target.
   app.post('/api/ai-import/:jobId/confirm', async (req): Promise<AiImportJobView> => {
     const { jobId } = parseInput(jobParams, req.params);
-    return service.confirm(jobId);
+    const body = parseInput(aiImportConfirmBodySchema, req.body ?? {});
+    return service.confirm(jobId, body);
+  });
+
+  // todo_22: apply the reviewed backlog mapping — the ONLY step that writes.
+  app.post('/api/ai-import/:jobId/apply', async (req): Promise<AiImportJobView> => {
+    const { jobId } = parseInput(jobParams, req.params);
+    const body = parseInput(aiBacklogApplyBodySchema, req.body);
+    return service.apply(jobId, body.rowIds);
   });
 
   // todo_20 T-212: resume failed | cancelled | interrupted from the checkpoint.

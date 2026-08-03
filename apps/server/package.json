@@ -23,6 +23,7 @@
     "@po/core": "*",
     "adm-zip": "^0.5.16",
     "exceljs": "^4.4.0",
+    "fast-xml-parser": "^5.10.1",
     "fastify": "^5.2.1",
     "openai": "^6.45.0",
     "proper-lockfile": "^4.1.2",

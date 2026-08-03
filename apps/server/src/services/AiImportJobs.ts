@@ -1,8 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import type {
+  AiBacklogPreview,
+  AiBacklogReport,
+  AiBacklogReview,
   AiImportEstimateView,
   AiImportInventoryView,
   AiImportJobError,
+  AiImportJobKind,
   AiImportJobView,
   AiImportLogEntry,
   AiImportRelateView,
@@ -18,10 +22,15 @@ import { ConflictError } from '../lib/errors.js';
 /** Finished jobs are kept for this long so the client can read the outcome. */
 export const AI_IMPORT_JOB_TTL_MS = 30 * 60 * 1000;
 
-/** Statuses of a job that still owns its project (blocks a second start). */
+/**
+ * Statuses of a job that still owns its project (blocks a second start).
+ * todo_22: a backlog job paused on the review gate still owns the project —
+ * its mapping must be applied or the job cancelled before the next import.
+ */
 export const AI_IMPORT_ACTIVE_STATUSES: readonly AiImportStatus[] = [
   'running',
   'awaiting-confirmation',
+  'awaiting-review',
 ];
 
 /** Mutable in-memory state of one AI-import job (superset of the view). */
@@ -53,6 +62,11 @@ export interface AiImportJobState {
   inventory?: AiImportInventoryView;
   estimate?: AiImportEstimateView;
   report?: AiImportReportView;
+  /* ── todo_22: backlog-kind fields (absent on docs jobs) ── */
+  kind?: AiImportJobKind;
+  backlogPreview?: AiBacklogPreview;
+  backlogReview?: AiBacklogReview;
+  backlogReport?: AiBacklogReport;
 }
 
 /**
@@ -179,6 +193,11 @@ export class AiImportJobs {
       ...(job.inventory ? { inventory: structuredClone(job.inventory) } : {}),
       ...(job.estimate ? { estimate: { ...job.estimate } } : {}),
       ...(job.report ? { report: structuredClone(job.report) } : {}),
+      // todo_22: backlog kind + payloads (absent on docs jobs — old views intact).
+      ...(job.kind !== undefined ? { kind: job.kind } : {}),
+      ...(job.backlogPreview ? { backlogPreview: structuredClone(job.backlogPreview) } : {}),
+      ...(job.backlogReview ? { backlogReview: structuredClone(job.backlogReview) } : {}),
+      ...(job.backlogReport ? { backlogReport: structuredClone(job.backlogReport) } : {}),
     };
   }
 }

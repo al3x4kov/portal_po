@@ -1,8 +1,14 @@
 import { z } from 'zod';
 import {
+  AI_IMPORT_JOB_KINDS,
   AI_IMPORT_SOURCE_CLASSES,
   AI_IMPORT_STAGES,
   AI_IMPORT_STATUSES,
+  TARGET_QUARTERS,
+  aiBacklogMappingSchema,
+  aiBacklogPreviewSchema,
+  aiBacklogReportSchema,
+  aiBacklogReviewSchema,
   aiExtractedRequirementSchema,
   aiImportEstimateViewSchema,
   aiImportInventoryViewSchema,
@@ -66,8 +72,48 @@ const analyzeCursorSchema = z.object({
 });
 export type AnalyzeCursor = z.infer<typeof analyzeCursorSchema>;
 
+/** Shared target shape persisted for backlog jobs (todo_22). */
+const backlogTargetSchema = z.object({
+  quarter: z.enum(TARGET_QUARTERS),
+  year: z.number().int().min(2020).max(2100),
+});
+
+/** One parsed backlog row (mirrors BacklogRow of backlogXlsx.ts). */
+const backlogRowCheckpointSchema = z.object({
+  rowId: z.string().min(1),
+  key: z.string().optional(),
+  text: z.string().min(1),
+  target: backlogTargetSchema.optional(),
+});
+
+/**
+ * todo_22 · T-304: backlog-kind slice of the checkpoint. Parsed rows replace
+ * the docs dir as the resumable payload (the uploaded xlsx is deleted after
+ * parse); `match.mappings` is the paid AI work saved after EVERY batch;
+ * `appliedRowIds` makes a re-run of apply idempotent after a mid-way crash.
+ */
+const backlogCheckpointSchema = z.object({
+  fileName: z.string().min(1),
+  rows: z.array(backlogRowCheckpointSchema),
+  target: backlogTargetSchema.optional(),
+  preview: aiBacklogPreviewSchema.optional(),
+  match: z
+    .object({
+      mappings: z.array(aiBacklogMappingSchema),
+    })
+    .optional(),
+  review: aiBacklogReviewSchema.optional(),
+  appliedRowIds: z.array(z.string().min(1)).optional(),
+  report: aiBacklogReportSchema.optional(),
+});
+export type BacklogCheckpoint = z.infer<typeof backlogCheckpointSchema>;
+
 export const aiJobCheckpointSchema = z.object({
   version: z.literal(1),
+  /** Job kind (todo_22); absent in pre-todo_22 checkpoints ⇒ docs. */
+  kind: z.enum(AI_IMPORT_JOB_KINDS).optional(),
+  /** Present only on kind='backlog' jobs. */
+  backlog: backlogCheckpointSchema.optional(),
   jobId: z.string().min(1),
   projectId: z.string().min(1),
   model: z.string().min(1),
@@ -130,6 +176,12 @@ export class CheckpointRecorder {
     s.estimate = job.estimate ? { ...job.estimate } : undefined;
     s.report = job.report ? structuredClone(job.report) : undefined;
     s.relate = job.relate ? { ...job.relate } : undefined;
+    // todo_22: backlog view fields mirror into the backlog checkpoint slice.
+    if (s.backlog) {
+      s.backlog.preview = job.backlogPreview ? structuredClone(job.backlogPreview) : undefined;
+      s.backlog.review = job.backlogReview ? structuredClone(job.backlogReview) : undefined;
+      s.backlog.report = job.backlogReport ? structuredClone(job.backlogReport) : undefined;
+    }
     if (job.status !== 'running' && job.status !== 'awaiting-confirmation') {
       s.finishedAt = s.finishedAt ?? this.now();
     }

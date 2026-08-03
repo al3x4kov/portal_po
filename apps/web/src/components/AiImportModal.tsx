@@ -6,7 +6,6 @@ import type {
   AiImportRelateView,
   AiImportSourceClass,
   AiImportStage,
-  AiImportStatus,
 } from '@po/core';
 import { AI_IMPORT_MAX_ARCHIVE_BYTES, AI_IMPORT_SOURCE_CLASSES } from '@po/core';
 import {
@@ -25,6 +24,8 @@ import { Modal } from './Modal';
 import { BusyButton } from './BusyButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ModelListNotice, ModelRefreshButton } from './ModelRefresh';
+import { TaxonomyErrorCard, TaxonomyErrorDetails } from './AiImportErrorBlocks';
+import { AiImportHistoryList, formatDateTime } from './AiImportHistoryList';
 import { AI_IMPORT_LOG_BG, AI_IMPORT_LOG_LEVEL_COLOR, AI_IMPORT_LOG_TEXT } from '../lib/logColors';
 import { plural } from '../lib/plural';
 
@@ -101,15 +102,8 @@ export const AI_IMPORT_SOURCE_CLASS_LABELS: Record<AiImportSourceClass, string> 
   other: 'Прочее',
 };
 
-/** todo_20 PO №4: Russian status labels for the run-history rows. */
-export const AI_IMPORT_STATUS_LABELS: Record<AiImportStatus, string> = {
-  running: 'Выполняется',
-  succeeded: 'Завершён',
-  failed: 'Ошибка',
-  cancelled: 'Остановлен',
-  'awaiting-confirmation': 'Ждёт подтверждения',
-  interrupted: 'Прерван рестартом',
-};
+/** todo_20 PO №4 → todo_22: labels moved to the shared history list component. */
+export { AI_IMPORT_STATUS_LABELS } from './AiImportHistoryList';
 
 /** 1_400_000 → «1,4 млн», 96_000 → «96 тыс.», 950 → «950» (ru, mockup 01/03). */
 export function formatTokens(n: number): string {
@@ -129,19 +123,6 @@ export function formatEta(seconds: number): string {
   }
   if (s >= 60) return `≈ ${Math.round(s / 60)} мин`;
   return `≈ ${s} с`;
-}
-
-/** ISO → «12.05.2026, 18:42» for history rows. */
-function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
 }
 
 const CONFIRM_MESSAGE =
@@ -232,7 +213,9 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
     ? 'setup'
     : jobLost
       ? 'failed'
-      : !job || job.status === 'running'
+      : // todo_22: `awaiting-review` is a backlog-only pause — docs jobs never
+        // reach it; the neutral running view keeps the exhaustive mapping honest.
+        !job || job.status === 'running' || job.status === 'awaiting-review'
         ? 'running'
         : job.status === 'awaiting-confirmation'
           ? 'estimate'
@@ -390,7 +373,7 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
           busyLabel="Запускаем…"
           data-testid="ai-import-confirm-start"
           onClick={() => {
-            if (jobId) confirmMut.mutate(jobId);
+            if (jobId) confirmMut.mutate({ jobId });
           }}
         >
           {estimate?.overThreshold ? 'Запустить всё равно' : 'Запустить импорт'}
@@ -766,92 +749,13 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
           })()}
 
           {/* todo_20 PO №4: full run history of the project (newest first). */}
-          {historyJobs.length > 0 ? (
-            <details data-testid="ai-import-history">
-              <summary
-                className="cursor-pointer select-none text-sm font-semibold"
-                style={{ color: 'var(--color-text-2)' }}
-              >
-                Прошлые прогоны — {historyJobs.length}
-              </summary>
-              <ul
-                className="mt-2 divide-y overflow-hidden rounded-lg border"
-                style={{ borderColor: 'var(--color-border)' }}
-              >
-                {historyJobs.map((h) => (
-                  <li
-                    key={h.jobId}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm"
-                    style={{ borderColor: 'var(--color-border)' }}
-                    data-testid="ai-import-history-row"
-                    data-status={h.status}
-                  >
-                    <span
-                      className="badge"
-                      style={
-                        h.status === 'succeeded'
-                          ? {
-                              background: 'var(--color-success-bg)',
-                              color: 'var(--color-success-fg)',
-                            }
-                          : h.status === 'failed'
-                            ? {
-                                background: 'var(--color-danger-bg)',
-                                color: 'var(--color-danger-fg)',
-                              }
-                            : {
-                                background: 'var(--color-warning-bg)',
-                                color: 'var(--color-warning-fg)',
-                              }
-                      }
-                    >
-                      {AI_IMPORT_STATUS_LABELS[h.status]}
-                    </span>
-                    <span style={{ color: 'var(--color-text-3)' }}>
-                      {formatDateTime(h.startedAt)}
-                    </span>
-                    {h.result ? (
-                      <span style={{ color: 'var(--color-text-2)' }}>
-                        {h.result.createdFunctions} ФТ · {h.result.createdNfrs} НФТ
-                      </span>
-                    ) : null}
-                    <span className="ml-auto flex items-center gap-2">
-                      {h.resumable ? (
-                        <button
-                          type="button"
-                          className="font-semibold"
-                          style={{ color: 'var(--color-primary)' }}
-                          data-testid="ai-import-history-resume"
-                          disabled={resumeMut.isPending}
-                          onClick={() => resumeJob(h.jobId)}
-                        >
-                          Продолжить
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="font-semibold"
-                        style={{ color: 'var(--color-primary)' }}
-                        data-testid="ai-import-history-open"
-                        onClick={() => openHistoryJob(h.jobId)}
-                      >
-                        Открыть
-                      </button>
-                      <a
-                        href={aiImportApi.logUrl(h.jobId)}
-                        download
-                        className="underline"
-                        style={{ color: 'var(--color-text-3)' }}
-                        data-testid="ai-import-history-log"
-                      >
-                        Лог
-                      </a>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
+          <AiImportHistoryList
+            testidPrefix="ai-import"
+            jobs={historyJobs}
+            resumePending={resumeMut.isPending}
+            onResume={resumeJob}
+            onOpen={openHistoryJob}
+          />
         </>
       ) : (
         <>
@@ -1152,29 +1056,7 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
             /* todo_20 П6 (mockup 04): message first, then the concrete action;
                raw technical detail lives in the collapsible block below. */
             <>
-              <div
-                className="rounded-lg p-4"
-                style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
-                role="alert"
-                data-testid="ai-import-error"
-              >
-                <div className="mb-1 flex items-start justify-between gap-2">
-                  <h4 className="text-sm font-bold">{jobError.message}</h4>
-                  <span
-                    className="badge shrink-0"
-                    style={{
-                      background: 'var(--color-danger)',
-                      color: '#fff',
-                    }}
-                    data-testid="ai-import-error-code"
-                  >
-                    Ошибка · {jobError.code}
-                  </span>
-                </div>
-                <p className="text-sm font-semibold">
-                  Что сделать: {jobError.action ?? jobError.hint}
-                </p>
-              </div>
+              <TaxonomyErrorCard testid="ai-import-error" error={jobError} />
 
               {result ? (
                 <section data-testid="ai-import-error-created">
@@ -1236,37 +1118,15 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                 </div>
               ) : null}
 
-              <details
-                className="rounded-lg border"
-                style={{ borderColor: 'var(--color-border)' }}
-                data-testid="ai-import-error-details"
-              >
-                <summary
-                  className="cursor-pointer select-none px-4 py-2.5 text-sm"
-                  style={{ color: 'var(--color-text-2)' }}
-                >
-                  Технические детали
-                </summary>
-                <div
-                  className="space-y-1 px-4 pb-3 font-mono text-xs"
-                  style={{ color: 'var(--color-text-3)' }}
-                >
-                  <div>
-                    code: {jobError.code} · category: {jobError.category ?? '—'} · resumable:{' '}
-                    {jobError.resumable ? 'true' : 'false'}
-                  </div>
-                  <div>
-                    stage: {job?.stage}
-                    {job?.chunkIndex != null && job?.chunkTotal
-                      ? ` · fragment: ${job.chunkIndex}/${job.chunkTotal}`
-                      : ''}
-                    {job?.currentFile ? ` · file: ${job.currentFile}` : ''}
-                  </div>
-                  {jobError.hint && jobError.hint !== jobError.action ? (
-                    <div>hint: {jobError.hint}</div>
-                  ) : null}
-                </div>
-              </details>
+              <TaxonomyErrorDetails
+                testid="ai-import-error-details"
+                error={jobError}
+                contextLine={`stage: ${job?.stage ?? '—'}${
+                  job?.chunkIndex != null && job?.chunkTotal
+                    ? ` · fragment: ${job.chunkIndex}/${job.chunkTotal}`
+                    : ''
+                }${job?.currentFile ? ` · file: ${job.currentFile}` : ''}`}
+              />
             </>
           ) : phase === 'failed' ? (
             <div

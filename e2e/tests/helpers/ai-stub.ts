@@ -92,6 +92,21 @@ import { createServer, type Server } from 'node:http';
  * needs a window for the 800 ms poller); `failNextRelateJson(n)` makes the
  * next `n` relate replies a NON-JSON sentence — with n ≥ retry attempts the
  * step degrades to «пропущен из-за ошибки AI» without failing the import.
+ *
+ * todo_22 (T-307, backlog import): backlog MATCH calls are detected by their
+ * distinct system prompt («продуктовый аналитик портала управления
+ * требованиями», buildBacklogMatchMessages) and captured in
+ * `backlogMatchRequests`. The user message carries the batch as
+ * `rowId\tключ|—\tтекст` lines after «Батч строк бэклога (…»); the stub echoes
+ * ONE answer object per batch row: `{rowId, businessName, type,
+ * parentExisting, parentNew, duplicateOf}`. Tests configure per-row answers
+ * with `setBacklogAnswers` (keyed by the row KEY, falling back to the source
+ * text); unconfigured rows default to a FUNCTION under the
+ * {@link BACKLOG_DEFAULT_NEW_NODE} new root node, so ANY xlsx gets a valid
+ * markup. `setBacklogDelay(ms)` delays match replies only (progress-screen
+ * visibility); `failBacklogAfterCalls(n)` lets the first `n` match calls
+ * succeed and 500s every later one until reset with `null` — the
+ * mid-match-failure → resume scenario (the paid batch must not be re-sent).
  */
 
 /** Captured `/chat/completions` request body (openai SDK JSON payload). */
@@ -119,6 +134,26 @@ export interface AiStubOptions {
    * (roots). Override per test with `setStructureParents`.
    */
   structureParents?: Record<string, string>;
+  /**
+   * todo_22: backlog match answers per row KEY (fallback: per source text).
+   * Rows without a configured answer get the deterministic default (FUNCTION
+   * under the {@link BACKLOG_DEFAULT_NEW_NODE} new root node).
+   */
+  backlogAnswers?: Record<string, BacklogMatchAnswerSpec>;
+}
+
+/**
+ * todo_22: one configured backlog match answer. Omitted fields fall back to
+ * deterministic defaults: `businessName` = the source text, `type` =
+ * `FUNCTION`, parent = a new {@link BACKLOG_DEFAULT_NEW_NODE} root node (when
+ * neither `parentExisting` nor `parentNew` is set), `duplicateOf` = null.
+ */
+export interface BacklogMatchAnswerSpec {
+  businessName?: string;
+  type?: 'FUNCTION' | 'NFR';
+  parentExisting?: string | null;
+  parentNew?: { name: string; parentName: string | null } | null;
+  duplicateOf?: string | null;
 }
 
 export interface AiStub {
@@ -184,8 +219,25 @@ export interface AiStub {
   setRelateDelay(ms: number): void;
   /** todo_16 B2: the next `n` relate replies are NON-JSON text (HTTP 200). */
   failNextRelateJson(n: number): void;
+  /** todo_22: only the backlog-match-prompt `/chat/completions` bodies. */
+  readonly backlogMatchRequests: AiChatCompletionCapture[];
+  /**
+   * todo_22: per-row backlog match answers (see {@link BacklogMatchAnswerSpec});
+   * `null` restores the constructor `backlogAnswers` (or the empty map).
+   */
+  setBacklogAnswers(map: Record<string, BacklogMatchAnswerSpec> | null): void;
+  /** todo_22: delay (ms) applied to every backlog match reply; 0 disables. */
+  setBacklogDelay(ms: number): void;
+  /**
+   * todo_22: the first `okCalls` backlog match calls succeed, every later one
+   * answers HTTP 500 until reset with `null` (mid-match failure → resume).
+   */
+  failBacklogAfterCalls(okCalls: number | null): void;
   close(): Promise<void>;
 }
+
+/** todo_22: default new root node of unconfigured backlog match answers. */
+export const BACKLOG_DEFAULT_NEW_NODE = 'Возможности продукта';
 
 /** Marker of the import extraction system prompt (services/aiImportPrompt.ts). */
 const EXTRACTION_PROMPT_MARKER = 'экстрактор требований';
@@ -195,6 +247,9 @@ const STRUCTURE_PROMPT_MARKER = 'архитектор дерева требов�
 
 /** Marker of the relate system prompt (buildRelateMessages, todo_16 B2). */
 const RELATE_PROMPT_MARKER = 'аналитик связей требований';
+
+/** Marker of the backlog match system prompt (backlogMatchStage.ts, todo_22). */
+const BACKLOG_MATCH_PROMPT_MARKER = 'продуктовый аналитик портала управления требованиями';
 
 /** Deliberately NON-JSON model answer for the retry scenarios (task 13). */
 const NON_JSON_REPLY = 'Извините, сначала пришлю требования прозой, без JSON.';
@@ -275,6 +330,45 @@ export function structureParentsListOf(
   return items;
 }
 
+/** Section marker of the backlog match batch (buildBacklogMatchMessages). */
+const BACKLOG_BATCH_MARKER = 'Батч строк бэклога (';
+
+/** One row of the backlog match user message (todo_22). */
+export interface BacklogBatchRow {
+  rowId: string;
+  /** Absent when the sheet has no key column (the prompt sends «—»). */
+  key?: string;
+  text: string;
+}
+
+/**
+ * Parse the batch section of the backlog match user message:
+ * `rowId\tключ|—\tтекст` lines strictly AFTER the «Батч строк бэклога (…»
+ * marker, preserving order — the echo answer must contain exactly one object
+ * per row. Tree-map lines never leak in (they are `TYPE\tимя\tродитель: …`,
+ * but they precede the batch marker).
+ */
+export function backlogBatchOf(body: AiChatCompletionCapture | undefined): BacklogBatchRow[] {
+  const user = body?.messages?.find((m) => m.role === 'user')?.content ?? '';
+  const rows: BacklogBatchRow[] = [];
+  let inBatch = false;
+  for (const line of user.split('\n')) {
+    if (!inBatch) {
+      if (line.startsWith(BACKLOG_BATCH_MARKER)) inBatch = true;
+      continue;
+    }
+    const match = /^([^\t]+)\t([^\t]+)\t(.+)$/.exec(line);
+    if (match) {
+      rows.push({
+        rowId: match[1]!,
+        ...(match[2] !== '—' ? { key: match[2]! } : {}),
+        text: match[3]!,
+      });
+    }
+  }
+  return rows;
+}
+
 /** One requirement of the relate user message (todo_16 B2): slug + name. */
 export interface RelateListItem {
   slug: string;
@@ -336,10 +430,14 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
   let nonJsonExtractionLeft = 0;
   let nonJsonStructureLeft = 0;
   let nonJsonRelateLeft = 0;
+  let backlogAnswers: Record<string, BacklogMatchAnswerSpec> = opts.backlogAnswers ?? {};
+  let backlogDelayMs = 0;
+  let backlogOkCallsLeft: number | null = null;
   const chatRequests: AiChatCompletionCapture[] = [];
   const extractionRequests: AiChatCompletionCapture[] = [];
   const structureRequests: AiChatCompletionCapture[] = [];
   const relateRequests: AiChatCompletionCapture[] = [];
+  const backlogMatchRequests: AiChatCompletionCapture[] = [];
 
   const server: Server = createServer((req, res) => {
     const url = req.url ?? '';
@@ -370,9 +468,12 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
         const isStructure =
           system?.role === 'system' && system.content.includes(STRUCTURE_PROMPT_MARKER);
         const isRelate = system?.role === 'system' && system.content.includes(RELATE_PROMPT_MARKER);
+        const isBacklogMatch =
+          system?.role === 'system' && system.content.includes(BACKLOG_MATCH_PROMPT_MARKER);
         if (isExtraction && body) extractionRequests.push(body);
         if (isStructure && body) structureRequests.push(body);
         if (isRelate && body) relateRequests.push(body);
+        if (isBacklogMatch && body) backlogMatchRequests.push(body);
 
         // Consume the non-JSON fault counters SYNCHRONOUSLY (before any delay)
         // so concurrent polling never races the decrement.
@@ -389,9 +490,16 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
           nonJsonRelateLeft -= 1;
           forceNonJson = true;
         }
+        // todo_22: consume the ok-calls budget synchronously too — after it is
+        // spent, every backlog match call is a 500 until the budget is reset.
+        let forceBacklogFail = false;
+        if (isBacklogMatch && backlogOkCallsLeft !== null) {
+          if (backlogOkCallsLeft > 0) backlogOkCallsLeft -= 1;
+          else forceBacklogFail = true;
+        }
 
         const respond = (): void => {
-          if (chatMode === 'error') {
+          if (chatMode === 'error' || forceBacklogFail) {
             res.writeHead(500, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ error: { message: 'stub upstream failure' } }));
             return;
@@ -428,6 +536,32 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
               }
             }
             content = JSON.stringify([...pairs, ...relateRawPairs]);
+          } else if (isBacklogMatch) {
+            // todo_22: echo one answer per batch row — configured spec by row
+            // KEY (fallback: source text), deterministic defaults otherwise.
+            content = JSON.stringify(
+              backlogBatchOf(body).map((row) => {
+                const spec =
+                  (row.key !== undefined ? backlogAnswers[row.key] : undefined) ??
+                  backlogAnswers[row.text] ??
+                  {};
+                const parentExisting = spec.parentExisting ?? null;
+                const parentNew =
+                  spec.parentNew !== undefined
+                    ? spec.parentNew
+                    : parentExisting !== null
+                      ? null
+                      : { name: BACKLOG_DEFAULT_NEW_NODE, parentName: null };
+                return {
+                  rowId: row.rowId,
+                  businessName: spec.businessName ?? row.text,
+                  type: spec.type ?? 'FUNCTION',
+                  parentExisting,
+                  parentNew,
+                  duplicateOf: spec.duplicateOf ?? null,
+                };
+              }),
+            );
           } else {
             content = opts.reply;
           }
@@ -458,6 +592,7 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
         if (isExtraction && extractionDelayMs > 0) setTimeout(respond, extractionDelayMs);
         else if (isStructure && structureDelayMs > 0) setTimeout(respond, structureDelayMs);
         else if (isRelate && relateDelayMs > 0) setTimeout(respond, relateDelayMs);
+        else if (isBacklogMatch && backlogDelayMs > 0) setTimeout(respond, backlogDelayMs);
         else respond();
         return;
       }
@@ -522,6 +657,16 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
     },
     failNextRelateJson(n) {
       nonJsonRelateLeft = n;
+    },
+    backlogMatchRequests,
+    setBacklogAnswers(map) {
+      backlogAnswers = map ?? opts.backlogAnswers ?? {};
+    },
+    setBacklogDelay(ms) {
+      backlogDelayMs = ms;
+    },
+    failBacklogAfterCalls(okCalls) {
+      backlogOkCallsLeft = okCalls;
     },
     close() {
       return new Promise<void>((resolve) => server.close(() => resolve()));

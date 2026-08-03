@@ -111,6 +111,10 @@ export class FsAiJobsRepo implements CheckpointSink {
     for (const projectId of await this.projectIds()) {
       for (const state of await this.list(projectId)) {
         if (state.status !== 'running' && state.status !== 'awaiting-confirmation') continue;
+        // todo_22: a PAUSED backlog job (waiting for user confirmation) is not
+        // «killed mid-flight» — after a restart it is the same pause, never
+        // `interrupted` (see also listPausedBacklog()).
+        if (state.kind === 'backlog' && state.status === 'awaiting-confirmation') continue;
         state.status = 'interrupted';
         state.finishedAt = now();
         state.log.push({
@@ -124,6 +128,25 @@ export class FsAiJobsRepo implements CheckpointSink {
       }
     }
     return marked;
+  }
+
+  /**
+   * todo_22: backlog jobs paused on a user gate (`awaiting-confirmation` /
+   * `awaiting-review`) that must be re-adopted into memory after a restart —
+   * the same pause survives, NOT `interrupted` (BACKLOG contract).
+   */
+  async listPausedBacklog(): Promise<AiJobCheckpoint[]> {
+    const paused: AiJobCheckpoint[] = [];
+    for (const projectId of await this.projectIds()) {
+      for (const state of await this.list(projectId)) {
+        if (state.kind !== 'backlog') continue;
+        if (state.status !== 'awaiting-confirmation' && state.status !== 'awaiting-review') {
+          continue;
+        }
+        paused.push(state);
+      }
+    }
+    return paused;
   }
 
   /** Project directories under the root (non-dot dirs only). */

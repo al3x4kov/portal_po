@@ -3,6 +3,7 @@ import type {
   AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
+  AiImportConfirmBody,
   AiImportJobList,
   AiImportJobView,
   AiImportStartResponse,
@@ -199,13 +200,45 @@ export const aiImportApi = {
       formData: fd,
     });
   },
+  /**
+   * todo_22 (T-305): AI-импорт бэклога из xlsx — same multipart shape as
+   * `start`, kind='backlog' server-side. 409 while another import of the
+   * project is unfinished (including an abandoned review gate).
+   */
+  startBacklog: (projectId: string, file: File, model?: string): Promise<AiImportStartResponse> => {
+    const fd = new FormData();
+    if (model) fd.append('model', model);
+    fd.append('file', file);
+    return apiRequest(`/projects/${encodeURIComponent(projectId)}/ai-backlog-import`, {
+      method: 'POST',
+      formData: fd,
+    });
+  },
   getJob: (jobId: string): Promise<AiImportJobView> =>
     apiRequest(`/ai-import/${encodeURIComponent(jobId)}`),
   cancel: (jobId: string): Promise<AiImportJobView> =>
     apiRequest(`/ai-import/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' }),
-  /** todo_20 T-204: confirm a job paused on the estimate gate (409 otherwise). */
-  confirm: (jobId: string): Promise<AiImportJobView> =>
-    apiRequest(`/ai-import/${encodeURIComponent(jobId)}/confirm`, { method: 'POST' }),
+  /**
+   * todo_20 T-204: confirm a job paused on the estimate gate (409 otherwise).
+   * todo_22: backlog jobs carry the shared target in the body (both fields
+   * together or none — the server falls back to `preview.defaultTarget`);
+   * docs jobs keep the historical body-less call.
+   */
+  confirm: (jobId: string, body?: AiImportConfirmBody): Promise<AiImportJobView> =>
+    apiRequest(`/ai-import/${encodeURIComponent(jobId)}/confirm`, {
+      method: 'POST',
+      ...(body ? { body } : {}),
+    }),
+  /**
+   * todo_22 (T-306): write the reviewed selection into the project — the ONLY
+   * step of the backlog flow that writes. 409 when the job is not on the
+   * review gate, 400 on unknown rowIds, 422 on an empty selection.
+   */
+  apply: (jobId: string, rowIds: string[]): Promise<AiImportJobView> =>
+    apiRequest(`/ai-import/${encodeURIComponent(jobId)}/apply`, {
+      method: 'POST',
+      body: { rowIds },
+    }),
   /** todo_20 T-212: resume failed | cancelled | interrupted from the checkpoint.
    *  202 with the SAME jobId — the caller keeps polling the same view. */
   resume: (jobId: string): Promise<AiImportStartResponse> =>

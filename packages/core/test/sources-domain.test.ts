@@ -37,8 +37,8 @@ describe('T-101 domain scales & palette', () => {
     ]);
   });
 
-  it('exposes the four source types', () => {
-    expect([...SOURCE_TYPES]).toEqual(['CLIENT', 'STAKEHOLDER', 'STANDARD', 'TEXT']);
+  it('exposes the source types (todo_22 appends BACKLOG; the historical four stay)', () => {
+    expect([...SOURCE_TYPES]).toEqual(['CLIENT', 'STAKEHOLDER', 'STANDARD', 'TEXT', 'BACKLOG']);
   });
 });
 

@@ -5,6 +5,7 @@ import type {
   AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
+  AiImportConfirmBody,
   AiImportJobList,
   AiImportJobView,
   AiImportStartResponse,
@@ -428,6 +429,32 @@ export function useStartAiImport(projectId: string) {
 }
 
 /**
+ * todo_22 (T-305): starts a backlog AI-import — uploads the xlsx, gets back
+ * `{ jobId }`. The deterministic parse pauses the job on the preview gate
+ * (`awaiting-confirmation`), no AI calls until confirm.
+ */
+export function useStartAiBacklogImport(projectId: string) {
+  return useMutation<AiImportStartResponse, Error, { file: File; model?: string }>({
+    mutationFn: ({ file, model }) => aiImportApi.startBacklog(projectId, file, model),
+  });
+}
+
+/**
+ * todo_22 (T-306): writes the reviewed row selection into the project
+ * (`POST /api/ai-import/:jobId/apply`). The fresh view (now `running` on
+ * populate) lands in the cache directly, which re-arms the polling of
+ * {@link useAiImportJob}; created requirements are invalidated by the same
+ * hook once the job reaches `succeeded`.
+ */
+export function useApplyAiBacklogImport() {
+  const qc = useQueryClient();
+  return useMutation<AiImportJobView, Error, { jobId: string; rowIds: string[] }>({
+    mutationFn: ({ jobId, rowIds }) => aiImportApi.apply(jobId, rowIds),
+    onSuccess: (job) => qc.setQueryData(queryKeys.aiImportJob(job.jobId), job),
+  });
+}
+
+/**
  * Polls `GET /api/ai-import/:jobId` every ~800 ms while the job is running.
  * When the job finishes with `succeeded` or `cancelled`, the project's
  * requirements query is invalidated — created items must appear in the tree
@@ -481,8 +508,12 @@ export function useCancelAiImport() {
  */
 export function useConfirmAiImport() {
   const qc = useQueryClient();
-  return useMutation<AiImportJobView, Error, string>({
-    mutationFn: (jobId) => aiImportApi.confirm(jobId),
+  return useMutation<AiImportJobView, Error, { jobId: string; target?: AiImportConfirmBody }>({
+    // todo_22: backlog jobs send the shared target; docs jobs keep the
+    // historical body-less call (target absent ⇒ the one-argument call
+    // stays byte-identical to pre-todo_22).
+    mutationFn: ({ jobId, target }) =>
+      target ? aiImportApi.confirm(jobId, target) : aiImportApi.confirm(jobId),
     onSuccess: (job) => qc.setQueryData(queryKeys.aiImportJob(job.jobId), job),
   });
 }

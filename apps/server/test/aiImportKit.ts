@@ -135,6 +135,57 @@ export async function makeImportHarness(
   return { ctx, configRepo, checkpoints, jobs, makeService, setPreset };
 }
 
+/* ── todo_22: synthetic backlog xlsx (kept minimal — the reader's own fixture
+ * is the REAL Jira queryTable export in test/fixtures/Книга2.xlsx) ─────────── */
+
+export type BacklogCell = string | number | undefined;
+
+/** Minimal xlsx buffer: one sheet, rows by column index, shared/inline strings. */
+export function backlogXlsxBuffer(rows: BacklogCell[][], opts: { inline?: boolean } = {}): Buffer {
+  const shared: string[] = [];
+  const sharedIndex = (s: string): number => {
+    const i = shared.indexOf(s);
+    if (i >= 0) return i;
+    shared.push(s);
+    return shared.length - 1;
+  };
+  const xmlEscape = (s: string): string =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const rowsXml = rows
+    .map((cells, r) => {
+      const rowNum = r + 1;
+      const cellsXml = cells
+        .map((value, c) => {
+          if (value === undefined) return '';
+          const ref = `${String.fromCharCode(65 + c)}${rowNum}`;
+          if (typeof value === 'number') return `<c r="${ref}"><v>${value}</v></c>`;
+          if (opts.inline) {
+            return `<c r="${ref}" t="inlineStr"><is><t>${xmlEscape(value)}</t></is></c>`;
+          }
+          return `<c r="${ref}" t="s"><v>${sharedIndex(value)}</v></c>`;
+        })
+        .join('');
+      return `<row r="${rowNum}">${cellsXml}</row>`;
+    })
+    .join('');
+  const zip = new AdmZip();
+  zip.addFile(
+    'xl/worksheets/sheet1.xml',
+    Buffer.from(
+      `<?xml version="1.0"?><worksheet><sheetData>${rowsXml}</sheetData></worksheet>`,
+      'utf8',
+    ),
+  );
+  if (shared.length > 0) {
+    const sst = shared.map((s) => `<si><t>${xmlEscape(s)}</t></si>`).join('');
+    zip.addFile(
+      'xl/sharedStrings.xml',
+      Buffer.from(`<?xml version="1.0"?><sst>${sst}</sst>`, 'utf8'),
+    );
+  }
+  return zip.toBuffer();
+}
+
 /* ── T-216: синтетический архив + эталон ─────────────────────────────────── */
 
 export interface SyntheticArchive {
