@@ -323,7 +323,23 @@ export class ArchiveRepo implements ArchivePort {
     if (violation) throw violation;
   }
 
-  /** Find the directory that actually holds the project (flat or single nested folder). */
+  /**
+   * Find the directory that actually holds the project (task22).
+   *
+   * Archives zipped "as a folder" (Finder, GitHub/Gitea release downloads)
+   * put everything under one root wrapper dir, sometimes several levels
+   * deep. Starting at the extraction root, while `openspec/` is absent and
+   * the current dir contains exactly one real subdirectory (service entries
+   * like `__MACOSX` and dot-entries are ignored), descend into it — at most
+   * {@link ArchiveRepo.MAX_WRAPPER_DEPTH} levels. Descent only follows
+   * directories physically extracted under the temp dir (`resolveSafe`), so
+   * path-traversal defenses (NFR-5) are untouched. If `openspec/` is never
+   * found the extraction root is returned and `validate()` reports the
+   * expected structure.
+   */
+  private static readonly MAX_WRAPPER_DEPTH = 3;
+  private static readonly IGNORED_ROOT_ENTRIES = new Set(['__MACOSX']);
+
   private async locateContentRoot(tmpDir: string): Promise<string> {
     const hasContent = async (dir: string): Promise<boolean> => {
       try {
@@ -340,13 +356,18 @@ export class ArchiveRepo implements ArchivePort {
       }
     };
 
-    if (await hasContent(tmpDir)) return tmpDir;
-
-    const entries = await fs.readdir(tmpDir, { withFileTypes: true });
-    const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith('.'));
-    if (dirs.length === 1) {
-      const nested = resolveSafe(tmpDir, dirs[0]!.name);
-      if (await hasContent(nested)) return nested;
+    let current = tmpDir;
+    for (let depth = 0; depth <= ArchiveRepo.MAX_WRAPPER_DEPTH; depth++) {
+      if (await hasContent(current)) return current;
+      const entries = await fs.readdir(current, { withFileTypes: true });
+      const dirs = entries.filter(
+        (e) =>
+          e.isDirectory() &&
+          !e.name.startsWith('.') &&
+          !ArchiveRepo.IGNORED_ROOT_ENTRIES.has(e.name),
+      );
+      if (dirs.length !== 1) break; // ambiguous or empty — stop descending
+      current = resolveSafe(current, dirs[0]!.name);
     }
     return tmpDir;
   }
@@ -405,7 +426,10 @@ export class ArchiveRepo implements ArchivePort {
       const stat = await fs.stat(specsDir);
       if (!stat.isDirectory()) throw new Error('not a dir');
     } catch {
-      throw new ArchiveError('Archive has no openspec/specs directory.');
+      throw new ArchiveError(
+        'Archive must contain an openspec/ directory with project.md and specs/ ' +
+          '(optionally inside a single wrapper folder, e.g. MyProject/openspec/...).',
+      );
     }
 
     const reqs = [
