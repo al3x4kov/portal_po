@@ -12,6 +12,9 @@ const listModels = vi.fn();
 const startImport = vi.fn();
 const getJob = vi.fn();
 const cancelJob = vi.fn();
+const confirmJob = vi.fn();
+const resumeJob = vi.fn();
+const listJobs = vi.fn();
 
 vi.mock('../api/endpoints', () => ({
   projectsApi: {},
@@ -25,6 +28,10 @@ vi.mock('../api/endpoints', () => ({
     start: (...a: unknown[]) => startImport(...a),
     getJob: (...a: unknown[]) => getJob(...a),
     cancel: (...a: unknown[]) => cancelJob(...a),
+    confirm: (...a: unknown[]) => confirmJob(...a),
+    resume: (...a: unknown[]) => resumeJob(...a),
+    listJobs: (...a: unknown[]) => listJobs(...a),
+    logUrl: (jobId: string) => `/api/ai-import/${jobId}/log`,
   },
 }));
 
@@ -101,6 +108,9 @@ describe('AiImportModal (Task 11)', () => {
     startImport.mockReset().mockResolvedValue({ jobId: 'job-1' });
     getJob.mockReset();
     cancelJob.mockReset();
+    confirmJob.mockReset();
+    resumeJob.mockReset();
+    listJobs.mockReset().mockResolvedValue({ jobs: [] });
   });
 
   /** The disabled placeholder select is swapped for the live one once the AI
@@ -762,13 +772,13 @@ describe('AiImportModal (Task 11)', () => {
     });
   });
 
-  // ── todo_16 Ф10: client-side archive size limit (50 МБ) ────────────────────
+  // ── todo_16 Ф10 → todo_20 PO №1: client-side archive size limit (200 МБ) ───
 
   describe('Ф10: file size check on pick', () => {
     function makeBigFile(): File {
       const f = new File(['x'], 'huge-docs.zip', { type: 'application/zip' });
-      // A real 50 МБ payload would slow the test down — fake the size only.
-      Object.defineProperty(f, 'size', { value: 50 * 1024 * 1024 + 1 });
+      // A real 200 МБ payload would slow the test down — fake the size only.
+      Object.defineProperty(f, 'size', { value: 200 * 1024 * 1024 + 1 });
       return f;
     }
 
@@ -779,7 +789,7 @@ describe('AiImportModal (Task 11)', () => {
       await user.upload(screen.getByTestId('ai-import-file'), makeBigFile());
 
       expect(await screen.findByTestId('ai-import-start-error')).toHaveTextContent(
-        'Файл больше 50 МБ — уменьшите архив документации.',
+        'Файл больше 200 МБ — уменьшите архив документации.',
       );
       // The file was rejected: no file card, start stays disabled, no API call.
       expect(screen.queryByTestId('ai-import-file-name')).not.toBeInTheDocument();

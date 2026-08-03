@@ -33,6 +33,35 @@ export const AI_GEN_MAX_TOKENS = 700;
 export const AI_MODEL_REASONING_MODES = ['none', 'strip'] as const;
 export type AiModelReasoning = (typeof AI_MODEL_REASONING_MODES)[number];
 
+/*
+ * ── todo_20 · run-control preset fields (T-201) ────────────────────────────
+ * Four new per-model knobs drive the IMPORT pipeline: parallel call pool,
+ * per-call timeout, run token budget and the estimate confirmation threshold.
+ * They resolve through {@link resolveModelPreset} like every other field, so
+ * OLD stored overrides (without them) stay valid and simply inherit defaults.
+ */
+
+/** Default pool of simultaneous AI calls for independent chunks (C2). */
+export const AI_MODEL_PARALLELISM_DEFAULT = 2;
+/** Default per-call timeout, seconds — with head-room for thinking models (C3). */
+export const AI_MODEL_PER_CALL_TIMEOUT_SEC_DEFAULT = 120;
+/** Default run token budget: `null` = no limit (B6). */
+export const AI_MODEL_RUN_BUDGET_TOKENS_DEFAULT = null;
+/**
+ * Default estimate confirmation threshold, tokens (PO decision №2):
+ * over it the job waits for explicit confirmation; `0` = always confirm,
+ * `null` = never ask.
+ */
+export const AI_MODEL_ESTIMATE_THRESHOLD_TOKENS_DEFAULT = 2_000_000;
+
+/** Shared run-control defaults merged into every preset entry below. */
+const AI_MODEL_PRESET_RUN_DEFAULTS = {
+  parallelism: AI_MODEL_PARALLELISM_DEFAULT,
+  perCallTimeoutSec: AI_MODEL_PER_CALL_TIMEOUT_SEC_DEFAULT,
+  runBudgetTokens: AI_MODEL_RUN_BUDGET_TOKENS_DEFAULT,
+  estimateThresholdTokens: AI_MODEL_ESTIMATE_THRESHOLD_TOKENS_DEFAULT,
+} as const;
+
 /**
  * A full per-model preset. `temperature` (0..2), `maxOutputTokens` (≥1),
  * `chunkChars` (≥1000, input-side chunking for the import pipeline),
@@ -53,6 +82,14 @@ export const aiModelPresetSchema = z.object({
   chunkChars: z.number().int().min(1000),
   reasoning: z.enum(AI_MODEL_REASONING_MODES),
   topP: z.number().min(0).max(1).optional(),
+  /** todo_20: pool of simultaneous AI calls (1..8). */
+  parallelism: z.number().int().min(1).max(8),
+  /** todo_20: per-call timeout, seconds (≥10). */
+  perCallTimeoutSec: z.number().int().min(10),
+  /** todo_20: run token budget; `null` = no limit. */
+  runBudgetTokens: z.number().int().min(0).nullable(),
+  /** todo_20: estimate threshold; `0` = always confirm, `null` = never ask. */
+  estimateThresholdTokens: z.number().int().min(0).nullable(),
 });
 export type AiModelPreset = z.infer<typeof aiModelPresetSchema>;
 
@@ -79,6 +116,7 @@ export const AI_MODEL_PRESET_DEFAULTS: Record<string, AiModelPreset> = {
     maxOutputTokens: 4000,
     chunkChars: 12_000,
     reasoning: 'none',
+    ...AI_MODEL_PRESET_RUN_DEFAULTS,
   },
   'Qwen/Qwen3.5-397B-A17B': {
     temperature: 0.2,
@@ -88,6 +126,7 @@ export const AI_MODEL_PRESET_DEFAULTS: Record<string, AiModelPreset> = {
     maxOutputTokens: 16_000,
     chunkChars: 24_000,
     reasoning: 'strip',
+    ...AI_MODEL_PRESET_RUN_DEFAULTS,
   },
   'Qwen/Qwen3.6-27B': {
     temperature: 0.2,
@@ -95,12 +134,14 @@ export const AI_MODEL_PRESET_DEFAULTS: Record<string, AiModelPreset> = {
     maxOutputTokens: 12_000,
     chunkChars: 16_000,
     reasoning: 'strip',
+    ...AI_MODEL_PRESET_RUN_DEFAULTS,
   },
   [AI_MODEL_PRESET_GENERIC_KEY]: {
     temperature: 0.2,
     maxOutputTokens: 4000,
     chunkChars: 12_000,
     reasoning: 'strip',
+    ...AI_MODEL_PRESET_RUN_DEFAULTS,
   },
 };
 
@@ -253,10 +294,252 @@ export const AI_IMPORT_STRUCTURE_MAX_TOKENS = 4000;
 export const AI_IMPORT_STRUCTURE_BATCH = 50;
 /** Chunk size in characters — fits a small context window (Qwen-Coder-Next). */
 export const AI_IMPORT_CHUNK_CHARS = 12_000;
-/** Upload limit for the documentation archive — PO decision §3.4. */
-export const AI_IMPORT_MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
-/** Max number of documentation files inside one archive — PO decision §3.4. */
-export const AI_IMPORT_MAX_DOC_FILES = 500;
+/** Upload limit for the documentation archive — 200 МБ (todo_20, PO decision №1). */
+export const AI_IMPORT_MAX_ARCHIVE_BYTES = 200 * 1024 * 1024;
+/** Max number of text (documentation) files inside one archive — todo_20 Н1. */
+export const AI_IMPORT_MAX_TEXT_FILES = 2000;
+/**
+ * Historical alias of {@link AI_IMPORT_MAX_TEXT_FILES} — kept so existing
+ * consumers (lib/unpack) keep compiling; the value is the todo_20 limit.
+ */
+export const AI_IMPORT_MAX_DOC_FILES = AI_IMPORT_MAX_TEXT_FILES;
+
+/*
+ * ── todo_20 · T-201: source classes, inventory, estimate, usage, report ────
+ */
+
+/**
+ * Content classes of documentation sources (П1). Assigned by CONTENT (sniffing
+ * + optional LLM triage), never by file/dir names; `other` is still processed
+ * with base priority — nothing is silently dropped.
+ */
+export const AI_IMPORT_SOURCE_CLASSES = [
+  'release-notes',
+  'user-guide',
+  'admin-guide',
+  'security',
+  'api-spec',
+  'config',
+  'other',
+] as const;
+export type AiImportSourceClass = (typeof AI_IMPORT_SOURCE_CLASSES)[number];
+
+/** One aggregated exclusion line of the inventory — ALWAYS carries a reason. */
+export const aiImportExcludedEntrySchema = z.object({
+  /** A concrete relative path or an aggregation pattern («*.png»). */
+  path: z.string().min(1),
+  reason: z.string().min(1),
+  count: z.number().int().min(1),
+});
+export type AiImportExcludedEntry = z.infer<typeof aiImportExcludedEntrySchema>;
+
+/** Aggregated inventory of the unpacked archive (П1) shown in the job view. */
+export const aiImportInventoryViewSchema = z.object({
+  totalFiles: z.number().int().min(0),
+  /** Files queued for processing, per source class (absent class = 0). */
+  processed: z.partialRecord(z.enum(AI_IMPORT_SOURCE_CLASSES), z.number().int().min(0)),
+  excluded: z.array(aiImportExcludedEntrySchema),
+});
+export type AiImportInventoryView = z.infer<typeof aiImportInventoryViewSchema>;
+
+/** Pre-run estimate (П2): volumes + threshold verdict. */
+export const aiImportEstimateViewSchema = z.object({
+  files: z.number().int().min(0),
+  chunks: z.number().int().min(0),
+  calls: z.number().int().min(0),
+  tokens: z.number().int().min(0),
+  /** Effective preset threshold; `null` = confirmation disabled. */
+  thresholdTokens: z.number().int().min(0).nullable(),
+  overThreshold: z.boolean(),
+});
+export type AiImportEstimateView = z.infer<typeof aiImportEstimateViewSchema>;
+
+/** Accumulated token usage of a run (C4). */
+export const aiImportUsageViewSchema = z.object({
+  promptTokens: z.number().int().min(0),
+  completionTokens: z.number().int().min(0),
+});
+export type AiImportUsageView = z.infer<typeof aiImportUsageViewSchema>;
+
+/** Per-class coverage line of the final quality report (E4). */
+export const aiImportReportCoverageSchema = z.object({
+  sourceClass: z.enum(AI_IMPORT_SOURCE_CLASSES),
+  files: z.number().int().min(0),
+  processedFiles: z.number().int().min(0),
+  extractedFunctions: z.number().int().min(0),
+  extractedNfrs: z.number().int().min(0),
+  retriedChunks: z.number().int().min(0),
+});
+export type AiImportReportCoverage = z.infer<typeof aiImportReportCoverageSchema>;
+
+/** One visible blind spot of the run (skipped/truncated/excluded content). */
+export const aiImportBlindSpotSchema = z.object({
+  kind: z.enum(['skipped-file', 'truncated', 'excluded']),
+  message: z.string().min(1),
+  count: z.number().int().min(1),
+});
+export type AiImportBlindSpot = z.infer<typeof aiImportBlindSpotSchema>;
+
+/** Final quality report (present also for cancelled/failed jobs — partial). */
+export const aiImportReportViewSchema = z.object({
+  coverage: z.array(aiImportReportCoverageSchema),
+  blindSpots: z.array(aiImportBlindSpotSchema),
+});
+export type AiImportReportView = z.infer<typeof aiImportReportViewSchema>;
+
+/*
+ * ── todo_20 · T-201: error taxonomy (E1) ───────────────────────────────────
+ * Every fail carries a registry code with a Russian, jargon-free message, a
+ * concrete next action, a category and a resumable flag. Raw technical detail
+ * (HTTP code, response body) belongs to the LOG, never to `message`.
+ */
+
+export const AI_IMPORT_ERROR_CATEGORIES = [
+  'data',
+  'model',
+  'network',
+  'config',
+  'budget',
+  /** todo_20 T-213: internal automation bugs — still coded, still explained. */
+  'internal',
+] as const;
+export type AiImportErrorCategory = (typeof AI_IMPORT_ERROR_CATEGORIES)[number];
+
+/** Registry entry: everything the UI needs to explain one failure class. */
+export interface AiImportErrorInfo {
+  category: AiImportErrorCategory;
+  message: string;
+  action: string;
+  resumable: boolean;
+}
+
+/** The single error-code registry of the AI import (T-201 §12). */
+export const AI_IMPORT_ERROR_CODES = {
+  'CFG-01': {
+    category: 'config',
+    message: 'AI Hub не настроен: нет API-ключа или не выбрана модель.',
+    action: 'Откройте экран AI, задайте API-ключ и выберите модель, затем повторите анализ.',
+    resumable: false,
+  },
+  'CFG-02': {
+    category: 'config',
+    message: 'AI Hub отклонил доступ: ключ недействителен или не имеет прав.',
+    action: 'Проверьте API-ключ на экране AI и сохраните его заново.',
+    resumable: true,
+  },
+  'CFG-03': {
+    category: 'config',
+    message: 'Выбранная модель не найдена на сервере AI Hub.',
+    action: 'Выберите другую модель на экране AI (список доступных — в логе).',
+    resumable: true,
+  },
+  'DATA-01': {
+    category: 'data',
+    message: 'В архиве нет текстовых файлов документации.',
+    action: 'Добавьте в архив документацию (.md/.txt/.json/.yaml) и повторите.',
+    resumable: false,
+  },
+  'DATA-02': {
+    category: 'data',
+    message: 'Архив превышает лимит: до 200 МБ и до 2000 текстовых файлов.',
+    action: 'Уменьшите архив (разбейте на части или исключите лишние файлы) и повторите.',
+    resumable: false,
+  },
+  'DATA-03': {
+    category: 'data',
+    message: 'Не удалось распаковать архив: файл повреждён или это не zip/tar.gz.',
+    action: 'Соберите архив заново (zip или tar.gz) и повторите загрузку.',
+    resumable: false,
+  },
+  'NET-01': {
+    category: 'network',
+    message: 'Сервис AI ограничивает частоту запросов (429): повторы не помогли.',
+    action: 'Подождите несколько минут и продолжите прогон — прогресс сохранён.',
+    resumable: true,
+  },
+  'NET-02': {
+    category: 'network',
+    message: 'Сервис AI недоступен или отвечает ошибкой сервера: повторы не помогли.',
+    action: 'Проверьте доступность AI Hub и продолжите прогон — прогресс сохранён.',
+    resumable: true,
+  },
+  'NET-03': {
+    category: 'network',
+    message: 'Сервис AI не отвечает: запросы превышают тайм-аут, повторы не помогли.',
+    action:
+      'Увеличьте тайм-аут вызова в настройках модели или повторите позже — прогресс сохранён.',
+    resumable: true,
+  },
+  'MODEL-01': {
+    category: 'model',
+    message: 'Модель так и не вернула структурированный ответ после всех попыток и делений.',
+    action: 'Попробуйте другую модель или уменьшите размер фрагмента в настройках.',
+    resumable: true,
+  },
+  'MODEL-02': {
+    category: 'model',
+    message: 'Даже минимальный фрагмент не помещается в контекстное окно модели.',
+    action: 'Выберите модель с бо́льшим контекстным окном или уменьшите документы.',
+    resumable: false,
+  },
+  'BUDGET-01': {
+    category: 'budget',
+    message: 'Бюджет прогона исчерпан — анализ мягко остановлен, результат сохранён.',
+    action: 'Увеличьте бюджет в настройках модели и продолжите прогон с места остановки.',
+    resumable: true,
+  },
+  'INT-01': {
+    category: 'internal',
+    message: 'Внутренняя ошибка автоматизации — прогон остановлен, прогресс сохранён.',
+    action:
+      'Продолжите прогон с места остановки; если ошибка повторяется — обратитесь к администратору.',
+    resumable: true,
+  },
+} as const satisfies Record<string, AiImportErrorInfo>;
+export type AiImportErrorCode = keyof typeof AI_IMPORT_ERROR_CODES;
+
+/** Codes as a non-empty tuple for z.enum. */
+export const AI_IMPORT_ERROR_CODE_VALUES = Object.keys(AI_IMPORT_ERROR_CODES) as [
+  AiImportErrorCode,
+  ...AiImportErrorCode[],
+];
+
+/**
+ * Job error (extension of the historical `{message, hint}` — both stay for
+ * old clients). `code/category/action/resumable` are filled by the registry;
+ * they are schema-optional for backward compatibility, and become mandatory
+ * on every fail path with T-213 (волна 1.2).
+ */
+export const aiImportJobErrorSchema = z.object({
+  message: z.string(),
+  hint: z.string(),
+  code: z.enum(AI_IMPORT_ERROR_CODE_VALUES).optional(),
+  category: z.enum(AI_IMPORT_ERROR_CATEGORIES).optional(),
+  action: z.string().optional(),
+  resumable: z.boolean().optional(),
+});
+export type AiImportJobError = z.infer<typeof aiImportJobErrorSchema>;
+
+/**
+ * Build the full job-error object for a registry code. `hint` mirrors
+ * `action` so pre-todo_20 clients render the actionable text unchanged.
+ * `overrides` refine the user-facing texts (e.g. CFG-03 with the model list);
+ * technical details still belong to the log, not here.
+ */
+export function aiImportErrorFromCode(
+  code: AiImportErrorCode,
+  overrides: Partial<Pick<AiImportJobError, 'message' | 'hint' | 'resumable'>> = {},
+): AiImportJobError {
+  const info = AI_IMPORT_ERROR_CODES[code];
+  return {
+    message: overrides.message ?? info.message,
+    hint: overrides.hint ?? info.action,
+    code,
+    category: info.category,
+    action: info.action,
+    resumable: overrides.resumable ?? info.resumable,
+  };
+}
 
 /**
  * Job stages in execution order. Progress ranges (Task 13): unpack 0–5,
@@ -272,8 +555,20 @@ export const AI_IMPORT_STAGES = [
 ] as const;
 export type AiImportStage = (typeof AI_IMPORT_STAGES)[number];
 
-/** Job lifecycle statuses. */
-export const AI_IMPORT_STATUSES = ['running', 'succeeded', 'failed', 'cancelled'] as const;
+/**
+ * Job lifecycle statuses. todo_20 adds `awaiting-confirmation` (estimate over
+ * the threshold — LLM extraction does not start until confirmed) and
+ * `interrupted` (an unfinished job discovered after a server restart).
+ * The historical four are NOT renamed.
+ */
+export const AI_IMPORT_STATUSES = [
+  'running',
+  'succeeded',
+  'failed',
+  'cancelled',
+  'awaiting-confirmation',
+  'interrupted',
+] as const;
 export type AiImportStatus = (typeof AI_IMPORT_STATUSES)[number];
 
 /** One line of the automation log shown in the modal. */
@@ -356,12 +651,53 @@ export const aiImportJobViewSchema = z.object({
   log: z.array(aiImportLogEntrySchema),
   /** Present when succeeded (and on cancelled — what managed to complete). */
   result: aiImportResultSchema.optional(),
-  /** Present when failed: readable message + "what to do next" (spec §4). */
-  error: z.object({ message: z.string(), hint: z.string() }).optional(),
+  /**
+   * Present when failed: readable message + "what to do next" (spec §4).
+   * todo_20 extends it with the taxonomy fields ({@link aiImportJobErrorSchema}).
+   */
+  error: aiImportJobErrorSchema.optional(),
   /** Outcome of the optional relate step (todo_16 B2); absent when not requested. */
   relate: aiImportRelateViewSchema.optional(),
+  /* ── todo_20 progress-with-content fields (all optional — old views stay valid) ── */
+  /** File currently being processed (relative archive path). */
+  currentFile: z.string().optional(),
+  /** Source class of the current file. */
+  currentClass: z.enum(AI_IMPORT_SOURCE_CLASSES).optional(),
+  /** 1-based index of the chunk in flight. */
+  chunkIndex: z.number().int().min(0).optional(),
+  chunkTotal: z.number().int().min(0).optional(),
+  /** Estimated remaining seconds; `null` = «оценивается…» (PO decision №6). */
+  etaSeconds: z.number().min(0).nullable().optional(),
+  usage: aiImportUsageViewSchema.optional(),
+  inventory: aiImportInventoryViewSchema.optional(),
+  estimate: aiImportEstimateViewSchema.optional(),
+  report: aiImportReportViewSchema.optional(),
 });
 export type AiImportJobView = z.infer<typeof aiImportJobViewSchema>;
+
+/*
+ * ── todo_20 · T-201: job history (PO decision №4) ──────────────────────────
+ */
+
+/** One line of `GET /api/projects/:id/ai-import/jobs` — the run history. */
+export const aiImportJobSummarySchema = z.object({
+  jobId: z.string(),
+  projectId: z.string(),
+  status: z.enum(AI_IMPORT_STATUSES),
+  /** ISO timestamp of the run start. */
+  startedAt: z.string(),
+  finishedAt: z.string().optional(),
+  result: aiImportResultSchema.optional(),
+  /** True when the job can be continued from its checkpoint. */
+  resumable: z.boolean(),
+});
+export type AiImportJobSummary = z.infer<typeof aiImportJobSummarySchema>;
+
+/** Response of `GET /api/projects/:id/ai-import/jobs`. */
+export const aiImportJobListSchema = z.object({
+  jobs: z.array(aiImportJobSummarySchema),
+});
+export type AiImportJobList = z.infer<typeof aiImportJobListSchema>;
 
 /** Response of `POST /api/projects/:id/ai-import` (202). */
 export const aiImportStartResponseSchema = z.object({ jobId: z.string() });

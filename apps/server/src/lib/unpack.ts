@@ -11,8 +11,12 @@ import { ArchiveError } from './errors.js';
 import { detectArchiveFormat } from './archiveFormat.js';
 import { type ArchiveLimits, DEFAULT_ARCHIVE_LIMITS } from './limits.js';
 
-/** Documentation file extensions the AI import analyzes (spec §2.1). */
-export const DOC_EXTENSIONS = ['.md', '.markdown', '.txt'] as const;
+/**
+ * Documentation file extensions the AI import analyzes. todo_20 (П1) adds the
+ * structured-source formats — release-notes JSON, YAML specs/configs — which
+ * the pipeline normalizes to flat text before extraction (T-203).
+ */
+export const DOC_EXTENSIONS = ['.md', '.markdown', '.txt', '.json', '.yaml', '.yml'] as const;
 
 /** Result of unpacking a documentation archive into a temp directory. */
 export interface UnpackedDocs {
@@ -92,10 +96,16 @@ export async function unpackDocsArchive(
   archivePath: string,
   maxDocFiles: number = AI_IMPORT_MAX_DOC_FILES,
   limits: Partial<ArchiveLimits> = {},
+  /**
+   * todo_20 T-211: explicit extraction directory (the job's `.ai-jobs/<id>/docs`
+   * so the unpacked docs survive a restart for resume). Defaults to a fresh
+   * temp dir under `os.tmpdir()` — the historical behaviour.
+   */
+  destDir?: string,
 ): Promise<UnpackedDocs> {
   const { maxEntries, maxTotalBytes } = { ...DEFAULT_ARCHIVE_LIMITS, ...limits };
   const format = await detectArchiveFormat(archivePath);
-  const dir = path.join(os.tmpdir(), `po-ai-import-${randomBytes(8).toString('hex')}`);
+  const dir = destDir ?? path.join(os.tmpdir(), `po-ai-import-${randomBytes(8).toString('hex')}`);
   await ensureDir(dir);
 
   let unsafeEntries = 0;

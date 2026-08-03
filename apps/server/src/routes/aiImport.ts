@@ -5,7 +5,12 @@ import { randomBytes } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { aiImportInferLinksFieldSchema, DomainError, type AiImportJobView } from '@po/core';
+import {
+  aiImportInferLinksFieldSchema,
+  DomainError,
+  type AiImportJobList,
+  type AiImportJobView,
+} from '@po/core';
 import { createAiImportService, type ServiceContext } from '../factory.js';
 import { AiImportJobs } from '../services/AiImportJobs.js';
 import { BadRequestError } from '../lib/errors.js';
@@ -17,10 +22,11 @@ const idParams = z.object({ id: z.string().min(1) });
 const jobParams = z.object({ jobId: z.string().min(1) });
 
 /**
- * AI-import routes (Task 11): start a documentation-import job (multipart
- * archive + optional `model` override), poll its status, request cancel.
- * The job registry lives per app instance; the AI client is injected via
- * `deps.makeAiClient` (mock in tests, `openai` wrapper in production).
+ * AI-import routes (Task 11 / todo_20): start a documentation-import job
+ * (multipart archive + optional `model` override), poll its status, confirm
+ * the estimate, cancel, resume from a checkpoint, list the run history and
+ * download the log. The job registry lives per app instance; the AI client is
+ * injected via `deps.makeAiClient` (mock in tests, `openai` in production).
  */
 export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promise<void> {
   const ctx: ServiceContext = {
@@ -31,6 +37,9 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
   };
   const jobs = new AiImportJobs(deps.now);
   const service = createAiImportService(ctx, jobs);
+  // todo_20 T-211 (Н3): jobs killed by the previous process become visible,
+  // resumable `interrupted` entries as soon as the server is up again.
+  await service.recoverInterrupted();
   app.post('/api/projects/:id/ai-import', async (req, reply) => {
     const { id } = parseInput(idParams, req.params);
 
@@ -92,13 +101,46 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
     }
   });
 
+  // todo_20 PO №4: full run history of a project (disk checkpoints ∪ memory).
+  app.get('/api/projects/:id/ai-import/jobs', async (req): Promise<AiImportJobList> => {
+    const { id } = parseInput(idParams, req.params);
+    return service.listJobs(id);
+  });
+
   app.get('/api/ai-import/:jobId', async (req): Promise<AiImportJobView> => {
     const { jobId } = parseInput(jobParams, req.params);
-    return service.getView(jobId);
+    return service.getViewOrHistory(jobId);
   });
 
   app.post('/api/ai-import/:jobId/cancel', async (req): Promise<AiImportJobView> => {
     const { jobId } = parseInput(jobParams, req.params);
     return service.cancel(jobId);
+  });
+
+  // todo_20 T-204: confirm the estimate of a job paused on the gate (409 otherwise).
+  app.post('/api/ai-import/:jobId/confirm', async (req): Promise<AiImportJobView> => {
+    const { jobId } = parseInput(jobParams, req.params);
+    return service.confirm(jobId);
+  });
+
+  // todo_20 T-212: resume failed | cancelled | interrupted from the checkpoint.
+  app.post('/api/ai-import/:jobId/resume', async (req, reply) => {
+    const { jobId } = parseInput(jobParams, req.params);
+    const started = await service.resume(jobId);
+    reply.code(202);
+    return started;
+  });
+
+  // todo_20 Н4: the full log as a downloadable text file.
+  app.get('/api/ai-import/:jobId/log', async (req, reply) => {
+    const { jobId } = parseInput(jobParams, req.params);
+    const text = await service.getLogText(jobId);
+    // The filename embeds the (validated-404 first) job id; strip anything
+    // header-unsafe anyway — defense in depth against header injection.
+    const safe = jobId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    reply
+      .header('content-type', 'text/plain; charset=utf-8')
+      .header('content-disposition', `attachment; filename="ai-import-${safe}.log"`);
+    return text;
   });
 }

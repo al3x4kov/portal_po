@@ -40,6 +40,17 @@ const FOLDER = REQUIREMENT_FOLDER;
 const IMPORT_TMP = '.import-tmp';
 /** Per-project dictionaries file — travels with every archive so it survives export/import (todo_19). */
 const DICTIONARIES = 'dictionaries.json';
+/**
+ * AI-import job checkpoints (todo_20 T-211, PO decision №3). Service state, not
+ * a requirement/spec: NEVER exported into a project archive and IGNORED when an
+ * archive that carries it is imported.
+ */
+const AI_JOBS_DIR = '.ai-jobs';
+
+/** True when a (platform- or POSIX-separated) relative path is inside `.ai-jobs/`. */
+function isAiJobsPath(rel: string): boolean {
+  return rel.split(/[\\/]/).includes(AI_JOBS_DIR);
+}
 
 /**
  * Repository for full-project archives (FR-3 / FR-10). Export streams a project
@@ -63,18 +74,20 @@ export class ArchiveRepo implements ArchivePort {
     this.limits = { ...DEFAULT_ARCHIVE_LIMITS, ...limits };
   }
 
-  /** Stream a project directory as an archive (T-501). */
+  /** Stream a project directory as an archive (T-501); `.ai-jobs/` never travels. */
   async export(projectDir: string, format: ArchiveFormat, baseName: string): Promise<ExportResult> {
     if (format === 'zip') {
       const zip = new AdmZip();
-      zip.addLocalFolder(projectDir);
+      zip.addLocalFolder(projectDir, '', (entryRel) => !isAiJobsPath(entryRel));
       return {
         body: zip.toBuffer(),
         filename: `${baseName}.zip`,
         contentType: 'application/zip',
       };
     }
-    const stream = tar.create({ gzip: true, cwd: projectDir }, ['.']) as unknown as Readable;
+    const stream = tar.create({ gzip: true, cwd: projectDir, filter: (p) => !isAiJobsPath(p) }, [
+      '.',
+    ]) as unknown as Readable;
     return {
       body: stream,
       filename: `${baseName}.tar.gz`,
@@ -294,6 +307,9 @@ export class ArchiveRepo implements ArchivePort {
       const zip = new AdmZip(archivePath);
       for (const entry of zip.getEntries()) {
         if (entry.isDirectory) continue;
+        // todo_20 T-211: foreign `.ai-jobs/` payload is service state of another
+        // installation — silently ignored, never written into the new project.
+        if (isAiJobsPath(entry.entryName)) continue;
         account(entry.header.size); // uncompressed size, checked before writing
         const target = resolveSafe(dest, entry.entryName); // rejects traversal
         await ensureDir(path.dirname(target));
@@ -310,6 +326,7 @@ export class ArchiveRepo implements ArchivePort {
       cwd: dest,
       filter: (p: string, entry: { size?: number }): boolean => {
         if (violation) return false;
+        if (isAiJobsPath(p)) return false; // todo_20 T-211: ignore foreign checkpoints
         try {
           resolveSafe(dest, p); // rejects traversal inside the archive
           account(entry.size ?? 0); // rejects bomb (entries / uncompressed size)

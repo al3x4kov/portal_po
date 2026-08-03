@@ -21,7 +21,7 @@ export const BODY_LIMIT_BYTES = 5 * 1024 * 1024;
  * oversize upload is rejected while streaming — not after a full write to a
  * temp file — which is the ARCH-6 gap this constant closes.
  */
-export const MAX_UPLOAD_BYTES = AI_IMPORT_MAX_ARCHIVE_BYTES; // 50 MiB
+export const MAX_UPLOAD_BYTES = AI_IMPORT_MAX_ARCHIVE_BYTES; // 200 MiB (todo_20 Н1)
 
 /**
  * Decompression-bomb guard applied INCREMENTALLY during unpack (ARCH-5): the
@@ -46,4 +46,18 @@ export interface ArchiveLimits {
 export const DEFAULT_ARCHIVE_LIMITS: ArchiveLimits = {
   maxEntries: MAX_UNPACK_ENTRIES,
   maxTotalBytes: MAX_UNPACK_TOTAL_BYTES,
+};
+
+/**
+ * todo_20 Н1: the AI-import archive limit rose to 200 МБ compressed, so ITS
+ * uncompressed bomb-guard is proportionally higher (text compresses ~5x).
+ * Project archives (import/export) keep {@link DEFAULT_ARCHIVE_LIMITS} — this
+ * bound applies to the AI documentation unpack only.
+ */
+export const AI_UNPACK_TOTAL_BYTES = 1024 * 1024 * 1024; // 1 GiB uncompressed
+
+/** Bomb-guard limits of the AI documentation unpack (lib/unpack). */
+export const AI_UNPACK_LIMITS: ArchiveLimits = {
+  maxEntries: MAX_UNPACK_ENTRIES,
+  maxTotalBytes: AI_UNPACK_TOTAL_BYTES,
 };

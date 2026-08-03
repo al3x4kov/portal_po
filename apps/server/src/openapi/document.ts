@@ -5,6 +5,7 @@ import {
   aiChatResponseSchema,
   aiConfigUpdateSchema,
   aiConfigViewSchema,
+  aiImportJobListSchema,
   aiImportJobViewSchema,
   aiImportStartResponseSchema,
   aiModelsViewSchema,
@@ -68,7 +69,8 @@ const jobIdParam = {
   required: true,
   description:
     'Идентификатор задания AI-импорта, возвращённый `POST /api/projects/{id}/ai-import` (202). ' +
-    'Реестр заданий живёт в памяти процесса: после рестарта сервера или истечения TTL задание не найти (404).',
+    'Состояние задания сохраняется в контрольных точках (`Projects/<project>/.ai-jobs/`): ' +
+    'после рестарта сервера незавершённое задание видно как `interrupted` и может быть продолжено.',
   schema: { type: 'string' },
 } as const;
 
@@ -127,6 +129,8 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
     GenerateDescriptionResponse: toSchema(generateDescriptionResponseSchema),
     AiImportJobView: toSchema(aiImportJobViewSchema),
     AiImportStartResponse: toSchema(aiImportStartResponseSchema),
+    // todo_20: история прогонов проекта (решение PO №4).
+    AiImportJobList: toSchema(aiImportJobListSchema),
     Error: {
       type: 'object',
       required: ['code', 'message'],
@@ -613,6 +617,74 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
           200: jsonResponse('Задание отменено; в ответе — частичный результат.', 'AiImportJobView'),
           400: errorResponse('Некорректный jobId.'),
           404: errorResponse('Задание не найдено (истёк TTL или сервер был перезапущен).'),
+        },
+      },
+    },
+    '/api/ai-import/{jobId}/confirm': {
+      post: {
+        tags: ['ai'],
+        summary: 'Подтвердить смету и запустить извлечение (todo_20)',
+        description:
+          'Задание со сметой выше порога (`estimateThresholdTokens` пресета) останавливается в статусе ' +
+          '`awaiting-confirmation` ДО первого LLM-вызова извлечения. Подтверждение продолжает конвейер.',
+        parameters: [jobIdParam],
+        responses: {
+          200: jsonResponse(
+            'Смета подтверждена, задание продолжает выполняться.',
+            'AiImportJobView',
+          ),
+          400: errorResponse('Некорректный jobId.'),
+          404: errorResponse('Задание не найдено.'),
+          409: errorResponse('Задание не находится в статусе `awaiting-confirmation`.'),
+        },
+      },
+    },
+    '/api/ai-import/{jobId}/resume': {
+      post: {
+        tags: ['ai'],
+        summary: 'Продолжить задание с контрольной точки (todo_20)',
+        description:
+          'Возобновляет задание в статусе `failed`/`cancelled`/`interrupted` с последней контрольной точки: ' +
+          'уже обработанные фрагменты повторно НЕ отправляются модели (и не оплачиваются); ' +
+          'наполнение проекта идемпотентно (существующие требования/связи не дублируются). ' +
+          'Лимиты (бюджет, порог сметы) перечитываются из текущего пресета модели.',
+        parameters: [jobIdParam],
+        responses: {
+          202: jsonResponse('Продолжение запущено; jobId прежний.', 'AiImportStartResponse'),
+          400: errorResponse('AI-хаб не настроен (нет API-ключа).'),
+          404: errorResponse('Задание или его контрольная точка не найдены.'),
+          409: errorResponse(
+            'Статус задания не допускает продолжения, нет данных контрольной точки или у проекта уже есть активное задание.',
+          ),
+        },
+      },
+    },
+    '/api/ai-import/{jobId}/log': {
+      get: {
+        tags: ['ai'],
+        summary: 'Скачать полный лог задания файлом (todo_20)',
+        parameters: [jobIdParam],
+        responses: {
+          200: {
+            description: 'Полный лог задания (`text/plain`, `Content-Disposition: attachment`).',
+            content: { 'text/plain': { schema: { type: 'string' } } },
+          },
+          400: errorResponse('Некорректный jobId.'),
+          404: errorResponse('Задание не найдено.'),
+        },
+      },
+    },
+    '/api/projects/{id}/ai-import/jobs': {
+      get: {
+        tags: ['ai'],
+        summary: 'История AI-импортов проекта (todo_20)',
+        description:
+          'Полная история прогонов проекта (решение PO №4): статус, счётчики результата, даты; ' +
+          '`resumable: true` — задание можно продолжить через `POST /api/ai-import/{jobId}/resume`.',
+        parameters: [idParam],
+        responses: {
+          200: jsonResponse('Список заданий, новые первыми.', 'AiImportJobList'),
+          404: errorResponse('Проект не найден.'),
         },
       },
     },

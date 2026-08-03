@@ -32,6 +32,11 @@ interface PresetFormValues {
   chunkChars: number;
   reasoning: AiModelReasoning;
   topP?: number;
+  /* todo_20 T-215: run-control knobs of the import pipeline. */
+  parallelism: number;
+  perCallTimeoutSec: number;
+  runBudgetTokens: number | null;
+  estimateThresholdTokens: number | null;
 }
 
 const REASONING_LABELS: Record<AiModelReasoning, string> = {
@@ -167,6 +172,17 @@ export function AiModelPresetForm({
     if (typeof v.topP === 'number' && !Number.isNaN(v.topP) && v.topP !== defaults.topP) {
       ov.topP = v.topP;
     }
+    // todo_20: run-control fields; the nullable ones treat '' as null («пусто»).
+    if (v.parallelism !== defaults.parallelism) ov.parallelism = v.parallelism;
+    if (v.perCallTimeoutSec !== defaults.perCallTimeoutSec) {
+      ov.perCallTimeoutSec = v.perCallTimeoutSec;
+    }
+    if ((v.runBudgetTokens ?? null) !== defaults.runBudgetTokens) {
+      ov.runBudgetTokens = v.runBudgetTokens ?? null;
+    }
+    if ((v.estimateThresholdTokens ?? null) !== defaults.estimateThresholdTokens) {
+      ov.estimateThresholdTokens = v.estimateThresholdTokens ?? null;
+    }
     await persist(ov, 'Параметры модели сохранены');
   });
 
@@ -203,6 +219,11 @@ export function AiModelPresetForm({
       typeof current.topP === 'number' &&
       !Number.isNaN(current.topP) &&
       current.topP !== defaults.topP,
+    parallelism: current.parallelism !== defaults.parallelism,
+    perCallTimeoutSec: current.perCallTimeoutSec !== defaults.perCallTimeoutSec,
+    runBudgetTokens: (current.runBudgetTokens ?? null) !== defaults.runBudgetTokens,
+    estimateThresholdTokens:
+      (current.estimateThresholdTokens ?? null) !== defaults.estimateThresholdTokens,
   };
 
   return (
@@ -409,6 +430,142 @@ export function AiModelPresetForm({
               }
               impact={<>все AI-функции: импорт, чат и генерация описания.</>}
             />
+          </div>
+
+          {/* ── todo_20 T-215: run-control parameters of the import pipeline ── */}
+          <div
+            className="sm:col-span-2 border-t pt-4"
+            style={{ borderColor: 'var(--color-border)' }}
+          >
+            <h3 className="text-sm font-bold">Параметры прогона импорта</h3>
+            <p className="hint mt-0.5">
+              Управляют только прогоном «{FEATURE.import}»: скорость, устойчивость и защита от
+              неожиданно дорогих прогонов.
+            </p>
+          </div>
+
+          {/* parallelism */}
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="label mb-0" htmlFor="ai-preset-parallelism">
+                Параллельные запросы
+              </label>
+              <SourceBadge overridden={overridden.parallelism} />
+            </div>
+            <input
+              id="ai-preset-parallelism"
+              className="input mt-1"
+              type="number"
+              step="1"
+              min="1"
+              max="8"
+              data-testid="ai-preset-parallelism"
+              {...register('parallelism', { valueAsNumber: true })}
+            />
+            <FieldHelp
+              param="parallelism"
+              what="Сколько фрагментов документации обрабатывать одновременно (1–8). При ответе 429 «слишком много запросов» автоматически снижается до 1 и восстанавливается постепенно."
+              impact={<>только «{FEATURE.import}».</>}
+            />
+            {errors.parallelism ? (
+              <p className="mt-1 text-xs" style={{ color: 'var(--color-danger-fg)' }} role="alert">
+                Введите целое число от 1 до 8.
+              </p>
+            ) : null}
+          </div>
+
+          {/* perCallTimeoutSec */}
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="label mb-0" htmlFor="ai-preset-perCallTimeoutSec">
+                Тайм-аут одного вызова, сек
+              </label>
+              <SourceBadge overridden={overridden.perCallTimeoutSec} />
+            </div>
+            <input
+              id="ai-preset-perCallTimeoutSec"
+              className="input mt-1"
+              type="number"
+              step="10"
+              min="10"
+              data-testid="ai-preset-perCallTimeoutSec"
+              {...register('perCallTimeoutSec', { valueAsNumber: true })}
+            />
+            <FieldHelp
+              param="perCallTimeoutSec"
+              what="Максимум ожидания одного ответа модели, в секундах (≥ 10). Для thinking-моделей ставьте с запасом: часть времени уходит на рассуждения до ответа. Превышение уходит в автоматический повтор."
+              impact={<>только «{FEATURE.import}».</>}
+            />
+            {errors.perCallTimeoutSec ? (
+              <p className="mt-1 text-xs" style={{ color: 'var(--color-danger-fg)' }} role="alert">
+                Введите целое число ≥ 10.
+              </p>
+            ) : null}
+          </div>
+
+          {/* runBudgetTokens */}
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="label mb-0" htmlFor="ai-preset-runBudgetTokens">
+                Бюджет прогона, токенов
+              </label>
+              <SourceBadge overridden={overridden.runBudgetTokens} />
+            </div>
+            <input
+              id="ai-preset-runBudgetTokens"
+              className="input mt-1"
+              type="number"
+              step="100000"
+              min="0"
+              placeholder="без лимита"
+              data-testid="ai-preset-runBudgetTokens"
+              {...register('runBudgetTokens', {
+                setValueAs: (v) => (v === '' || v === null || v === undefined ? null : Number(v)),
+              })}
+            />
+            <FieldHelp
+              param="runBudgetTokens"
+              what="Лимит токенов на один прогон импорта. При достижении прогон мягко останавливается с сохранением результата — его можно продолжить с повышенным лимитом. Пусто — без лимита."
+              impact={<>только «{FEATURE.import}».</>}
+            />
+            {errors.runBudgetTokens ? (
+              <p className="mt-1 text-xs" style={{ color: 'var(--color-danger-fg)' }} role="alert">
+                Введите целое число ≥ 0 или оставьте поле пустым.
+              </p>
+            ) : null}
+          </div>
+
+          {/* estimateThresholdTokens */}
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="label mb-0" htmlFor="ai-preset-estimateThresholdTokens">
+                Порог сметы, токенов
+              </label>
+              <SourceBadge overridden={overridden.estimateThresholdTokens} />
+            </div>
+            <input
+              id="ai-preset-estimateThresholdTokens"
+              className="input mt-1"
+              type="number"
+              step="100000"
+              min="0"
+              placeholder="не спрашивать"
+              data-testid="ai-preset-estimateThresholdTokens"
+              {...register('estimateThresholdTokens', {
+                setValueAs: (v) => (v === '' || v === null || v === undefined ? null : Number(v)),
+              })}
+            />
+            <FieldHelp
+              param="estimateThresholdTokens"
+              what="Если оценка прогона (смета) выше порога — импорт стартует только после явного подтверждения «Запустить всё равно»."
+              impact={<>только «{FEATURE.import}».</>}
+              hint="0 — подтверждать всегда; пусто — никогда не спрашивать."
+            />
+            {errors.estimateThresholdTokens ? (
+              <p className="mt-1 text-xs" style={{ color: 'var(--color-danger-fg)' }} role="alert">
+                Введите целое число ≥ 0 или оставьте поле пустым.
+              </p>
+            ) : null}
           </div>
         </div>
 

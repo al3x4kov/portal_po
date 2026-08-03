@@ -25,7 +25,7 @@ export function noDocsMessage(
     .map(([ext, count]) => `${ext === '' ? '(без расширения)' : ext} — ${count}`)
     .join(', ');
   let message =
-    `В архиве нет файлов документации (.md/.markdown/.txt). ` +
+    `В архиве нет файлов документации (.md/.markdown/.txt/.json/.yaml/.yml). ` +
     `В архиве ${stats.totalEntries} файлов${breakdown ? `: ${breakdown}` : ''}.`;
   if (stats.unsafeEntries > 0) {
     message += ` Пропущено небезопасных записей: ${stats.unsafeEntries} (пути вне каталога распаковки).`;

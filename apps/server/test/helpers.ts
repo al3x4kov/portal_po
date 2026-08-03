@@ -11,9 +11,26 @@ export async function makeTmpRoot(): Promise<string> {
   return dir;
 }
 
-/** Remove a temp root (and its parent wrapper). */
+/**
+ * Remove a temp root (and its parent wrapper). Retries a couple of times:
+ * todo_20 job checkpoints are written asynchronously (fire-and-forget queue),
+ * so a write can land while the recursive rm walks the tree (ENOTEMPTY race).
+ */
 export async function cleanup(projectsRoot: string): Promise<void> {
-  await fs.rm(path.dirname(projectsRoot), { recursive: true, force: true });
+  const target = path.dirname(projectsRoot);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rm(target, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt < 5 && (code === 'ENOTEMPTY' || code === 'EBUSY')) {
+        await new Promise((r) => setTimeout(r, 25));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 /** A fixed clock so created/updated timestamps are deterministic in assertions. */

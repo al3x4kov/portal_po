@@ -353,10 +353,11 @@ test.describe('AI против реального MockServer', () => {
       relatesLinks: 1,
       skipped: 0,
     });
-    // Бэкенд-фикс minor-дефекта: in-run дубли теперь явно видны warn-строкой
-    // в логе работы (счётчики контракта не менялись — skipped остаётся 0).
+    // todo_20 T-207: in-run дубли сливает детерминированная дедупликация —
+    // warn-строка «Дедупликация: автоматически слито N повторов» (счётчики
+    // контракта не менялись — skipped остаётся 0).
     const log = page.getByTestId('ai-import-log');
-    await expect(log).toContainText('Дубликатов в извлечении пропущено: 2');
+    await expect(log).toContainText('Дедупликация: автоматически слито 2 повторов');
     // Task 13 B2: стадия структуризации прошла через настоящий MockServer.
     await expect(log).toContainText('Построение древовидной структуры ФТ/НФТ через AI hub…');
     // Task 15: связь НФТ→ФТ из relatedFunctions — инфо-лог (счётчик уже

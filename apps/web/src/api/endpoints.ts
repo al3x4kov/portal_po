@@ -3,6 +3,7 @@ import type {
   AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
+  AiImportJobList,
   AiImportJobView,
   AiImportStartResponse,
   AiModelsView,
@@ -202,6 +203,18 @@ export const aiImportApi = {
     apiRequest(`/ai-import/${encodeURIComponent(jobId)}`),
   cancel: (jobId: string): Promise<AiImportJobView> =>
     apiRequest(`/ai-import/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' }),
+  /** todo_20 T-204: confirm a job paused on the estimate gate (409 otherwise). */
+  confirm: (jobId: string): Promise<AiImportJobView> =>
+    apiRequest(`/ai-import/${encodeURIComponent(jobId)}/confirm`, { method: 'POST' }),
+  /** todo_20 T-212: resume failed | cancelled | interrupted from the checkpoint.
+   *  202 with the SAME jobId — the caller keeps polling the same view. */
+  resume: (jobId: string): Promise<AiImportStartResponse> =>
+    apiRequest(`/ai-import/${encodeURIComponent(jobId)}/resume`, { method: 'POST' }),
+  /** todo_20 PO №4: full run history of a project (newest first). */
+  listJobs: (projectId: string): Promise<AiImportJobList> =>
+    apiRequest(`/projects/${encodeURIComponent(projectId)}/ai-import/jobs`),
+  /** todo_20 Н4: direct download URL of the full text log (attachment). */
+  logUrl: (jobId: string): string => `/api/ai-import/${encodeURIComponent(jobId)}/log`,
 };
 
 /**

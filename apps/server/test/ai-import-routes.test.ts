@@ -160,8 +160,10 @@ describe('T11 AI import routes (integration, mock client)', () => {
     // todo_18: import calls send the model's full generation budget as
     // max_tokens; 'Qwen-Coder-Next' has no dedicated preset → generic 4000.
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    // todo_20 T-209: import calls carry per-request options (signal/timeout).
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ temperature: 0.2, max_tokens: 4000, model: 'Qwen-Coder-Next' }),
+      expect.anything(),
     );
   });
 
@@ -172,7 +174,10 @@ describe('T11 AI import routes (integration, mock client)', () => {
     expect(start.statusCode).toBe(202);
     await pollUntilDone(start.json().jobId);
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ model: 'Override-Model' }));
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'Override-Model' }),
+      expect.anything(),
+    );
   });
 
   it('todo_16 B2: inferLinks field — "true" runs the relate step, "false"/omitted does not', async () => {

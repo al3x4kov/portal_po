@@ -1,14 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CircleStop, RefreshCw, TriangleAlert } from 'lucide-react';
-import type { AiImportJobView, AiImportRelateView, AiImportStage } from '@po/core';
-import { AI_IMPORT_MAX_ARCHIVE_BYTES } from '@po/core';
+import type {
+  AiImportJobSummary,
+  AiImportJobView,
+  AiImportRelateView,
+  AiImportSourceClass,
+  AiImportStage,
+  AiImportStatus,
+} from '@po/core';
+import { AI_IMPORT_MAX_ARCHIVE_BYTES, AI_IMPORT_SOURCE_CLASSES } from '@po/core';
 import {
   useAiConfig,
   useAiImportJob,
+  useAiImportJobs,
   useAiModelsRefresh,
   useCancelAiImport,
+  useConfirmAiImport,
+  useResumeAiImport,
   useStartAiImport,
 } from '../api/hooks';
+import { aiImportApi } from '../api/endpoints';
 import { errorMessage } from '../api/client';
 import { Modal } from './Modal';
 import { BusyButton } from './BusyButton';
@@ -73,8 +84,65 @@ const JOB_LOST_MESSAGE =
   'Статус задания недоступен (возможно, сервер был перезапущен или задание устарело). ' +
   'Запустите анализ заново.';
 
-/** Ф10 (todo_16): client-side mirror of the server archive size limit. */
-const FILE_TOO_BIG_MESSAGE = 'Файл больше 50 МБ — уменьшите архив документации.';
+/** todo_20 PO №1: the 200 МБ limit, derived from the contract constant. */
+const MAX_ARCHIVE_MB = Math.floor(AI_IMPORT_MAX_ARCHIVE_BYTES / (1024 * 1024));
+
+/** Ф10 (todo_16 → todo_20): client-side mirror of the server archive size limit. */
+const FILE_TOO_BIG_MESSAGE = `Файл больше ${MAX_ARCHIVE_MB} МБ — уменьшите архив документации.`;
+
+/** todo_20 П1: Russian labels of the content source classes (mockup 01). */
+export const AI_IMPORT_SOURCE_CLASS_LABELS: Record<AiImportSourceClass, string> = {
+  'release-notes': 'Release notes',
+  'user-guide': 'Руководства',
+  'admin-guide': 'Администрирование',
+  security: 'Безопасность',
+  'api-spec': 'API-спецификации',
+  config: 'Конфигурация',
+  other: 'Прочее',
+};
+
+/** todo_20 PO №4: Russian status labels for the run-history rows. */
+export const AI_IMPORT_STATUS_LABELS: Record<AiImportStatus, string> = {
+  running: 'Выполняется',
+  succeeded: 'Завершён',
+  failed: 'Ошибка',
+  cancelled: 'Остановлен',
+  'awaiting-confirmation': 'Ждёт подтверждения',
+  interrupted: 'Прерван рестартом',
+};
+
+/** 1_400_000 → «1,4 млн», 96_000 → «96 тыс.», 950 → «950» (ru, mockup 01/03). */
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000)
+    return `${(n / 1_000_000).toFixed(1).replace('.', ',').replace(',0', '')} млн`;
+  if (n >= 10_000) return `${Math.round(n / 1000)} тыс.`;
+  return String(n);
+}
+
+/** 9600 → «≈ 2 ч 40 мин», 320 → «≈ 6 мин», 40 → «≈ 40 с» (PO decision №6). */
+export function formatEta(seconds: number): string {
+  const s = Math.round(seconds);
+  if (s >= 3600) {
+    const h = Math.floor(s / 3600);
+    const m = Math.round((s % 3600) / 60);
+    return m > 0 ? `≈ ${h} ч ${m} мин` : `≈ ${h} ч`;
+  }
+  if (s >= 60) return `≈ ${Math.round(s / 60)} мин`;
+  return `≈ ${s} с`;
+}
+
+/** ISO → «12.05.2026, 18:42» for history rows. */
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 const CONFIRM_MESSAGE =
   'Анализ документации ещё выполняется. Если закрыть окно, процесс будет остановлен. ' +
@@ -99,7 +167,13 @@ interface AiImportModalProps {
   onClose: () => void;
 }
 
-type Phase = 'setup' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+/**
+ * Local view phase. todo_20 adds `estimate` (job paused on the confirmation
+ * gate, status `awaiting-confirmation`) and `interrupted` (unfinished job
+ * discovered after a server restart).
+ */
+type Phase =
+  'setup' | 'estimate' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 
 export function AiImportModal({ projectId, onClose }: AiImportModalProps): React.ReactElement {
   const [file, setFile] = useState<File | null>(null);
@@ -111,6 +185,8 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   // §2.18.1: «Остановить» is guarded by its own mini-confirm (not instant).
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+  // todo_20 T-214: «Повторить с меньшими фрагментами» — inline how-to hint.
+  const [smallerHintOpen, setSmallerHintOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -121,6 +197,11 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   const startMut = useStartAiImport(projectId);
   const jobQuery = useAiImportJob(projectId, jobId);
   const cancelMut = useCancelAiImport();
+  const confirmMut = useConfirmAiImport();
+  const resumeMut = useResumeAiImport(projectId);
+  // todo_20 PO №4: full run history of the project (newest first).
+  const historyQuery = useAiImportJobs(projectId);
+  const historyJobs: AiImportJobSummary[] = historyQuery.data?.jobs ?? [];
   const job: AiImportJobView | undefined = jobId ? jobQuery.data : undefined;
 
   // Modal-selected model wins over the per-project one (spec §3.5).
@@ -153,7 +234,9 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
       ? 'failed'
       : !job || job.status === 'running'
         ? 'running'
-        : job.status;
+        : job.status === 'awaiting-confirmation'
+          ? 'estimate'
+          : job.status;
   // Start already sent (or job view not loaded yet) counts as running for the
   // close guard — the job may well be alive on the server.
   const running = phase === 'running' || startMut.isPending;
@@ -197,6 +280,12 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   const requestClose = (): void => {
     // Escape is already being handled by an open ConfirmDialog.
     if (confirmOpen || stopConfirmOpen) return;
+    if (phase === 'estimate') {
+      // Estimate gate: no LLM calls have started — cancel silently and close.
+      stopJob();
+      onClose();
+      return;
+    }
     if (running) setConfirmOpen(true);
     else onClose();
   };
@@ -204,7 +293,27 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   /** «Повторить анализ» after a failure: back to the file-selected state. */
   const retry = (): void => {
     setJobId(null);
+    setSmallerHintOpen(false);
     startMut.reset();
+    resumeMut.reset();
+  };
+
+  /** todo_20 T-212: «Продолжить» — resume the SAME job from its checkpoint. */
+  const resumeJob = (id?: string): void => {
+    const target = id ?? jobId;
+    if (!target || resumeMut.isPending) return;
+    setSmallerHintOpen(false);
+    resumeMut.mutate(target, {
+      // History rows resume jobs the modal is not looking at yet.
+      onSuccess: ({ jobId: resumedId }) => setJobId(resumedId),
+    });
+  };
+
+  /** todo_20 PO №4: open a past run (report / log / progress) in this modal. */
+  const openHistoryJob = (id: string): void => {
+    setSmallerHintOpen(false);
+    resumeMut.reset();
+    setJobId(id);
   };
 
   const startDisabled = !file || !modelReady || startMut.isPending;
@@ -234,6 +343,18 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
     </BusyButton>
   );
 
+  const result = job?.result;
+  const estimate = job?.estimate;
+  const inventory = job?.inventory;
+  const usage = job?.usage;
+  const report = job?.report;
+  // todo_20 П6: taxonomy error (code present) → new action-ranked fail view;
+  // otherwise the pre-todo_20 message+hint rendering stays byte-identical.
+  const jobError = jobLost ? undefined : job?.error;
+  const taxonomyError = Boolean(jobError?.code);
+  const resumable = Boolean(jobError?.resumable) && !jobLost;
+  const logUrl = jobId && !jobLost ? aiImportApi.logUrl(jobId) : null;
+
   const footer =
     phase === 'setup' ? (
       <>
@@ -249,6 +370,52 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
           Отмена
         </button>
         {startButton}
+      </>
+    ) : phase === 'estimate' ? (
+      /* todo_20 П2: the estimate gate — LLM calls have not started yet. */
+      <>
+        <p className="hint mr-auto self-center">AI-вызовы ещё не начались — отмена бесплатна</p>
+        <button
+          type="button"
+          className="btn btn-secondary text-sm"
+          data-testid="ai-import-estimate-cancel"
+          disabled={cancelMut.isPending}
+          onClick={stopJob}
+        >
+          Отмена
+        </button>
+        <BusyButton
+          className="btn btn-primary text-sm"
+          busy={confirmMut.isPending}
+          busyLabel="Запускаем…"
+          data-testid="ai-import-confirm-start"
+          onClick={() => {
+            if (jobId) confirmMut.mutate(jobId);
+          }}
+        >
+          {estimate?.overThreshold ? 'Запустить всё равно' : 'Запустить импорт'}
+        </BusyButton>
+      </>
+    ) : phase === 'interrupted' ? (
+      /* todo_20 П5.2: discovered after a server restart — resume from checkpoint. */
+      <>
+        <button
+          type="button"
+          className="btn btn-secondary text-sm"
+          data-testid="ai-import-error-close"
+          onClick={onClose}
+        >
+          Закрыть
+        </button>
+        <BusyButton
+          className="btn btn-primary text-sm"
+          busy={resumeMut.isPending}
+          busyLabel="Продолжаем…"
+          data-testid="ai-import-resume"
+          onClick={() => resumeJob()}
+        >
+          Продолжить
+        </BusyButton>
       </>
     ) : phase === 'running' ? (
       <>
@@ -277,6 +444,59 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
       >
         Готово
       </button>
+    ) : phase === 'failed' && taxonomyError ? (
+      /* todo_20 П6.3, DESIGN ranking: partial result → smaller fragments →
+         «Продолжить» (primary, when resumable). */
+      <>
+        {result ? (
+          <button
+            type="button"
+            className="btn btn-secondary text-sm"
+            data-testid="ai-import-open-partial"
+            onClick={onClose}
+          >
+            Открыть частичный результат
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn-secondary text-sm"
+          data-testid="ai-import-smaller-chunks"
+          aria-expanded={smallerHintOpen}
+          onClick={() => setSmallerHintOpen((v) => !v)}
+        >
+          Повторить с меньшими фрагментами
+        </button>
+        {resumable ? (
+          <BusyButton
+            className="btn btn-primary text-sm"
+            busy={resumeMut.isPending}
+            busyLabel="Продолжаем…"
+            data-testid="ai-import-resume"
+            onClick={() => resumeJob()}
+          >
+            Продолжить
+          </BusyButton>
+        ) : file ? (
+          <button
+            type="button"
+            className="btn btn-primary text-sm"
+            data-testid="ai-import-retry"
+            onClick={retry}
+          >
+            Повторить анализ
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-primary text-sm"
+            data-testid="ai-import-error-close"
+            onClick={onClose}
+          >
+            Закрыть
+          </button>
+        )}
+      </>
     ) : phase === 'failed' ? (
       <>
         <button
@@ -321,7 +541,6 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
 
   const progress = job?.progress ?? 0;
   const stageLabel = AI_IMPORT_STAGE_LABELS[job?.stage ?? 'unpack'];
-  const result = job?.result;
   // B2: present only when the import was started with inferLinks (absent → no block).
   const relate = job?.relate;
   // todo_18: total meaningful НФТ↔ФТ links (RELATES_TO) = links found during
@@ -428,7 +647,9 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                 выберите файл
               </button>
               <br />
-              <span className="text-xs">.zip или .tar.gz, до 50 МБ (.md/.txt внутри)</span>
+              <span className="text-xs">
+                .zip или .tar.gz, до {MAX_ARCHIVE_MB} МБ (.md/.txt внутри)
+              </span>
             </div>
           )}
 
@@ -511,10 +732,307 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               {startError}
             </div>
           ) : null}
+
+          {/* todo_20 П5.2 (mockup 06): unfinished run found after a restart. */}
+          {(() => {
+            const interrupted = historyJobs.find((j) => j.status === 'interrupted');
+            if (!interrupted) return null;
+            return (
+              <div
+                className="flex items-start justify-between gap-3 rounded-lg p-3"
+                style={{ background: 'var(--color-warning-bg)' }}
+                data-testid="ai-import-interrupted-banner"
+              >
+                <div className="text-sm" style={{ color: 'var(--color-warning-fg)' }}>
+                  <b>Найден незавершённый AI-импорт</b> — прерван перезапуском сервера{' '}
+                  {formatDateTime(interrupted.startedAt)}. Всё созданное сохранено; продолжение
+                  начнётся с места остановки.
+                </div>
+                <BusyButton
+                  className="btn btn-primary shrink-0 text-sm"
+                  busy={resumeMut.isPending}
+                  busyLabel="Продолжаем…"
+                  data-testid="ai-import-interrupted-resume"
+                  onClick={() => resumeJob(interrupted.jobId)}
+                >
+                  Продолжить
+                </BusyButton>
+              </div>
+            );
+          })()}
+
+          {/* todo_20 PO №4: full run history of the project (newest first). */}
+          {historyJobs.length > 0 ? (
+            <details data-testid="ai-import-history">
+              <summary
+                className="cursor-pointer select-none text-sm font-semibold"
+                style={{ color: 'var(--color-text-2)' }}
+              >
+                Прошлые прогоны — {historyJobs.length}
+              </summary>
+              <ul
+                className="mt-2 divide-y overflow-hidden rounded-lg border"
+                style={{ borderColor: 'var(--color-border)' }}
+              >
+                {historyJobs.map((h) => (
+                  <li
+                    key={h.jobId}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm"
+                    style={{ borderColor: 'var(--color-border)' }}
+                    data-testid="ai-import-history-row"
+                    data-status={h.status}
+                  >
+                    <span
+                      className="badge"
+                      style={
+                        h.status === 'succeeded'
+                          ? {
+                              background: 'var(--color-success-bg)',
+                              color: 'var(--color-success-fg)',
+                            }
+                          : h.status === 'failed'
+                            ? {
+                                background: 'var(--color-danger-bg)',
+                                color: 'var(--color-danger-fg)',
+                              }
+                            : {
+                                background: 'var(--color-warning-bg)',
+                                color: 'var(--color-warning-fg)',
+                              }
+                      }
+                    >
+                      {AI_IMPORT_STATUS_LABELS[h.status]}
+                    </span>
+                    <span style={{ color: 'var(--color-text-3)' }}>
+                      {formatDateTime(h.startedAt)}
+                    </span>
+                    {h.result ? (
+                      <span style={{ color: 'var(--color-text-2)' }}>
+                        {h.result.createdFunctions} ФТ · {h.result.createdNfrs} НФТ
+                      </span>
+                    ) : null}
+                    <span className="ml-auto flex items-center gap-2">
+                      {h.resumable ? (
+                        <button
+                          type="button"
+                          className="font-semibold"
+                          style={{ color: 'var(--color-primary)' }}
+                          data-testid="ai-import-history-resume"
+                          disabled={resumeMut.isPending}
+                          onClick={() => resumeJob(h.jobId)}
+                        >
+                          Продолжить
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="font-semibold"
+                        style={{ color: 'var(--color-primary)' }}
+                        data-testid="ai-import-history-open"
+                        onClick={() => openHistoryJob(h.jobId)}
+                      >
+                        Открыть
+                      </button>
+                      <a
+                        href={aiImportApi.logUrl(h.jobId)}
+                        download
+                        className="underline"
+                        style={{ color: 'var(--color-text-3)' }}
+                        data-testid="ai-import-history-log"
+                      >
+                        Лог
+                      </a>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </>
       ) : (
         <>
           {fileCard}
+
+          {/* todo_20 П1+П2 (mockups 01/02): the estimate step before any LLM call. */}
+          {phase === 'estimate' ? (
+            <div className="space-y-4" data-testid="ai-import-estimate-step">
+              <div
+                className="flex items-center gap-2 text-xs"
+                style={{ color: 'var(--color-text-3)' }}
+                aria-hidden="true"
+              >
+                <span
+                  className="rounded-full px-2 py-0.5 font-medium"
+                  style={{ background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }}
+                >
+                  1. Смета
+                </span>
+                <span>→</span>
+                <span>2. Извлечение</span>
+                <span>→</span>
+                <span>3. Итог</span>
+              </div>
+
+              {inventory ? (
+                <section data-testid="ai-import-inventory">
+                  <h4 className="mb-2 text-sm font-semibold">
+                    Опись архива — {inventory.totalFiles}{' '}
+                    {plural(inventory.totalFiles, 'файл', 'файла', 'файлов')}
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+                    {AI_IMPORT_SOURCE_CLASSES.filter((c) => (inventory.processed[c] ?? 0) > 0).map(
+                      (c) => (
+                        <div
+                          key={c}
+                          className="rounded-lg border px-3 py-2"
+                          style={{
+                            borderColor: 'var(--color-border)',
+                            background: 'var(--color-surface-2)',
+                          }}
+                          data-testid={`ai-import-inventory-${c}`}
+                        >
+                          <div className="font-semibold">{inventory.processed[c]}</div>
+                          <div style={{ color: 'var(--color-text-2)' }}>
+                            {AI_IMPORT_SOURCE_CLASS_LABELS[c]}
+                          </div>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                  <p className="hint mt-2">
+                    Классы определены по содержимому файлов; порядок обработки — по ценности
+                    источника (release notes первыми).
+                  </p>
+                </section>
+              ) : null}
+
+              {inventory && inventory.excluded.length > 0 ? (
+                <details
+                  className="rounded-lg border"
+                  style={{ borderColor: 'var(--color-border)' }}
+                  data-testid="ai-import-excluded"
+                >
+                  <summary
+                    className="cursor-pointer select-none px-4 py-2.5 text-sm"
+                    style={{ color: 'var(--color-text-2)' }}
+                  >
+                    Исключено из обработки —{' '}
+                    {inventory.excluded.reduce((acc, e) => acc + e.count, 0)}{' '}
+                    {plural(
+                      inventory.excluded.reduce((acc, e) => acc + e.count, 0),
+                      'файл',
+                      'файла',
+                      'файлов',
+                    )}
+                  </summary>
+                  <ul
+                    className="space-y-1 px-4 pb-3 text-sm"
+                    style={{ color: 'var(--color-text-2)' }}
+                  >
+                    {inventory.excluded.map((e, i) => (
+                      <li key={i} className="flex justify-between gap-4">
+                        <span className="min-w-0 break-all">{e.path}</span>
+                        <span className="shrink-0" style={{ color: 'var(--color-text-3)' }}>
+                          {e.reason} — {e.count}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+
+              {estimate ? (
+                <section
+                  className="rounded-lg p-4"
+                  style={{
+                    background: estimate.overThreshold
+                      ? 'var(--color-warning-bg)'
+                      : 'var(--color-info-bg)',
+                    color: estimate.overThreshold
+                      ? 'var(--color-warning-fg)'
+                      : 'var(--color-info-fg)',
+                  }}
+                  data-testid={
+                    estimate.overThreshold ? 'ai-import-estimate-warning' : 'ai-import-estimate'
+                  }
+                >
+                  <h4 className="mb-1 flex items-center gap-1.5 text-sm font-semibold">
+                    {estimate.overThreshold ? (
+                      <>
+                        <TriangleAlert size={14} aria-hidden="true" />
+                        Оценка превышает порог подтверждения
+                      </>
+                    ) : (
+                      'Оценка прогона'
+                    )}
+                  </h4>
+                  <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                    <div>
+                      <dt className="text-xs opacity-80">Файлов</dt>
+                      <dd className="font-semibold">{estimate.files}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs opacity-80">Фрагментов</dt>
+                      <dd className="font-semibold">≈ {estimate.chunks}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs opacity-80">AI-вызовов</dt>
+                      <dd className="font-semibold">≈ {estimate.calls}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs opacity-80">Токенов</dt>
+                      <dd className="font-semibold">≈ {formatTokens(estimate.tokens)}</dd>
+                    </div>
+                  </dl>
+                  <p className="mt-2 text-xs">
+                    {estimate.overThreshold
+                      ? `Порог: ${
+                          estimate.thresholdTokens != null
+                            ? formatTokens(estimate.thresholdTokens)
+                            : '—'
+                        } токенов (экран AI → «Порог сметы»). Результат сохраняется по ходу — прогон можно остановить и продолжить позже.`
+                      : 'В пределах порога подтверждения. Оценка уточнится по ходу прогона.'}
+                  </p>
+                </section>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* todo_20 П5.2 (mockup 06): the job was interrupted by a server restart. */}
+          {phase === 'interrupted' ? (
+            <div data-testid="ai-import-interrupted">
+              <div
+                className="flex items-start gap-3 rounded-lg p-4"
+                style={{ background: 'var(--color-warning-bg)' }}
+              >
+                <TriangleAlert
+                  className="icon mt-0.5 flex-none"
+                  style={{ color: 'var(--color-warning-fg)' }}
+                  aria-hidden="true"
+                />
+                <div style={{ color: 'var(--color-warning-fg)' }}>
+                  <h4 className="text-sm font-semibold">Прогон прерван перезапуском сервера</h4>
+                  <p className="mt-1 text-sm">
+                    Остановился на этапе «{AI_IMPORT_STAGE_LABELS[job?.stage ?? 'unpack']}»
+                    {job?.chunkIndex != null && job?.chunkTotal ? (
+                      <>
+                        {' '}
+                        (фрагмент {job.chunkIndex} из {job.chunkTotal})
+                      </>
+                    ) : null}
+                    . Всё созданное сохранено; продолжение начнётся с места остановки — пройденные
+                    фрагменты повторно не оплачиваются.
+                  </p>
+                  {result ? (
+                    <p className="mt-1 text-sm">
+                      Уже создано: <b>{result.createdFunctions} ФТ</b>,{' '}
+                      <b>{result.createdNfrs} НФТ</b>.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {phase === 'succeeded' ? (
             /* §2.18.3: summary as a TABLE with big numbers, not a one-line list. */
@@ -626,7 +1144,127 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
             </div>
           ) : null}
 
-          {phase === 'failed' ? (
+          {phase === 'failed' && taxonomyError && jobError ? (
+            /* todo_20 П6 (mockup 04): message first, then the concrete action;
+               raw technical detail lives in the collapsible block below. */
+            <>
+              <div
+                className="rounded-lg p-4"
+                style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
+                role="alert"
+                data-testid="ai-import-error"
+              >
+                <div className="mb-1 flex items-start justify-between gap-2">
+                  <h4 className="text-sm font-bold">{jobError.message}</h4>
+                  <span
+                    className="badge shrink-0"
+                    style={{
+                      background: 'var(--color-danger)',
+                      color: '#fff',
+                    }}
+                    data-testid="ai-import-error-code"
+                  >
+                    Ошибка · {jobError.code}
+                  </span>
+                </div>
+                <p className="text-sm font-semibold">
+                  Что сделать: {jobError.action ?? jobError.hint}
+                </p>
+              </div>
+
+              {result ? (
+                <section data-testid="ai-import-error-created">
+                  <h4 className="mb-2 text-sm font-semibold">Уже создано — ничего не потеряно</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+                    <div
+                      className="rounded-lg border px-3 py-2"
+                      style={{ borderColor: 'var(--color-border)' }}
+                    >
+                      <div className="font-semibold">{result.createdFunctions}</div>
+                      <div className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+                        ФТ
+                      </div>
+                    </div>
+                    <div
+                      className="rounded-lg border px-3 py-2"
+                      style={{ borderColor: 'var(--color-border)' }}
+                    >
+                      <div className="font-semibold">{result.createdNfrs}</div>
+                      <div className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+                        НФТ
+                      </div>
+                    </div>
+                    <div
+                      className="rounded-lg border px-3 py-2"
+                      style={{ borderColor: 'var(--color-border)' }}
+                    >
+                      <div className="font-semibold">{result.links + result.relatesLinks}</div>
+                      <div className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+                        связей
+                      </div>
+                    </div>
+                    {job?.chunkIndex != null && job?.chunkTotal ? (
+                      <div
+                        className="rounded-lg border px-3 py-2"
+                        style={{ borderColor: 'var(--color-border)' }}
+                      >
+                        <div className="font-semibold">
+                          {job.chunkIndex}/{job.chunkTotal}
+                        </div>
+                        <div className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+                          фрагментов пройдено
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
+
+              {smallerHintOpen ? (
+                <div
+                  className="rounded-lg p-3 text-sm"
+                  style={{ background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }}
+                  data-testid="ai-import-smaller-chunks-hint"
+                >
+                  Размер фрагмента — настройка модели: откройте экран AI → «Параметры модели» и
+                  уменьшите «Размер фрагмента (символов)». Затем нажмите «Продолжить» — прогон
+                  возобновится с места остановки с новым размером (или запустите анализ заново).
+                </div>
+              ) : null}
+
+              <details
+                className="rounded-lg border"
+                style={{ borderColor: 'var(--color-border)' }}
+                data-testid="ai-import-error-details"
+              >
+                <summary
+                  className="cursor-pointer select-none px-4 py-2.5 text-sm"
+                  style={{ color: 'var(--color-text-2)' }}
+                >
+                  Технические детали
+                </summary>
+                <div
+                  className="space-y-1 px-4 pb-3 font-mono text-xs"
+                  style={{ color: 'var(--color-text-3)' }}
+                >
+                  <div>
+                    code: {jobError.code} · category: {jobError.category ?? '—'} · resumable:{' '}
+                    {jobError.resumable ? 'true' : 'false'}
+                  </div>
+                  <div>
+                    stage: {job?.stage}
+                    {job?.chunkIndex != null && job?.chunkTotal
+                      ? ` · fragment: ${job.chunkIndex}/${job.chunkTotal}`
+                      : ''}
+                    {job?.currentFile ? ` · file: ${job.currentFile}` : ''}
+                  </div>
+                  {jobError.hint && jobError.hint !== jobError.action ? (
+                    <div>hint: {jobError.hint}</div>
+                  ) : null}
+                </div>
+              </details>
+            </>
+          ) : phase === 'failed' ? (
             <div
               className="rounded-lg border px-4 py-3"
               style={{ borderColor: 'var(--color-danger)', background: 'var(--color-danger-bg)' }}
@@ -689,43 +1327,228 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
             </div>
           ) : null}
 
-          <div>
-            <div
-              className="mb-1 flex items-center justify-between text-xs"
-              style={{ color: 'var(--color-text-3)' }}
-            >
-              <span className="flex items-center gap-2" data-testid="ai-import-stage">
-                {phase === 'running' ? (
-                  <span
-                    className="spinner"
-                    style={{ color: 'var(--color-primary)' }}
-                    aria-hidden="true"
-                  />
-                ) : null}
-                Этап: {currentStepLabel}
-              </span>
-              <b data-testid="ai-import-progress-pct">{Math.round(progress)}%</b>
+          {phase !== 'estimate' ? (
+            <div>
+              <div
+                className="mb-1 flex items-center justify-between text-xs"
+                style={{ color: 'var(--color-text-3)' }}
+              >
+                <span className="flex items-center gap-2" data-testid="ai-import-stage">
+                  {phase === 'running' ? (
+                    <span
+                      className="spinner"
+                      style={{ color: 'var(--color-primary)' }}
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                  Этап: {currentStepLabel}
+                  {job?.chunkIndex != null && job?.chunkTotal ? (
+                    /* todo_20 E3: content-rich progress — «фрагмент X из Y». */
+                    <span data-testid="ai-import-chunk">
+                      · фрагмент {job.chunkIndex} из {job.chunkTotal}
+                    </span>
+                  ) : null}
+                </span>
+                <b data-testid="ai-import-progress-pct">{Math.round(progress)}%</b>
+              </div>
+              <div
+                className="h-2.5 w-full overflow-hidden rounded-full"
+                style={{ background: 'var(--color-border)' }}
+                role="progressbar"
+                aria-valuenow={Math.round(progress)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Прогресс анализа документации"
+                data-testid="ai-import-progress"
+              >
+                <div
+                  className="h-full rounded-full transition-[width]"
+                  style={{
+                    width: `${progress}%`,
+                    background:
+                      phase === 'succeeded' ? 'var(--color-success)' : 'var(--color-primary)',
+                  }}
+                />
+              </div>
+              {phase === 'running' && (job?.currentFile || job?.etaSeconds !== undefined) ? (
+                <p className="hint mt-1.5" data-testid="ai-import-current">
+                  {job?.currentFile ? (
+                    <>
+                      Сейчас:{' '}
+                      <span
+                        className="font-medium"
+                        style={{ color: 'var(--color-text-2)' }}
+                        data-testid="ai-import-current-file"
+                      >
+                        {job.currentFile}
+                      </span>
+                      {job.currentClass ? (
+                        <> · класс: {AI_IMPORT_SOURCE_CLASS_LABELS[job.currentClass]}</>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {job?.etaSeconds !== undefined ? (
+                    /* PO №6: ETA only after the first successful fragments;
+                       until then the server sends null → «оценивается…». */
+                    <span data-testid="ai-import-eta">
+                      {job.currentFile ? ' · ' : ''}
+                      {job.etaSeconds === null
+                        ? 'осталось: оценивается…'
+                        : job.etaSeconds > 0
+                          ? `осталось ${formatEta(job.etaSeconds)}`
+                          : null}
+                    </span>
+                  ) : null}
+                </p>
+              ) : null}
             </div>
-            <div
-              className="h-2.5 w-full overflow-hidden rounded-full"
-              style={{ background: 'var(--color-border)' }}
-              role="progressbar"
-              aria-valuenow={Math.round(progress)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label="Прогресс анализа документации"
-              data-testid="ai-import-progress"
+          ) : null}
+
+          {/* todo_20 E3 (mockup 03): live counters of the run. */}
+          {phase === 'running' && (result || usage) ? (
+            <section
+              className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4"
+              aria-label="Счётчики прогона"
+              data-testid="ai-import-counters"
             >
               <div
-                className="h-full rounded-full transition-[width]"
-                style={{
-                  width: `${progress}%`,
-                  background:
-                    phase === 'succeeded' ? 'var(--color-success)' : 'var(--color-primary)',
-                }}
-              />
+                className="rounded-lg border px-3 py-2"
+                style={{ borderColor: 'var(--color-border)' }}
+                data-testid="ai-import-counter-functions"
+              >
+                <div className="font-semibold">{result?.createdFunctions ?? 0}</div>
+                <div className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+                  создано ФТ
+                </div>
+              </div>
+              <div
+                className="rounded-lg border px-3 py-2"
+                style={{ borderColor: 'var(--color-border)' }}
+                data-testid="ai-import-counter-nfrs"
+              >
+                <div className="font-semibold">{result?.createdNfrs ?? 0}</div>
+                <div className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+                  создано НФТ
+                </div>
+              </div>
+              <div
+                className="rounded-lg border px-3 py-2"
+                style={{ borderColor: 'var(--color-border)' }}
+                data-testid="ai-import-counter-links"
+              >
+                <div className="font-semibold">
+                  {(result?.links ?? 0) + (result?.relatesLinks ?? 0)}
+                </div>
+                <div className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+                  связей
+                </div>
+              </div>
+              <div
+                className="rounded-lg border px-3 py-2"
+                style={{ borderColor: 'var(--color-border)' }}
+                data-testid="ai-import-counter-tokens"
+              >
+                <div className="font-semibold">
+                  {formatTokens((usage?.promptTokens ?? 0) + (usage?.completionTokens ?? 0))}
+                </div>
+                <div className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+                  токенов ({formatTokens(usage?.promptTokens ?? 0)} /{' '}
+                  {formatTokens(usage?.completionTokens ?? 0)})
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {/* todo_20 E4 (mockup 05): the quality report — present (partial) also
+              for failed/cancelled runs. */}
+          {(phase === 'succeeded' || phase === 'failed' || phase === 'cancelled') && report ? (
+            <div className="space-y-4" data-testid="ai-import-report">
+              {report.coverage.length > 0 ? (
+                <section>
+                  <h4 className="mb-2 text-sm font-semibold">Покрытие описи</h4>
+                  <div
+                    className="overflow-hidden rounded-lg border"
+                    style={{ borderColor: 'var(--color-border)' }}
+                  >
+                    <table className="w-full text-sm" data-testid="ai-import-report-coverage">
+                      <caption className="sr-only">Покрытие описи по классам источников</caption>
+                      <thead>
+                        <tr
+                          className="text-left text-xs"
+                          style={{
+                            background: 'var(--color-surface-2)',
+                            color: 'var(--color-text-2)',
+                          }}
+                        >
+                          <th className="px-3 py-2 font-medium">Класс источника</th>
+                          <th className="px-3 py-2 text-right font-medium">Обработано</th>
+                          <th className="px-3 py-2 text-right font-medium">Извлечено ФТ/НФТ</th>
+                          <th className="px-3 py-2 text-right font-medium">Повторные проходы</th>
+                        </tr>
+                      </thead>
+                      <tbody style={{ color: 'var(--color-text-2)' }}>
+                        {report.coverage.map((row) => (
+                          <tr
+                            key={row.sourceClass}
+                            className="border-t"
+                            style={{ borderColor: 'var(--color-border)' }}
+                            data-testid={`ai-import-coverage-${row.sourceClass}`}
+                          >
+                            <td className="px-3 py-2">
+                              {AI_IMPORT_SOURCE_CLASS_LABELS[row.sourceClass]}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {row.processedFiles} / {row.files}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {row.extractedFunctions} / {row.extractedNfrs}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {row.retriedChunks}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ) : null}
+
+              {report.blindSpots.length > 0 ? (
+                <section
+                  className="rounded-lg p-4"
+                  style={{ background: 'var(--color-warning-bg)' }}
+                  data-testid="ai-import-blindspots"
+                >
+                  <h4
+                    className="mb-1 text-sm font-semibold"
+                    style={{ color: 'var(--color-warning-fg)' }}
+                  >
+                    Обратите внимание
+                  </h4>
+                  <ul
+                    className="list-disc space-y-1 pl-5 text-sm"
+                    style={{ color: 'var(--color-warning-fg)' }}
+                  >
+                    {report.blindSpots.map((b, i) => (
+                      <li key={i}>
+                        {b.message}
+                        {b.count > 1 ? ` — ${b.count}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              {usage ? (
+                <p className="hint" data-testid="ai-import-usage">
+                  Потрачено токенов: {formatTokens(usage.promptTokens + usage.completionTokens)} (
+                  {formatTokens(usage.promptTokens)} запросы /{' '}
+                  {formatTokens(usage.completionTokens)} ответы)
+                </p>
+              ) : null}
             </div>
-          </div>
+          ) : null}
 
           {/* B2: status of the optional relate step; hidden when not requested. */}
           {relate ? (
@@ -774,7 +1597,12 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               className="overflow-y-auto p-2.5 font-mono text-xs leading-relaxed"
               style={{ background: AI_IMPORT_LOG_BG, color: AI_IMPORT_LOG_TEXT, height: 170 }}
               data-testid="ai-import-log"
-              aria-label="Журнал анализа документации"
+              /* a11y (axe scrollable-region-focusable): the log overflows already
+                 on running (todo_20) — keyboard users must be able to focus and
+                 scroll it. role="log" also announces appended entries politely. */
+              role="log"
+              tabIndex={0}
+              aria-label="Журнал анализа"
             >
               {(job?.log ?? []).map((entry, i) => (
                 <div key={i}>
@@ -787,6 +1615,22 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               ))}
             </div>
           </div>
+
+          {/* todo_20 Н4: the full technical log as a downloadable file. */}
+          {logUrl ? (
+            <p className="hint">
+              Технический лог целиком:{' '}
+              <a
+                href={logUrl}
+                download
+                className="underline"
+                style={{ color: 'var(--color-primary)' }}
+                data-testid="ai-import-download-log"
+              >
+                скачать файлом
+              </a>
+            </p>
+          ) : null}
         </>
       )}
 

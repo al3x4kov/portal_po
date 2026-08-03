@@ -10,7 +10,7 @@ import { buildApp } from '../src/app.js';
 import { AiConfigRepo } from '../src/repositories/AiConfigRepo.js';
 import { FsRequirementRepo } from '../src/repositories/FsRequirementRepo.js';
 import { AiImportJobs } from '../src/services/AiImportJobs.js';
-import { AI_IMPORT_HINT_INTERNAL, AiImportService } from '../src/services/AiImportService.js';
+import { AiImportService } from '../src/services/AiImportService.js';
 import type { AiClient } from '../src/services/AiHubService.js';
 import type { LinkService } from '../src/services/LinkService.js';
 import type { RequirementService } from '../src/services/RequirementService.js';
@@ -155,8 +155,9 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
     // on. todo_16 Ф4: the user-facing error is a stable readable text + an
     // actionable hint; the RAW error message lives in the log only.
     expect(view.status).toBe('failed');
-    expect(view.error?.message).toBe('Внутренняя ошибка автоматизации.');
-    expect(view.error?.hint).toBe(AI_IMPORT_HINT_INTERNAL);
+    // todo_20 T-213: internal failures carry the INT-01 registry code now.
+    expect(view.error?.code).toBe('INT-01');
+    expect(view.error?.message).toContain('Внутренняя ошибка автоматизации');
     expect(
       view.log.some(
         (l) =>
@@ -209,9 +210,10 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
     const first = makeService(fixedClient(), { makeRequirementService: failingChild });
     const firstJob = await runToEnd(first, await writeZip({ 'auth.md': 'Документация.' }));
     expect(first.getView(firstJob).status).toBe('failed');
-    // todo_16 Ф4: the raw ENOSPC goes to the log; the error text stays stable.
-    expect(first.getView(firstJob).error?.message).toBe('Внутренняя ошибка автоматизации.');
-    expect(first.getView(firstJob).error?.hint).toBe(AI_IMPORT_HINT_INTERNAL);
+    // todo_16 Ф4 / todo_20 T-213: the raw ENOSPC goes to the log; the
+    // user-facing error is the stable INT-01 registry text.
+    expect(first.getView(firstJob).error?.code).toBe('INT-01');
+    expect(first.getView(firstJob).error?.message).toContain('Внутренняя ошибка автоматизации');
     expect(first.getView(firstJob).log.some((l) => l.message.includes('ENOSPC'))).toBe(true);
 
     const afterCrash = await assertProjectValid(root);
@@ -267,8 +269,12 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
 
     const view = service.getView(jobId);
     expect(view.status).toBe('failed');
-    expect(view.error?.message).toBe('Внутренняя ошибка автоматизации.');
-    expect(view.error?.hint).toBe(AI_IMPORT_HINT_INTERNAL);
+    // todo_20 T-213: internal failures now carry the INT-01 registry code
+    // (message/action from the registry, resumable — прогресс сохранён).
+    expect(view.error?.code).toBe('INT-01');
+    expect(view.error?.category).toBe('internal');
+    expect(view.error?.message).toContain('Внутренняя ошибка автоматизации');
+    expect(view.error?.resumable).toBe(true);
     const line = view.log.find(
       (l) => l.level === 'error' && l.message.includes('Внутренняя ошибка автоматизации'),
     );

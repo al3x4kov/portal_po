@@ -5,6 +5,7 @@ import type {
   AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
+  AiImportJobList,
   AiImportJobView,
   AiImportStartResponse,
   AiModelsView,
@@ -50,6 +51,8 @@ export const queryKeys = {
   aiConfig: (projectId: string) => ['ai', 'config', projectId] as const,
   aiModels: ['ai', 'models'] as const,
   aiImportJob: (jobId: string) => ['ai-import', jobId] as const,
+  /** todo_20 PO №4: per-project AI-import run history. */
+  aiImportJobs: (projectId: string) => ['ai-import-jobs', projectId] as const,
 };
 
 export function useProjects(): UseQueryResult<ProjectSummary[]> {
@@ -448,8 +451,14 @@ export function useAiImportJob(
   });
   const status = query.data?.status;
   useEffect(() => {
-    if (status === 'succeeded' || status === 'cancelled') {
+    // todo_20: `failed` also creates partial results (contract: `result` is
+    // present on any fail) — the tree must show them without a manual refresh.
+    if (status === 'succeeded' || status === 'cancelled' || status === 'failed') {
       invalidateRequirements(qc, projectId);
+    }
+    // Terminal statuses land in the run history — keep the list fresh.
+    if (status && status !== 'running' && status !== 'awaiting-confirmation') {
+      void qc.invalidateQueries({ queryKey: queryKeys.aiImportJobs(projectId) });
     }
   }, [status, projectId, qc]);
   return query;
@@ -461,6 +470,50 @@ export function useCancelAiImport() {
   return useMutation<AiImportJobView, Error, string>({
     mutationFn: (jobId) => aiImportApi.cancel(jobId),
     onSuccess: (job) => qc.setQueryData(queryKeys.aiImportJob(job.jobId), job),
+  });
+}
+
+/**
+ * todo_20 T-204: confirms a job paused on the estimate gate
+ * (`awaiting-confirmation`). The fresh view (now `running`) is written into
+ * the cache directly, which also re-arms the ~800 ms polling of
+ * {@link useAiImportJob} (its `refetchInterval` sees the new status).
+ */
+export function useConfirmAiImport() {
+  const qc = useQueryClient();
+  return useMutation<AiImportJobView, Error, string>({
+    mutationFn: (jobId) => aiImportApi.confirm(jobId),
+    onSuccess: (job) => qc.setQueryData(queryKeys.aiImportJob(job.jobId), job),
+  });
+}
+
+/**
+ * todo_20 T-212: resumes a `failed | cancelled | interrupted` job from its
+ * checkpoint. The server answers 202 with the SAME jobId, so on success the
+ * job view query is invalidated — the refetch returns `running` and the
+ * polling of {@link useAiImportJob} resumes on its own.
+ */
+export function useResumeAiImport(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<AiImportStartResponse, Error, string>({
+    mutationFn: (jobId) => aiImportApi.resume(jobId),
+    onSuccess: ({ jobId }) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.aiImportJob(jobId) });
+      void qc.invalidateQueries({ queryKey: queryKeys.aiImportJobs(projectId) });
+    },
+  });
+}
+
+/**
+ * todo_20 PO №4: full AI-import run history of a project (newest first).
+ * Used by the import modal to offer «Продолжить» on resumable runs and a
+ * jump to any past report/log.
+ */
+export function useAiImportJobs(projectId: string): UseQueryResult<AiImportJobList> {
+  return useQuery({
+    queryKey: queryKeys.aiImportJobs(projectId),
+    queryFn: () => aiImportApi.listJobs(projectId),
+    enabled: Boolean(projectId),
   });
 }
 

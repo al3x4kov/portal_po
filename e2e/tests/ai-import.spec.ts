@@ -506,16 +506,18 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     }
 
     // The stub captured one extraction call per DOC file — the png caused none.
+    // todo_20 (T-206): few-shot example user messages precede the real payload,
+    // so the payload is the user message matching «Файл: … (фрагмент …)».
     const calls = stub.extractionRequests.slice(callsBefore);
     expect(calls).toHaveLength(3);
+    const payloadOf = (c: (typeof calls)[number]): string =>
+      c.messages?.find(
+        (m) => m.role === 'user' && /^Файл: .+ \(фрагмент \d+ из \d+\)/.test(m.content ?? ''),
+      )?.content ?? '';
     const userOf = (relPath: string): string => {
-      const call = calls.find((c) =>
-        (c.messages?.find((m) => m.role === 'user')?.content ?? '').startsWith(
-          `Файл: ${relPath} (фрагмент`,
-        ),
-      );
+      const call = calls.find((c) => payloadOf(c).startsWith(`Файл: ${relPath} (фрагмент`));
       expect(call, `extraction call for ${relPath}`).toBeDefined();
-      return call?.messages?.find((m) => m.role === 'user')?.content ?? '';
+      return call ? payloadOf(call) : '';
     };
 
     // Nested file: full relative path, its directory and the archive map.
@@ -717,11 +719,15 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     }
   });
 
-  /* §5.8a: ошибка этапа analyze (стаб 500) → блок ошибки + «Что делать», retry. */
+  /* §5.8a → todo_20 П4/П6: устойчивый 500 ретраится с backoff и завершается
+     таксономической ошибкой NET-02 (resumable) — вместо старого мгновенного
+     фейла с «Повторить анализ». Починка апстрима + «Продолжить» доводит
+     прогон до конца. */
 
-  test('ошибка AI Hub (500): блок ошибки с инструкцией; «Повторить анализ» возвращает к запуску', async ({
+  test('ошибка AI Hub (500): ретраи, затем NET-02 с действием; «Продолжить» после починки доводит анализ', async ({
     page,
   }, testInfo) => {
+    test.setTimeout(180_000); // NET-02 = 6 попыток с экспоненциальным backoff
     await createProject(page, uniqueName('AiImp-Err'));
     const id = projectIdFromUrl(page);
     await configureAi(page, id, 'Qwen-Coder-Next');
@@ -735,26 +741,21 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
       await chooseFile(page, zip);
       await startAnalysis(page);
 
-      // Failed job → error block: stage, message, mandatory «Что делать» hint (§4).
+      // Failed job → taxonomy error view: message + code + concrete action (П6).
       const error = page.getByTestId('ai-import-error');
-      await expect(error).toBeVisible(JOB_TIMEOUT);
-      await expect(error).toContainText('Извлечение требований');
-      await expect(error).toContainText('Что делать:');
+      await expect(error).toBeVisible({ timeout: 90_000 });
+      await expect(page.getByTestId('ai-import-error-code')).toContainText('NET-02');
+      await expect(error).toContainText('Что сделать:');
       await expect(error).toContainText('Проверьте доступность AI Hub');
       // The API key never leaks into the user-facing message.
       await expect(error).not.toContainText('sk-e2e-import-key');
+      // Retries were visible in the log in Russian (П4.1, пилотный баг №3).
+      await expect(page.getByTestId('ai-import-log')).toContainText('Повтор запроса к модели');
       await attachShot(page, testInfo, 'stage-error');
 
-      // «Повторить анализ» → back to setup with the file kept.
-      await page.getByTestId('ai-import-retry').click();
-      const start = page.getByTestId('ai-import-start');
-      await expect(start).toBeVisible();
-      await expect(start).toBeEnabled();
-      await expect(page.getByTestId('ai-import-file-name')).toContainText('docs.zip');
-
-      // After fixing the upstream, the retry actually succeeds.
+      // After fixing the upstream, «Продолжить» (resume) actually succeeds.
       stub.setChatMode('ok');
-      await startAnalysis(page);
+      await page.getByTestId('ai-import-resume').click();
       await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
     } finally {
       stub.setChatMode('ok');
@@ -780,12 +781,14 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await chooseFile(page, zip);
     await startAnalysis(page);
 
+    // todo_20 П6: таксономический вид ошибки — сообщение + код DATA-01 +
+    // конкретное действие (вместо старой строки этапа «Распаковка архива»).
     const error = page.getByTestId('ai-import-error');
     await expect(error).toBeVisible(JOB_TIMEOUT);
-    await expect(error).toContainText('Распаковка архива');
     await expect(error).toContainText('нет файлов документации');
-    await expect(error).toContainText('Что делать:');
-    await expect(error).toContainText('Добавьте документацию в архив и повторите');
+    await expect(page.getByTestId('ai-import-error-code')).toContainText('DATA-01');
+    await expect(error).toContainText('Что сделать:');
+    await expect(error).toContainText('Добавьте в архив документацию');
     await attachShot(page, testInfo, 'no-docs-error');
   });
 
@@ -1068,7 +1071,9 @@ test.describe('Task 13 · AI-импорт: структура, поля, рет�
       await chooseFile(page, zip);
       await startAnalysis(page);
 
-      await expect(page.getByTestId('ai-import-stage')).toHaveText(
+      // todo_20 E3: к строке этапа добавляется «· фрагмент X из Y» —
+      // проверяем вхождение, а не полный текст.
+      await expect(page.getByTestId('ai-import-stage')).toContainText(
         'Этап: Построение древовидной структуры ФТ/НФТ',
         JOB_TIMEOUT,
       );

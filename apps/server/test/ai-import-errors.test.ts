@@ -169,8 +169,9 @@ describe('ARC-T2 · AiImportService error branches (populate/link/unpack)', () =
   });
 
   it('an archive with more doc files than the limit fails the job with the archive hint', async () => {
+    // todo_20: the text-file limit rose to 2000 (Н1) — exceed the NEW limit.
     const files: Record<string, string> = {};
-    for (let i = 0; i < 501; i += 1) files[`doc-${String(i).padStart(3, '0')}.md`] = `Файл ${i}.`;
+    for (let i = 0; i < 2001; i += 1) files[`doc-${String(i).padStart(4, '0')}.md`] = `Файл ${i}.`;
     const client = fixedClient('[]');
     const service = makeService(client);
     const jobId = await runToEnd(service, await writeZip(files));
@@ -183,7 +184,8 @@ describe('ARC-T2 · AiImportService error branches (populate/link/unpack)', () =
     expect(view.error?.hint).toBe(AI_IMPORT_HINT_ARCHIVE);
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
     expect(create).not.toHaveBeenCalled();
-  });
+    // 2001 files + распаковка/уборка под полным прогоном сюиты — дольше 5с.
+  }, 20000);
 
   it('doc files that are all empty fail analyze with «извлекать нечего»', async () => {
     const client = fixedClient('[]');
@@ -227,7 +229,10 @@ describe('ARC-T2 · AiImportService error branches (populate/link/unpack)', () =
     const view = service.getView(jobId);
     expect(view.status).toBe('failed');
     expect(view.stage).toBe('unpack');
-    expect(view.error?.message).toContain('В архиве нет файлов документации (.md/.markdown/.txt)');
+    // todo_20: the doc-extension list now includes structured sources.
+    expect(view.error?.message).toContain(
+      'В архиве нет файлов документации (.md/.markdown/.txt/.json/.yaml/.yml)',
+    );
     expect(view.error?.message).toContain('В архиве 3 файлов');
     expect(view.error?.message).toContain('.html — 2');
     expect(view.error?.message).toContain('.png — 1');

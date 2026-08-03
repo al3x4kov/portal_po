@@ -6,9 +6,9 @@
 
 /* Mandatory user-facing texts (spec §4): readable message + "what to do next". */
 export const AI_IMPORT_HINT_ARCHIVE =
-  'Проверьте формат архива (zip или tar.gz) и размер до 50 МБ, соберите архив заново и повторите';
+  'Проверьте формат архива (zip или tar.gz) и размер до 200 МБ, соберите архив заново и повторите';
 export const AI_IMPORT_HINT_NO_DOCS =
-  'В архиве нет файлов документации (.md/.txt). Добавьте документацию в архив и повторите';
+  'В архиве нет файлов документации (.md/.txt/.json/.yaml). Добавьте документацию в архив и повторите';
 export const AI_IMPORT_HINT_CONFIGURE =
   'Настройте AI Hub: задайте API-ключ на экране AI и выберите модель';
 export const AI_IMPORT_HINT_UPSTREAM =

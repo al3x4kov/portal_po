@@ -291,8 +291,9 @@ describe('T11 AI import contract constants', () => {
     expect(AI_IMPORT_TEMPERATURE).toBe(0.2);
     expect(AI_IMPORT_MAX_TOKENS).toBe(2000);
     expect(AI_IMPORT_CHUNK_CHARS).toBe(12_000);
-    expect(AI_IMPORT_MAX_ARCHIVE_BYTES).toBe(50 * 1024 * 1024);
-    expect(AI_IMPORT_MAX_DOC_FILES).toBe(500);
+    // todo_20 (PO decision №1): 200 МБ / 2000 text files.
+    expect(AI_IMPORT_MAX_ARCHIVE_BYTES).toBe(200 * 1024 * 1024);
+    expect(AI_IMPORT_MAX_DOC_FILES).toBe(2000);
   });
 
   it('T14 B1: structure stage gets its own token budget and a smaller batch', () => {
@@ -313,7 +314,15 @@ describe('T11 AI import contract constants', () => {
       'populate',
       'done',
     ]);
-    expect(AI_IMPORT_STATUSES).toEqual(['running', 'succeeded', 'failed', 'cancelled']);
+    // todo_20 appends awaiting-confirmation / interrupted; the first four stay.
+    expect(AI_IMPORT_STATUSES).toEqual([
+      'running',
+      'succeeded',
+      'failed',
+      'cancelled',
+      'awaiting-confirmation',
+      'interrupted',
+    ]);
   });
 });
 
@@ -629,12 +638,21 @@ import {
   resolveModelPreset,
 } from './ai.js';
 
+// todo_20 T-201: run-control fields shipped with every full preset.
+const RUN_FIELDS = {
+  parallelism: 2,
+  perCallTimeoutSec: 120,
+  runBudgetTokens: null,
+  estimateThresholdTokens: 2_000_000,
+} as const;
+
 describe('todo_18 aiModelPresetSchema', () => {
   const full = {
     temperature: 0.2,
     maxOutputTokens: 4000,
     chunkChars: 12_000,
     reasoning: 'strip' as const,
+    ...RUN_FIELDS,
   };
 
   it('accepts a full valid preset (topP optional)', () => {
@@ -674,18 +692,21 @@ describe('todo_18 AI_MODEL_PRESET_DEFAULTS', () => {
       maxOutputTokens: 4000,
       chunkChars: 12_000,
       reasoning: 'none',
+      ...RUN_FIELDS,
     });
     expect(AI_MODEL_PRESET_DEFAULTS['Qwen/Qwen3.5-397B-A17B']).toEqual({
       temperature: 0.2,
       maxOutputTokens: 16_000,
       chunkChars: 24_000,
       reasoning: 'strip',
+      ...RUN_FIELDS,
     });
     expect(AI_MODEL_PRESET_DEFAULTS['Qwen/Qwen3.6-27B']).toEqual({
       temperature: 0.2,
       maxOutputTokens: 12_000,
       chunkChars: 16_000,
       reasoning: 'strip',
+      ...RUN_FIELDS,
     });
   });
 
@@ -695,6 +716,7 @@ describe('todo_18 AI_MODEL_PRESET_DEFAULTS', () => {
       maxOutputTokens: 4000,
       chunkChars: 12_000,
       reasoning: 'strip',
+      ...RUN_FIELDS,
     });
   });
 });
@@ -706,6 +728,7 @@ describe('todo_18 resolveModelPreset (override ← default-by-id ← generic)', 
       maxOutputTokens: 16_000,
       chunkChars: 24_000,
       reasoning: 'strip',
+      ...RUN_FIELDS,
     });
   });
 
@@ -723,6 +746,7 @@ describe('todo_18 resolveModelPreset (override ← default-by-id ← generic)', 
       chunkChars: 16_000,
       reasoning: 'strip',
       topP: 0.8,
+      ...RUN_FIELDS,
     });
   });
 

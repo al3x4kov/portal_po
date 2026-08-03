@@ -209,8 +209,11 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     // 3 extraction calls + 1 structure call (Task 13 B2).
     expect(create).toHaveBeenCalledTimes(4);
     type Call = { messages: Array<{ role: string; content: string }> };
+    // todo_20 T-206: few-shot example pairs precede the task, so the REAL
+    // task prompt is the LAST user message of the conversation.
     const userOf = (i: number): string =>
-      (create.mock.calls[i]?.[0] as Call).messages.find((m) => m.role === 'user')?.content ?? '';
+      (create.mock.calls[i]?.[0] as Call).messages.filter((m) => m.role === 'user').at(-1)
+        ?.content ?? '';
     const expectedMap = 'docs/api/auth.md\ndocs/nfr/perf.md\nreadme.md';
     // The archive map goes into every call — extraction AND structure.
     for (let i = 0; i < 4; i++) {
@@ -301,10 +304,10 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       links: 0,
       relatesLinks: 0,
     });
+    // todo_20 T-207: exact duplicates are now merged by the dedupe stage
+    // (normalized names) BEFORE aggregation — the warn moved there.
     expect(
-      view.log.some(
-        (l) => l.level === 'warn' && l.message.includes('Дубликатов в извлечении пропущено: 2'),
-      ),
+      view.log.some((l) => l.level === 'warn' && l.message.includes('автоматически слито 2')),
     ).toBe(true);
   });
 
@@ -561,6 +564,9 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
   });
 
   it('cancels at a chunk boundary: cancelled status + partial result, no further calls', async () => {
+    // todo_20 T-210: pin the pool to 1 so «no further calls» stays exact —
+    // with the default parallelism a second chunk may already be in flight.
+    await configRepo.update({ modelPresets: { 'Qwen-Coder-Next': { parallelism: 1 } } });
     let jobId = '';
     const client = scriptedClient([
       () => {
@@ -734,7 +740,11 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     const archive = await writeZip({ 'a.md': 'Вход.' });
     await runToEnd(service, archive, 'Override-Model');
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ model: 'Override-Model' }));
+    // todo_20 T-209: import calls carry per-request options (signal/timeout).
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'Override-Model' }),
+      expect.anything(),
+    );
   });
 
   it('start: 409 when the project already has a running job', async () => {

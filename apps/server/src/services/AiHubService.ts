@@ -23,6 +23,15 @@ export interface AiChatCompletionParams {
   max_tokens: number;
   /** Nucleus sampling — sent only when the effective model preset defines it (todo_18). */
   top_p?: number;
+  /** todo_20 T-206: structured output (json_schema/json_object) with per-run fallback. */
+  response_format?: Record<string, unknown>;
+}
+
+/** Per-request options (todo_20 T-209: per-call timeout via AbortController). */
+export interface AiChatCompletionOptions {
+  signal?: AbortSignal;
+  /** Per-request timeout, ms (the OpenAI SDK honours it per call). */
+  timeout?: number;
 }
 
 /** Minimal OpenAI-compatible client surface used by the service. */
@@ -32,12 +41,20 @@ export interface AiClient {
   };
   chat: {
     completions: {
-      create(params: AiChatCompletionParams): Promise<{
+      create(
+        params: AiChatCompletionParams,
+        options?: AiChatCompletionOptions,
+      ): Promise<{
         choices: Array<{
           message: { content: string | null };
           /** OpenAI finish reason; `'length'` = answer truncated by max_tokens (Task 14 B2). */
           finish_reason?: string | null;
         }>;
+        /** todo_20 T-208/C4: token usage of the answer (accumulated per run). */
+        usage?: {
+          prompt_tokens?: number | null;
+          completion_tokens?: number | null;
+        } | null;
       }>;
     };
   };

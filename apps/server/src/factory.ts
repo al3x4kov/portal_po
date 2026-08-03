@@ -7,6 +7,7 @@ import { FsRequirementRepo } from './repositories/FsRequirementRepo.js';
 import { FsDictionariesRepo } from './repositories/FsDictionariesRepo.js';
 import { ArchiveRepo } from './repositories/ArchiveRepo.js';
 import { AiConfigRepo } from './repositories/AiConfigRepo.js';
+import { FsAiJobsRepo } from './repositories/AiJobsRepo.js';
 import { AiHubService, type AiClientFactory } from './services/AiHubService.js';
 import { AiImportService } from './services/AiImportService.js';
 import type { AiImportJobs } from './services/AiImportJobs.js';
@@ -147,6 +148,9 @@ export function createAiImportService(ctx: ServiceContext, jobs: AiImportJobs): 
     makeRequirementService: (projectId) => createRequirementService(ctx, projectId),
     makeLinkService: (projectId) => createLinkService(ctx, projectId),
     projectExists: (projectId) => projectRepo.exists(projectId),
+    // todo_20 T-211: checkpoints in Projects/<project>/.ai-jobs/ — resume,
+    // job history and interrupted-job recovery all read from here.
+    checkpoints: new FsAiJobsRepo(ctx.projectsRoot),
     log: ctx.log,
   });
 }

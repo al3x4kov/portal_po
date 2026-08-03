@@ -1,4 +1,5 @@
 import { unpackDocsArchive, type UnpackedDocs } from '../../lib/unpack.js';
+import { AI_UNPACK_LIMITS } from '../../lib/limits.js';
 import { buildArchiveMap } from '../aiImportPrompt.js';
 import { AI_IMPORT_HINT_ARCHIVE, AI_IMPORT_HINT_NO_DOCS } from './constants.js';
 import { formatMb, noDocsMessage } from './text.js';
@@ -7,6 +8,8 @@ import type { AiImportRuntime, ArchiveMap } from './types.js';
 export interface UnpackInput {
   archivePath: string;
   archiveBytes: number;
+  /** todo_20 T-211: unpack into the job's checkpoint dir (survives restarts). */
+  destDir?: string;
 }
 
 /**
@@ -16,7 +19,15 @@ export interface UnpackInput {
  * a no-docs failure so the caller can clean it up.
  */
 export type UnpackOutcome =
-  | { ok: true; docsDir: string; files: string[]; archiveMap: ArchiveMap }
+  | {
+      ok: true;
+      docsDir: string;
+      files: string[];
+      archiveMap: ArchiveMap;
+      /** todo_20 T-202: archive-wide stats for the inventory view. */
+      totalEntries: number;
+      extensionCounts: Record<string, number>;
+    }
   | { ok: false; docsDir?: string };
 
 export async function runUnpackStage(
@@ -32,9 +43,23 @@ export async function runUnpackStage(
 
   let unpacked: UnpackedDocs;
   try {
-    unpacked = await unpackDocsArchive(input.archivePath);
+    // todo_20 Н1: the AI unpack uses its own (higher) bomb-guard bound —
+    // project archives keep the stricter DEFAULT_ARCHIVE_LIMITS.
+    unpacked = await unpackDocsArchive(
+      input.archivePath,
+      undefined,
+      AI_UNPACK_LIMITS,
+      input.destDir,
+    );
   } catch (err) {
-    rt.fail(`Не удалось распаковать архив: ${(err as Error).message}`, AI_IMPORT_HINT_ARCHIVE);
+    // T-213: every fail carries a registry code — limits are DATA-02, a broken
+    // or non-archive upload is DATA-03; the raw detail stays in the message.
+    const raw = (err as Error).message;
+    const code = /limit|превышает/i.test(raw) ? 'DATA-02' : 'DATA-03';
+    rt.failCode(code, {
+      message: `Не удалось распаковать архив: ${raw}`,
+      hint: AI_IMPORT_HINT_ARCHIVE,
+    });
     return { ok: false };
   }
   const docsDir = unpacked.dir;
@@ -47,7 +72,7 @@ export async function runUnpackStage(
 
   const files = unpacked.files;
   if (files.length === 0) {
-    rt.fail(noDocsMessage(unpacked), AI_IMPORT_HINT_NO_DOCS);
+    rt.failCode('DATA-01', { message: noDocsMessage(unpacked), hint: AI_IMPORT_HINT_NO_DOCS });
     return { ok: false, docsDir };
   }
   rt.log('info', `Найдено файлов документации: ${files.length}.`);
@@ -55,5 +80,12 @@ export async function runUnpackStage(
   // extraction call so the model sees the overall structure (Task 13).
   const archiveMap = buildArchiveMap(files);
   rt.job.progress = 5;
-  return { ok: true, docsDir, files, archiveMap };
+  return {
+    ok: true,
+    docsDir,
+    files,
+    archiveMap,
+    totalEntries: unpacked.totalEntries,
+    extensionCounts: unpacked.extensionCounts,
+  };
 }

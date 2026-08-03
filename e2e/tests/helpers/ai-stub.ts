@@ -70,6 +70,15 @@ import { createServer, type Server } from 'node:http';
  * list) — the refresh-button scenarios need the list to CHANGE between two
  * requests, including the selected model vanishing.
  *
+ * todo_20 (T-217): (1) extraction requests now carry FEW-SHOT example
+ * user/assistant pairs BEFORE the real «Файл: … (фрагмент i из n)» message
+ * (structuredOutput.ts, B3) — the file-name matcher therefore scans ALL user
+ * messages for the strict pattern instead of taking the first one (the
+ * few-shot user line says «(пример)» and never matches); (2) every successful
+ * completion carries a deterministic `usage` block (prompt/completion tokens)
+ * so the run-usage counters, the budget tracker and the final report have
+ * non-zero, stable numbers to assert on.
+ *
  * todo_16 B2 (optional relate step «Проставление связей ФТ↔НФТ»): relate
  * calls are detected by their distinct system prompt («аналитик связей
  * требований», buildRelateMessages) and captured in `relateRequests`. The
@@ -197,9 +206,14 @@ const NON_JSON_REPLY = 'Извините, сначала пришлю требо
  * lines («Директория текущего файла: …», «Структура архива…») never leak in.
  */
 function extractionFileName(body: AiChatCompletionCapture | undefined): string | null {
-  const user = body?.messages?.find((m) => m.role === 'user');
-  const match = /^Файл: (.+) \(фрагмент \d+ из \d+\)/.exec(user?.content ?? '');
-  return match?.[1] ?? null;
+  // todo_20: few-shot example user messages (fewShotForClass) precede the real
+  // payload — scan every user message for the strict «(фрагмент i из n)» form.
+  for (const m of body?.messages ?? []) {
+    if (m.role !== 'user') continue;
+    const match = /^Файл: (.+) \(фрагмент \d+ из \d+\)/.exec(m.content ?? '');
+    if (match) return match[1] ?? null;
+  }
+  return null;
 }
 
 /** Section marker of the batch itself («Батч (N шт., …):», task 14 B4). */
@@ -432,6 +446,9 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
               id: 'chatcmpl-stub',
               object: 'chat.completion',
               choices: [{ index: 0, message: { role: 'assistant', content } }],
+              // todo_20 C4: deterministic usage so token counters/report/budget
+              // have stable non-zero numbers in E2E.
+              usage: { prompt_tokens: 120, completion_tokens: 45, total_tokens: 165 },
             }),
           );
         };

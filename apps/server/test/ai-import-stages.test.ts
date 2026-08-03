@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import AdmZip from 'adm-zip';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AiExtractedRequirement, AiImportResult, AiModelPreset } from '@po/core';
-import { resolveModelPreset } from '@po/core';
+import { aiImportErrorFromCode, resolveModelPreset } from '@po/core';
 import type { AiClient } from '../src/services/AiHubService.js';
 import type { AiImportJobState } from '../src/services/AiImportJobs.js';
 import type { AiImportRuntime, JsonCallOutcome } from '../src/services/aiImport/types.js';
@@ -65,7 +65,16 @@ function harness(opts: { chat?: JsonCallOutcome<unknown>[]; cancelled?: () => bo
       job.status = 'failed';
       job.error = { message, hint };
     },
+    // todo_20 T-201: registry-code failures (message/hint mirror the registry).
+    failCode: (code, overrides) => {
+      const error = aiImportErrorFromCode(code, overrides);
+      state.failure = { message: error.message, hint: error.hint };
+      job.status = 'failed';
+      job.error = error;
+    },
     chat: async <T>() => (queue.shift() ?? { kind: 'unparsed' }) as JsonCallOutcome<T>,
+    // todo_20 T-211: checkpointing is a no-op in the isolated-stage harness.
+    checkpoint: () => {},
   };
   return { rt, job, counters, logs, state };
 }
@@ -166,7 +175,9 @@ describe('runAnalyzeStage (isolated)', () => {
   });
 
   it('fails the job with the upstream hint on an upstream error', async () => {
-    const { rt, state } = harness({ chat: [{ kind: 'upstream', error: new Error('boom sk') }] });
+    const { rt, state } = harness({
+      chat: [{ kind: 'upstream', error: new Error('boom sk'), errorClass: 'unknown' }],
+    });
     const out = await runAnalyzeStage(rt, baseInput());
     expect(out.ok).toBe(false);
     expect(state.failure?.message).toContain('AI Hub');
@@ -373,7 +384,9 @@ describe('runPopulateStage and runRelateStage (isolated, real services)', () => 
       criticality: 'MEDIUM',
       implemented: true,
     });
-    const { rt, job } = harness({ chat: [{ kind: 'upstream', error: new Error('down') }] });
+    const { rt, job } = harness({
+      chat: [{ kind: 'upstream', error: new Error('down'), errorClass: 'unknown' }],
+    });
     const stopped = await runRelateStage(rt, {
       client: STUB_CLIENT,
       model: 'gpt-test',

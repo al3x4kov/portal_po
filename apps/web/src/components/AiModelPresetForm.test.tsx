@@ -165,4 +165,94 @@ describe('AiModelPresetForm (todo_18)', () => {
     expect(screen.getByTestId('ai-preset-empty')).toBeInTheDocument();
     expect(screen.queryByTestId('ai-preset-save')).not.toBeInTheDocument();
   });
+
+  // ── todo_20 T-215: run-control fields of the import pipeline ───────────────
+
+  describe('run-control fields (todo_20)', () => {
+    it('shows the shipped defaults: parallelism 2, timeout 120, budget/threshold per contract', () => {
+      renderForm();
+      expect(screen.getByTestId('ai-preset-parallelism')).toHaveValue(2);
+      expect(screen.getByTestId('ai-preset-perCallTimeoutSec')).toHaveValue(120);
+      // runBudgetTokens default is null → empty input («без лимита»).
+      expect(screen.getByTestId('ai-preset-runBudgetTokens')).toHaveValue(null);
+      expect(screen.getByTestId('ai-preset-estimateThresholdTokens')).toHaveValue(2_000_000);
+
+      expect(badgeOverridden('ai-preset-parallelism')).toBe(false);
+      expect(badgeOverridden('ai-preset-perCallTimeoutSec')).toBe(false);
+      expect(badgeOverridden('ai-preset-runBudgetTokens')).toBe(false);
+      expect(badgeOverridden('ai-preset-estimateThresholdTokens')).toBe(false);
+    });
+
+    it('explains each run-control field and scopes the impact to the import', () => {
+      renderForm();
+      for (const param of [
+        'parallelism',
+        'perCallTimeoutSec',
+        'runBudgetTokens',
+        'estimateThresholdTokens',
+      ] as const) {
+        const help = screen.getByTestId(`ai-preset-help-${param}`);
+        expect(help).toHaveTextContent(/Влияет на:/);
+        expect(help).toHaveTextContent(/только «AI-генерация ФТ\/НФТ по архиву»/);
+      }
+      // The threshold semantics (0 / empty) are spelled out (PO decision №2).
+      expect(screen.getByTestId('ai-preset-help-estimateThresholdTokens')).toHaveTextContent(
+        '0 — подтверждать всегда; пусто — никогда не спрашивать.',
+      );
+    });
+
+    it('saves only the changed run-control fields as an override', async () => {
+      const user = userEvent.setup();
+      renderForm();
+
+      const par = screen.getByTestId('ai-preset-parallelism');
+      await user.clear(par);
+      await user.type(par, '4');
+      const budget = screen.getByTestId('ai-preset-runBudgetTokens');
+      await user.type(budget, '10000000');
+
+      await user.click(screen.getByTestId('ai-preset-save'));
+      await waitFor(() =>
+        expect(saveConfig).toHaveBeenCalledWith({
+          modelPresets: { [CODER]: { parallelism: 4, runBudgetTokens: 10_000_000 } },
+        }),
+      );
+    });
+
+    it('clearing the estimate threshold stores an explicit null («не спрашивать»)', async () => {
+      const user = userEvent.setup();
+      renderForm();
+
+      await user.clear(screen.getByTestId('ai-preset-estimateThresholdTokens'));
+      await user.click(screen.getByTestId('ai-preset-save'));
+
+      await waitFor(() =>
+        expect(saveConfig).toHaveBeenCalledWith({
+          modelPresets: { [CODER]: { estimateThresholdTokens: null } },
+        }),
+      );
+    });
+
+    it('stored overrides render as effective values with the «переопределено» flag', () => {
+      renderForm({ [CODER]: { parallelism: 8, perCallTimeoutSec: 300 } });
+      expect(screen.getByTestId('ai-preset-parallelism')).toHaveValue(8);
+      expect(screen.getByTestId('ai-preset-perCallTimeoutSec')).toHaveValue(300);
+      expect(badgeOverridden('ai-preset-parallelism')).toBe(true);
+      expect(badgeOverridden('ai-preset-perCallTimeoutSec')).toBe(true);
+      expect(badgeOverridden('ai-preset-runBudgetTokens')).toBe(false);
+    });
+
+    it('validation from @po/core blocks an out-of-range parallelism', async () => {
+      const user = userEvent.setup();
+      renderForm();
+      const par = screen.getByTestId('ai-preset-parallelism');
+      await user.clear(par);
+      await user.type(par, '9'); // max is 8 in aiModelPresetSchema
+
+      await user.click(screen.getByTestId('ai-preset-save'));
+
+      expect(await screen.findByText(/от 1 до 8/)).toBeInTheDocument();
+      expect(saveConfig).not.toHaveBeenCalled();
+    });
+  });
 });
