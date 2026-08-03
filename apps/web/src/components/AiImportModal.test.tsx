@@ -241,6 +241,39 @@ describe('AiImportModal (Task 11)', () => {
     expect(screen.getByTestId('ai-import-done')).toHaveTextContent('Готово');
   });
 
+  it('task24: opens as a large modal; the log stretches into the free height (a11y kept)', async () => {
+    getJob.mockResolvedValue(RUNNING_JOB);
+    const user = userEvent.setup();
+    renderModal();
+    // Large size is set on the Modal shell already in the setup view.
+    const card = screen.getByTestId('ai-import');
+    expect(card.className).toContain('md:w-[70vw]');
+    expect(card.className).toContain('md:h-[max(70vh,min(640px,80vh))]');
+    // Mobile behaviour unchanged: base classes are the old ones.
+    expect(card.className).toContain('w-full');
+    expect(card.className).toContain('max-w-[640px]');
+
+    await screen.findByTestId('ai-import-model-select');
+    await startJob(user);
+
+    // The log panel absorbs the remaining height instead of a fixed 170px…
+    const panel = screen.getByTestId('ai-import-log-panel');
+    expect(panel.className).toContain('flex-1');
+    const log = screen.getByTestId('ai-import-log');
+    // …guaranteed ≥300px on desktop (shrink-0 basis), growing with free space…
+    expect(log.className).toContain('grow');
+    expect(log.className).toContain('shrink-0');
+    expect(log.className).toContain('md:basis-[300px]');
+    // …and never collapsing below the old 170px on mobile; no inline height.
+    expect(log.className).toContain('basis-[170px]');
+    expect(log.className).toContain('min-h-[170px]');
+    expect(log.style.height).toBe('');
+    // a11y contract survives the resize (axe scrollable-region-focusable).
+    expect(log).toHaveAttribute('role', 'log');
+    expect(log).toHaveAttribute('tabindex', '0');
+    expect(log).toHaveAttribute('aria-label', 'Журнал анализа');
+  });
+
   it('stop mini-confirm: «Продолжить анализ» keeps the job running', async () => {
     getJob.mockResolvedValue(RUNNING_JOB);
     const user = userEvent.setup();

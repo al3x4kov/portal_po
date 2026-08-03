@@ -1,12 +1,25 @@
 import { useEffect, useRef } from 'react';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
+/**
+ * task24: modal size variant.
+ * - `default` — content-sized card capped by `widthClass` (unchanged behaviour).
+ * - `large` — on ≥768px the card takes ~70% of the viewport in BOTH dimensions
+ *   (70vw × ~70vh, rising to the 80vh ceiling (max 640px) on short screens)
+ *   and the body becomes a flex column, so a child with
+ *   `flex-1` (e.g. the AI-import log) stretches into the extra height.
+ *   Below 768px it behaves exactly like `default` (near-full width, auto height).
+ */
+export type ModalSize = 'default' | 'large';
+
 interface ModalProps {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   footer?: React.ReactNode;
   widthClass?: string;
+  /** Size variant; keep `default` for every existing form dialog. */
+  size?: ModalSize;
   testid?: string;
   /** Optional pill shown before the title (e.g. requirement type). */
   badge?: string;
@@ -34,6 +47,7 @@ export function Modal({
   children,
   footer,
   widthClass = 'max-w-xl',
+  size = 'default',
   testid = 'modal',
   badge,
   onOverlayClick,
@@ -77,7 +91,15 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         data-testid={testid}
-        className={`card flex max-h-[90vh] w-full ${widthClass} flex-col p-0 shadow-lg`}
+        className={`card flex max-h-[90vh] w-full ${widthClass} flex-col p-0 shadow-lg ${
+          // task24: `large` — ~70% of the viewport on desktop; the responsive
+          // md:* classes override `widthClass` there, mobile stays as-is.
+          // Height: ~70vh, but on short screens (e.g. 800px) rise to the 80vh
+          // ceiling (capped at 640px) so the stretching log gets real room.
+          size === 'large'
+            ? 'md:h-[max(70vh,min(640px,80vh))] md:max-h-[80vh] md:w-[70vw] md:max-w-[70vw]'
+            : ''
+        }`}
       >
         <header
           className="flex shrink-0 items-center justify-between border-b px-6 py-4"
@@ -105,7 +127,18 @@ export function Modal({
             ✕
           </button>
         </header>
-        <div className="flex-1 space-y-5 overflow-y-auto p-6">{children}</div>
+        <div
+          data-testid={`${testid}-body`}
+          className={
+            size === 'large'
+              ? // task24: flex column (gap-5 ≙ space-y-5) so a `flex-1` child
+                // (the analysis log) soaks up the free height of the 70vh card.
+                'flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-6'
+              : 'flex-1 space-y-5 overflow-y-auto p-6'
+          }
+        >
+          {children}
+        </div>
         {footer ? (
           <footer
             className="flex shrink-0 justify-end gap-3 border-t px-6 py-4"

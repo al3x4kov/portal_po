@@ -602,6 +602,10 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
       title="AI-импорт документации"
       testid="ai-import"
       widthClass="max-w-[640px]"
+      /* task24: ~70% of the viewport on desktop — the estimate inventory,
+         progress feed, quality report and history need the room. Mobile keeps
+         the old near-full-width behaviour (widthClass applies below md). */
+      size="large"
       onClose={requestClose}
       onOverlayClick={requestClose}
       footer={footer}
@@ -1575,13 +1579,17 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
             </div>
           ) : null}
 
-          {/* Live log with a header (ai-import-modal mockup, state Б). */}
+          {/* Live log with a header (ai-import-modal mockup, state Б).
+              task24: the wrapper takes the remaining height of the large modal
+              (flex-1 inside the Modal body column); the inner log keeps a
+              170px floor so short content never collapses it. */}
           <div
-            className="overflow-hidden rounded-lg border"
+            className="flex flex-1 flex-col overflow-hidden rounded-lg border"
             style={{ borderColor: 'var(--color-border)' }}
+            data-testid="ai-import-log-panel"
           >
             <div
-              className="flex items-center justify-between border-b px-3 py-2"
+              className="flex shrink-0 items-center justify-between border-b px-3 py-2"
               style={{
                 borderColor: 'var(--color-border)',
                 background: 'var(--color-surface-2)',
@@ -1590,12 +1598,30 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               <p className="text-xs font-semibold" style={{ color: 'var(--color-text-2)' }}>
                 Журнал анализа
               </p>
-              {phase === 'running' ? <p className="hint">обновляется автоматически</p> : null}
+              <div className="flex items-center gap-3">
+                {phase === 'running' ? <p className="hint">обновляется автоматически</p> : null}
+                {/* todo_20 Н4 → task24: the full technical log lives in the
+                    panel header now — frees a row of height for the log itself. */}
+                {logUrl ? (
+                  <a
+                    href={logUrl}
+                    download
+                    className="hint underline"
+                    style={{ color: 'var(--color-primary)' }}
+                    data-testid="ai-import-download-log"
+                  >
+                    скачать лог
+                  </a>
+                ) : null}
+              </div>
             </div>
             <div
               ref={logRef}
-              className="overflow-y-auto p-2.5 font-mono text-xs leading-relaxed"
-              style={{ background: AI_IMPORT_LOG_BG, color: AI_IMPORT_LOG_TEXT, height: 170 }}
+              /* task24: 170px floor on mobile; on md+ the log is guaranteed a
+                 300px share (body scrolls instead of squeezing it) and `grow`
+                 lets it soak up the remaining height on taller screens. */
+              className="min-h-[170px] shrink-0 grow basis-[170px] overflow-y-auto p-2.5 font-mono text-xs leading-relaxed md:basis-[300px]"
+              style={{ background: AI_IMPORT_LOG_BG, color: AI_IMPORT_LOG_TEXT }}
               data-testid="ai-import-log"
               /* a11y (axe scrollable-region-focusable): the log overflows already
                  on running (todo_20) — keyboard users must be able to focus and
@@ -1615,22 +1641,6 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               ))}
             </div>
           </div>
-
-          {/* todo_20 Н4: the full technical log as a downloadable file. */}
-          {logUrl ? (
-            <p className="hint">
-              Технический лог целиком:{' '}
-              <a
-                href={logUrl}
-                download
-                className="underline"
-                style={{ color: 'var(--color-primary)' }}
-                data-testid="ai-import-download-log"
-              >
-                скачать файлом
-              </a>
-            </p>
-          ) : null}
         </>
       )}
 
