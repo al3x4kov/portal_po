@@ -6,7 +6,8 @@
 #
 # В архив ВКЛЮЧЁН пример проекта Projects/Jenkins — при первом старте портала
 # пользователь сразу видит один описанный проект. Остальное содержимое Projects/
-# (личные проекты, .ai-config.json с API-ключом, .locks) НИКОГДА не пакуется.
+# (личные проекты, .ai-config.json с API-ключом, .locks, чекпоинты AI-джоб
+# .ai-jobs) НИКОГДА не пакуется.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,18 +32,30 @@ zip -r -q "$OUT" . \
   -x '*/test-results/*' 'test-results/*' \
   -x 'graphify-out/*' 'architect-out/*' 'design-out/*' \
   -x '.dev/*' '.claude/*' '.playwright-mcp/*' \
-  -x 'demo-out/*' 'extract-out/*' \
-  -x 'e2e/demo/*' 'playwright.demo.config.ts' \
+  -x 'demo-out/*' 'extract-out/*' 'new_design/*' \
+  -x 'e2e/demo/*' 'playwright.demo.config.ts' 'scripts/make-demo.mjs' \
   -x 'mockserver-ca.pem' '*.log' \
   -x '*.DS_Store'
 
 # Пример проекта для первого запуска: ТОЛЬКО Projects/Jenkins.
 # Секреты (.ai-config.json) и служебные каталоги (.locks) сюда не попадают,
-# т.к. добавляется только поддерево Jenkins; .DS_Store отфильтрован явно.
-zip -r -q "$OUT" Projects/Jenkins -x '*.DS_Store'
+# т.к. добавляется только поддерево Jenkins; .DS_Store отфильтрован явно,
+# .ai-jobs (чекпоинты AI-импорта todo_20: распакованные доки, логи джоб) —
+# тоже: лежит ВНУТРИ поддерева проекта, без фильтра попал бы в дистрибутив.
+zip -r -q "$OUT" Projects/Jenkins -x '*.DS_Store' -x 'Projects/Jenkins/.ai-jobs/*'
 
-if unzip -l "$OUT" | grep -q 'ai-config'; then
+# Листинг снимаем ОДИН раз в переменную: конструкция `unzip -l | grep -q` под
+# pipefail ненадёжна (grep -q рвёт пайп, unzip падает по SIGPIPE, if молча
+# считает «совпадений нет»). Паттерны точные: имя легитимного теста
+# ai-config-repo.test.ts под них не подпадает.
+LISTING="$(unzip -l "$OUT")"
+if grep -q '\.ai-config\.json' <<<"$LISTING"; then
   echo "ОШИБКА: в архив попал .ai-config.json (секрет). Архив удалён." >&2
+  rm -f "$OUT"
+  exit 1
+fi
+if grep -q '\.ai-jobs/' <<<"$LISTING"; then
+  echo "ОШИБКА: в архив попали чекпоинты AI-джоб (.ai-jobs). Архив удалён." >&2
   rm -f "$OUT"
   exit 1
 fi
