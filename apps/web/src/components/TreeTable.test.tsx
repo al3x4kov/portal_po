@@ -372,7 +372,6 @@ describe('TreeTable (T-1102, FR-7)', () => {
         onDescExpand={vi.fn()}
         onExpandNode={vi.fn()}
         onToggleNode={onToggleNode}
-        interactiveChevron
       />,
     );
     const chevron = screen.getAllByTestId('toggle-node')[0];
@@ -382,9 +381,33 @@ describe('TreeTable (T-1102, FR-7)', () => {
     expect(onToggleNode).toHaveBeenCalledWith('p1');
   });
 
-  it('UX-7: the chevron is a non-clickable marker when not interactive (no false affordance)', () => {
-    renderTree(false); // expand-all, interactiveChevron not set
-    expect(screen.queryByTestId('toggle-node')).not.toBeInTheDocument();
+  it('task23: the chevron is an interactive collapse button in expand-all mode too', async () => {
+    const onToggleNode = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <TreeTable
+        title="Ф"
+        addLabel="+"
+        testidPrefix="function"
+        count={3}
+        rows={rowsFor(false)}
+        nameBySlug={new Map()}
+        onAdd={vi.fn()}
+        onEdit={vi.fn()}
+        onLink={vi.fn()}
+        onDelete={vi.fn()}
+        onDescExpand={vi.fn()}
+        onExpandNode={vi.fn()}
+        onToggleNode={onToggleNode}
+      />,
+    );
+    // Expand-all rows: the parent branch is fully expanded.
+    const chevron = screen.getAllByTestId('toggle-node')[0];
+    expect(chevron.tagName).toBe('BUTTON');
+    expect(chevron).toHaveAttribute('aria-expanded', 'true');
+    expect(chevron).toHaveAccessibleName(expect.stringContaining('Свернуть'));
+    await user.click(chevron);
+    expect(onToggleNode).toHaveBeenCalledWith('p1');
   });
 
   it('UX-10: the name is an explicit edit affordance and description an expand affordance', () => {

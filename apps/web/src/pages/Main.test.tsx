@@ -87,8 +87,47 @@ describe('Main page (E11 integration)', () => {
       implementationFilter: new Set(),
       sourceFilter: new Set(),
       expanded: new Set(),
+      collapsedOverrides: new Set(),
       modal: null,
     });
+  });
+
+  it('task23: chevron collapses and re-expands a branch in default expand-all mode', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    // Full tree by default: child row visible.
+    expect(await screen.findByTestId('tree-row-token')).toBeInTheDocument();
+    const chevron = screen
+      .getByTestId('tree-row-pay')
+      .querySelector('[data-testid="toggle-node"]') as HTMLElement;
+    expect(chevron).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(chevron);
+    // Branch collapsed point-wise; the rest of the tree is untouched.
+    expect(screen.queryByTestId('tree-row-token')).not.toBeInTheDocument();
+    expect(screen.getByTestId('tree-row-pay')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('tree-row-pay').querySelector('[data-testid="toggle-node"]'),
+    ).toHaveAttribute('aria-expanded', 'false');
+
+    // Second click restores the branch.
+    await user.click(
+      screen.getByTestId('tree-row-pay').querySelector('[data-testid="toggle-node"]')!,
+    );
+    expect(await screen.findByTestId('tree-row-token')).toBeInTheDocument();
+  });
+
+  it('task23: «Раскрыть все» clears manual branch collapses', async () => {
+    const user = userEvent.setup();
+    renderMain();
+    await screen.findByTestId('tree-row-token');
+    await user.click(
+      screen.getByTestId('tree-row-pay').querySelector('[data-testid="toggle-node"]')!,
+    );
+    expect(screen.queryByTestId('tree-row-token')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('toggle-expand-all'));
+    expect(await screen.findByTestId('tree-row-token')).toBeInTheDocument();
   });
 
   it('UX-8: "Экспорт" footer button opens ExportModal', async () => {

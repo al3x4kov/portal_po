@@ -45,6 +45,8 @@ export function Main(): React.ReactElement {
   const search = useUiStore((s) => s.search);
   const expanded = useUiStore((s) => s.expanded);
   const toggleExpanded = useUiStore((s) => s.toggleExpanded);
+  const collapsedOverrides = useUiStore((s) => s.collapsedOverrides);
+  const toggleCollapsedOverride = useUiStore((s) => s.toggleCollapsedOverride);
   const criticalityFilter = useUiStore((s) => s.criticalityFilter);
   const implementationFilter = useUiStore((s) => s.implementationFilter);
   const sourceFilter = useUiStore((s) => s.sourceFilter);
@@ -67,6 +69,9 @@ export function Main(): React.ReactElement {
   const functional = requirements.filter((r) => r.type === 'FUNCTION');
   const nfr = requirements.filter((r) => r.type === 'NFR');
   const collapsed = treeMode === 'collapse';
+  // task23: one chevron handler for both modes — collapse mode toggles the
+  // `expanded` set, expand-all mode toggles a point collapse override.
+  const toggleNode = collapsed ? toggleExpanded : toggleCollapsedOverride;
 
   // Project-wide slug → name map so link chips can show targets by name (slug is
   // unique across both types, so a single map is unambiguous).
@@ -100,6 +105,7 @@ export function Main(): React.ReactElement {
         search,
         collapsed,
         expanded,
+        collapsedOverrides,
         criticalityFilter,
         implementationFilter,
         sourceFilter,
@@ -109,6 +115,7 @@ export function Main(): React.ReactElement {
       search,
       collapsed,
       expanded,
+      collapsedOverrides,
       criticalityFilter,
       implementationFilter,
       sourceFilter,
@@ -121,11 +128,21 @@ export function Main(): React.ReactElement {
         search,
         collapsed,
         expanded,
+        collapsedOverrides,
         criticalityFilter,
         implementationFilter,
         sourceFilter,
       }),
-    [nfr, search, collapsed, expanded, criticalityFilter, implementationFilter, sourceFilter],
+    [
+      nfr,
+      search,
+      collapsed,
+      expanded,
+      collapsedOverrides,
+      criticalityFilter,
+      implementationFilter,
+      sourceFilter,
+    ],
   );
 
   const shown = fnVis.rows.length + nfrVis.rows.length;
@@ -427,9 +444,8 @@ export function Main(): React.ReactElement {
                     onDelete={onDelete}
                     onDescExpand={setDescReq}
                     onAddDesc={onAddDesc}
-                    onExpandNode={toggleExpanded}
-                    onToggleNode={toggleExpanded}
-                    interactiveChevron={collapsed}
+                    onExpandNode={toggleNode}
+                    onToggleNode={toggleNode}
                   />
                   <TreeTable
                     title="Нефункциональные требования"
@@ -445,9 +461,8 @@ export function Main(): React.ReactElement {
                     onDelete={onDelete}
                     onDescExpand={setDescReq}
                     onAddDesc={onAddDesc}
-                    onExpandNode={toggleExpanded}
-                    onToggleNode={toggleExpanded}
-                    interactiveChevron={collapsed}
+                    onExpandNode={toggleNode}
+                    onToggleNode={toggleNode}
                   />
                 </>
               )}

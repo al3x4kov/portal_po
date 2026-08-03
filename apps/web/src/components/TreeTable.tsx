@@ -124,15 +124,11 @@ interface TreeTableProps {
   /** Expand a collapsed branch (collapse mode chip). */
   onExpandNode: (slug: string) => void;
   /**
-   * UX-7: toggle (expand/collapse) a single node via the chevron. Only wired in
-   * collapse mode, where per-node expansion is meaningful.
+   * UX-7 / task23: toggle (expand/collapse) a single node via the chevron.
+   * Works in both tree modes: collapse mode toggles `expanded`, expand-all
+   * mode toggles a point collapse override.
    */
   onToggleNode?: (slug: string) => void;
-  /**
-   * UX-7: when true the chevron is an interactive toggle button; otherwise it is
-   * a purely decorative, non-clickable marker (no false affordance).
-   */
-  interactiveChevron?: boolean;
 }
 
 function Row({
@@ -149,7 +145,6 @@ function Row({
   onAddDesc,
   onExpandNode,
   onToggleNode,
-  interactiveChevron,
 }: {
   row: VisibleRow;
   lineGuides: LineGuide[];
@@ -164,7 +159,6 @@ function Row({
   onAddDesc?: (r: Requirement) => void;
   onExpandNode: (slug: string) => void;
   onToggleNode?: (slug: string) => void;
-  interactiveChevron?: boolean;
 }): React.ReactElement {
   const req = row.requirement;
   const isContext = row.kind === 'context';
@@ -223,38 +217,25 @@ function Row({
               ))}
             </div>
           )}
-          {/* Chevron indicator — only for nodes with children */}
+          {/* Chevron toggle — only for nodes with children; interactive in both
+              tree modes (task23). */}
           {row.hasChildren ? (
-            interactiveChevron ? (
-              <button
-                type="button"
-                className="shrink-0 rounded p-0.5 hover:text-[var(--color-primary)]"
-                style={{ color: 'var(--color-text-3)' }}
-                data-testid="toggle-node"
-                data-slug={req.slug}
-                aria-expanded={!collapsedBranch}
-                aria-label={collapsedBranch ? `Раскрыть «${req.name}»` : `Свернуть «${req.name}»`}
-                onClick={() => onToggleNode?.(req.slug)}
-              >
-                {collapsedBranch ? (
-                  <ChevronRight className="icon-sm" aria-hidden="true" />
-                ) : (
-                  <ChevronDown className="icon-sm" aria-hidden="true" />
-                )}
-              </button>
-            ) : (
-              <span
-                className="shrink-0"
-                style={{ color: 'var(--color-text-3)' }}
-                aria-hidden="true"
-              >
-                {collapsedBranch ? (
-                  <ChevronRight className="icon-sm" aria-hidden="true" />
-                ) : (
-                  <ChevronDown className="icon-sm" aria-hidden="true" />
-                )}
-              </span>
-            )
+            <button
+              type="button"
+              className="shrink-0 rounded p-0.5 hover:text-[var(--color-primary)]"
+              style={{ color: 'var(--color-text-3)' }}
+              data-testid="toggle-node"
+              data-slug={req.slug}
+              aria-expanded={!collapsedBranch}
+              aria-label={collapsedBranch ? `Раскрыть «${req.name}»` : `Свернуть «${req.name}»`}
+              onClick={() => onToggleNode?.(req.slug)}
+            >
+              {collapsedBranch ? (
+                <ChevronRight className="icon-sm" aria-hidden="true" />
+              ) : (
+                <ChevronDown className="icon-sm" aria-hidden="true" />
+              )}
+            </button>
           ) : null}
           {/* UX-10: name is an explicit edit affordance (link-style button). */}
           <button
@@ -490,7 +471,6 @@ export function TreeTable({
   onAddDesc,
   onExpandNode,
   onToggleNode,
-  interactiveChevron,
 }: TreeTableProps): React.ReactElement {
   // todo_19 (T-207): optional RICE sort. Default keeps the tree order + line
   // guides; sorting flattens to a RICE-ranked list (undefined scores last) and
@@ -608,7 +588,6 @@ export function TreeTable({
                   onAddDesc={onAddDesc}
                   onExpandNode={onExpandNode}
                   onToggleNode={onToggleNode}
-                  interactiveChevron={interactiveChevron}
                 />
               ))}
             </tbody>

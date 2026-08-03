@@ -103,6 +103,83 @@ describe('computeVisibleRows — unified visibility layer (A6#4)', () => {
     expect(res.total).toBe(6);
   });
 
+  it('task23: a collapsed override in expand-all hides the branch and reports hiddenCount', () => {
+    const res = computeVisibleRows({
+      forest: sampleForest(),
+      search: '',
+      collapsed: false,
+      expanded: NONE,
+      collapsedOverrides: new Set(['card']),
+      criticalityFilter: NO_CRIT,
+    });
+    const slugs = res.rows.map((r) => r.requirement.slug);
+    // «card» itself stays visible, its subtree (token, tds) is hidden; the rest
+    // of the tree remains fully expanded.
+    expect(slugs).toEqual(['payout', 'pay', 'refund', 'card']);
+    const card = res.rows.find((r) => r.requirement.slug === 'card');
+    expect(card?.hiddenCount).toBe(2);
+    expect(card?.hasChildren).toBe(true);
+    // Non-overridden expanded rows report no hidden descendants.
+    const pay = res.rows.find((r) => r.requirement.slug === 'pay');
+    expect(pay?.hiddenCount).toBe(0);
+  });
+
+  it('task23: overriding a root hides all descendants including nested overrides', () => {
+    const res = computeVisibleRows({
+      forest: sampleForest(),
+      search: '',
+      collapsed: false,
+      expanded: NONE,
+      collapsedOverrides: new Set(['pay', 'card']),
+      criticalityFilter: NO_CRIT,
+    });
+    const slugs = res.rows.map((r) => r.requirement.slug);
+    expect(slugs).toEqual(['payout', 'pay']);
+    expect(res.rows.find((r) => r.requirement.slug === 'pay')?.hiddenCount).toBe(4);
+  });
+
+  it('task23: an override on a leaf slug has no effect (no children to hide)', () => {
+    const res = computeVisibleRows({
+      forest: sampleForest(),
+      search: '',
+      collapsed: false,
+      expanded: NONE,
+      collapsedOverrides: new Set(['token', 'payout']),
+      criticalityFilter: NO_CRIT,
+    });
+    expect(res.rows).toHaveLength(6);
+    expect(res.rows.every((r) => r.hiddenCount === 0)).toBe(true);
+  });
+
+  it('task23: collapsedOverrides are ignored in collapse mode', () => {
+    const res = computeVisibleRows({
+      forest: sampleForest(),
+      search: '',
+      collapsed: true,
+      expanded: new Set(['pay']),
+      collapsedOverrides: new Set(['pay']),
+      criticalityFilter: NO_CRIT,
+    });
+    // Collapse mode still honours only the `expanded` set: pay is expanded.
+    const slugs = res.rows.map((r) => r.requirement.slug);
+    expect(slugs).toEqual(['payout', 'pay', 'refund', 'card']);
+  });
+
+  it('task23: active search force-reveals matches despite collapsed overrides', () => {
+    const res = computeVisibleRows({
+      forest: sampleForest(),
+      search: 'токен',
+      collapsed: false,
+      expanded: NONE,
+      collapsedOverrides: new Set(['card']),
+      criticalityFilter: NO_CRIT,
+    });
+    const byKind = Object.fromEntries(res.rows.map((r) => [r.requirement.slug, r.kind]));
+    // «token» sits under the overridden «card», yet the search reveals it with
+    // its ancestors as context (same forced-reveal rule as collapse mode).
+    expect(byKind).toEqual({ pay: 'context', card: 'context', token: 'match' });
+  });
+
   it('S26: search reveals the match plus its ancestors marked as context', () => {
     const res = computeVisibleRows({
       forest: sampleForest(),

@@ -11,6 +11,7 @@ function resetStore() {
     graphView: false,
     treeMode: 'expand-all',
     expanded: new Set<string>(),
+    collapsedOverrides: new Set<string>(),
     search: '',
     criticalityFilter: new Set<Criticality>(),
     implementationFilter: new Set<ImplStatus>(),
@@ -73,6 +74,20 @@ describe('graphView & treeMode', () => {
     s().setTreeMode('expand-all');
     expect(s().treeMode).toBe('expand-all');
   });
+
+  it('task23: setTreeMode resets point overrides of both modes to a clean state', () => {
+    s().toggleCollapsedOverride('a');
+    s().toggleExpanded('b');
+    s().setTreeMode('collapse');
+    expect(s().collapsedOverrides.size).toBe(0);
+    expect(s().expanded.size).toBe(0);
+
+    s().toggleExpanded('b');
+    s().toggleCollapsedOverride('a');
+    s().setTreeMode('expand-all');
+    expect(s().collapsedOverrides.size).toBe(0);
+    expect(s().expanded.size).toBe(0);
+  });
 });
 
 describe('expanded set', () => {
@@ -98,6 +113,25 @@ describe('expanded set', () => {
     s().setExpanded(new Set(['z']));
     expect(s().isExpanded('x')).toBe(false);
     expect(s().isExpanded('z')).toBe(true);
+  });
+});
+
+describe('collapsedOverrides set (task23)', () => {
+  it('toggleCollapsedOverride adds then removes a slug (both branches)', () => {
+    expect(s().collapsedOverrides.has('a')).toBe(false);
+    s().toggleCollapsedOverride('a');
+    expect(s().collapsedOverrides.has('a')).toBe(true);
+    s().toggleCollapsedOverride('a');
+    expect(s().collapsedOverrides.has('a')).toBe(false);
+  });
+
+  it('toggleCollapsedOverride keeps other members when adding/removing', () => {
+    s().toggleCollapsedOverride('a');
+    s().toggleCollapsedOverride('b');
+    s().toggleCollapsedOverride('c');
+    expect([...s().collapsedOverrides].sort()).toEqual(['a', 'b', 'c']);
+    s().toggleCollapsedOverride('a');
+    expect([...s().collapsedOverrides].sort()).toEqual(['b', 'c']);
   });
 });
 

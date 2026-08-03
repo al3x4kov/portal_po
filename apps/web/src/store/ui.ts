@@ -52,6 +52,13 @@ interface UiState {
   toggleExpanded: (id: string) => void;
   setExpanded: (ids: Iterable<string>) => void;
 
+  /**
+   * Branches manually collapsed while in expand-all mode (task23): point
+   * exceptions to «всё развёрнуто». Cleared by «Развернуть/Свернуть все».
+   */
+  collapsedOverrides: Set<string>;
+  toggleCollapsedOverride: (id: string) => void;
+
   /** Name search query (B3, T-1103). */
   search: string;
   setSearch: (q: string) => void;
@@ -95,7 +102,10 @@ export const useUiStore = create<UiState>((set, get) => ({
   setGraphView: (graphView) => set({ graphView }),
 
   treeMode: 'expand-all',
-  setTreeMode: (treeMode) => set({ treeMode }),
+  // «Развернуть все» / «Свернуть все» reset point overrides so the tree lands
+  // in the clean state of the chosen mode (task23).
+  setTreeMode: (treeMode) =>
+    set({ treeMode, expanded: new Set<string>(), collapsedOverrides: new Set<string>() }),
 
   mainView: 'tree',
   setMainView: (mainView) => set({ mainView }),
@@ -110,6 +120,15 @@ export const useUiStore = create<UiState>((set, get) => ({
       return { expanded: next };
     }),
   setExpanded: (ids) => set({ expanded: new Set(ids) }),
+
+  collapsedOverrides: new Set<string>(),
+  toggleCollapsedOverride: (id) =>
+    set((state) => {
+      const next = new Set(state.collapsedOverrides);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { collapsedOverrides: next };
+    }),
 
   search: '',
   setSearch: (search) => set({ search }),

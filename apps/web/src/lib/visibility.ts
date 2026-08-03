@@ -40,6 +40,12 @@ export interface VisibilityInput {
   collapsed: boolean;
   /** Branches manually expanded while in collapse mode. */
   expanded: ReadonlySet<string>;
+  /**
+   * Branches manually collapsed while in expand-all mode (task23): point
+   * exceptions to «всё развёрнуто». Ignored in collapse mode and while any
+   * filter is active (search still force-reveals matches with ancestors).
+   */
+  collapsedOverrides?: ReadonlySet<string>;
   /** Selected criticalities; empty set = no criticality filter. */
   criticalityFilter: ReadonlySet<Criticality>;
   /**
@@ -68,6 +74,7 @@ export interface VisibilityResult {
 
 const EMPTY_IMPL: ReadonlySet<'DONE' | 'PLANNED'> = new Set();
 const EMPTY_SOURCE: ReadonlySet<string> = new Set();
+const EMPTY_OVERRIDES: ReadonlySet<string> = new Set();
 
 function countDescendants(node: TreeNode): number {
   let n = node.children.length;
@@ -160,17 +167,21 @@ export function computeVisibleRows(input: VisibilityInput): VisibilityResult {
   }
 
   if (!collapsed) {
-    // Expand all: every node visible.
+    // Expand all: every node visible, except branches the user collapsed
+    // point-wise via the chevron (task23 — collapsedOverrides).
+    const overrides = input.collapsedOverrides ?? EMPTY_OVERRIDES;
     const walk = (node: TreeNode): void => {
+      const hasChildren = node.children.length > 0;
+      const isCollapsed = hasChildren && overrides.has(node.requirement.slug);
       rows.push({
         requirement: node.requirement,
         depth: node.depth,
         kind: 'match',
-        hasChildren: node.children.length > 0,
-        hiddenCount: 0,
+        hasChildren,
+        hiddenCount: isCollapsed ? countDescendants(node) : 0,
       });
       matchCount += 1;
-      node.children.forEach(walk);
+      if (!isCollapsed) node.children.forEach(walk);
     };
     forest.forEach(walk);
     return { rows, matchCount, contextCount, total };
