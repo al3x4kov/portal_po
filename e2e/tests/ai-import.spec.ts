@@ -4,6 +4,7 @@ import AdmZip from 'adm-zip';
 import * as tar from 'tar';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import {
+  jsonSchemaNameOf,
   startAiStub,
   structureBatchOf,
   structureParentsListOf,
@@ -429,6 +430,9 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     for (const call of calls) {
       expect(call.model).toBe('Qwen-Coder-Next');
       expect(call['max_tokens']).toBe(4000);
+      // todo_22 hotfix guard: analyze-вызов несёт СВОЮ схему (негоциатор
+      // параметризован по стадиям — см. backlog_match_answers у match).
+      expect(jsonSchemaNameOf(call)).toBe('extracted_requirements');
     }
 
     // «Готово» → modal gone, tree already refreshed.

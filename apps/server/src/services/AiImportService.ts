@@ -37,7 +37,10 @@ import { callAiWithRetries, type AiCallErrorClass } from './aiImport/aiCall.js';
 import { BudgetTracker } from './aiImport/budget.js';
 import { CheckpointRecorder, type AiJobCheckpoint } from './aiImport/checkpoint.js';
 import { ReportBuilder } from './aiImport/report.js';
-import { ResponseFormatNegotiator } from './aiImport/structuredOutput.js';
+import {
+  ResponseFormatNegotiator,
+  buildBacklogMatchResponseFormat,
+} from './aiImport/structuredOutput.js';
 import { runUnpackStage } from './aiImport/unpackStage.js';
 import { runInventoryStage, type InventoryFileEntry } from './aiImport/inventoryStage.js';
 import { runEstimateStage } from './aiImport/estimateStage.js';
@@ -1007,7 +1010,10 @@ export class AiImportService {
         model: ctx.model,
         apiKey: opts.apiKey,
         preset: opts.preset,
-        negotiator: new ResponseFormatNegotiator(),
+        // Hotfix: the match stage negotiates ITS OWN schema — the default
+        // (analyze) schema made every schema-honouring backend return items
+        // without rowId, which the strict parser rejected wholesale (MODEL-01).
+        negotiator: new ResponseFormatNegotiator(buildBacklogMatchResponseFormat),
         batchSize: this.deps.backlogBatch,
         resume: cp.backlog?.match ? { mappings: cp.backlog.match.mappings } : undefined,
       });

@@ -3,6 +3,7 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import {
   backlogBatchOf,
   BACKLOG_DEFAULT_NEW_NODE,
+  jsonSchemaNameOf,
   startAiStub,
   type AiStub,
 } from './helpers/ai-stub.js';
@@ -254,6 +255,11 @@ test.describe('todo_22 · счастливый путь импорта бэкл�
 
       // Выверка (PO №1): полная разметка, записи в проект ещё НЕТ.
       await expect(page.getByTestId('ai-backlog-review-step')).toBeVisible(JOB_TIMEOUT);
+      // Хотфикс-гард: match-вызов ушёл со СВОЕЙ схемой (не analyze-схемой
+      // extracted_requirements — та давала ответы без rowId → MODEL-01).
+      expect(jsonSchemaNameOf(stub.backlogMatchRequests[matchCallsBefore])).toBe(
+        'backlog_match_answers',
+      );
       await expect(page.getByTestId('ai-backlog-new-nodes')).toContainText(
         'Будут созданы новые узлы дерева (2)',
       );

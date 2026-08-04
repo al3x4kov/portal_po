@@ -122,6 +122,17 @@ import { createServer, type Server } from 'node:http';
  * visibility); `failBacklogAfterCalls(n)` lets the first `n` match calls
  * succeed and 500s every later one until reset with `null` — the
  * mid-match-failure → resume scenario (the paid batch must not be re-sent).
+ *
+ * Schema honouring (todo_22 hotfix regression guard): like a REAL model with
+ * strict structured output, the stub obeys the REQUESTED `response_format`
+ * of a backlog match call. The correct `backlog_match_answers` schema gets
+ * the production wrapper `{"answers":[...]}`; a FOREIGN json_schema (e.g. the
+ * analyze `extracted_requirements` one, which the backend used to send by
+ * mistake — 100% answers without rowId → MODEL-01) gets a reply per THAT
+ * schema (`{"items":[{type,name,description,source}]}`, no rowId), so a
+ * regression of the negotiator schema fails the e2e again. Calls without a
+ * json_schema (json_object / none fallback modes) get the bare answers array
+ * — the prompt-following path `extractJsonArray` also accepts.
  */
 
 /** Captured `/chat/completions` request body (openai SDK JSON payload). */
@@ -413,6 +424,17 @@ export function backlogBatchOf(body: AiChatCompletionCapture | undefined): Backl
   return rows;
 }
 
+/**
+ * Name of the requested strict `json_schema` of a captured call, or undefined
+ * for the `json_object` / no-format fallback modes (todo_22 hotfix guard —
+ * the stage schema must match the parser of the stage that owns the call).
+ */
+export function jsonSchemaNameOf(body: AiChatCompletionCapture | undefined): string | undefined {
+  const rf = body?.response_format as
+    { type?: string; json_schema?: { name?: string } } | undefined;
+  return rf?.type === 'json_schema' ? rf.json_schema?.name : undefined;
+}
+
 /** One requirement of the relate user message (todo_16 B2): slug + name. */
 export interface RelateListItem {
   slug: string;
@@ -610,8 +632,23 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
           } else if (isBacklogMatch) {
             // todo_22: echo one answer per batch row — configured spec by row
             // KEY (fallback: source text), deterministic defaults otherwise.
-            content = JSON.stringify(
-              backlogBatchOf(body).map((row) => {
+            const batch = backlogBatchOf(body);
+            const schemaName = jsonSchemaNameOf(body);
+            if (schemaName !== undefined && schemaName !== 'backlog_match_answers') {
+              // Hotfix repro: a strict-schema model FOLLOWS the (wrong) schema
+              // it was given — analyze-style items WITHOUT rowId, 100%
+              // unparseable by the match stage. A negotiator-schema regression
+              // (match calls sent with `extracted_requirements`) fails again.
+              content = JSON.stringify({
+                items: batch.map((row) => ({
+                  type: 'FUNCTION',
+                  name: row.text.slice(0, 60),
+                  description: row.text,
+                  source: `бэклог, строка ${row.rowId}`,
+                })),
+              });
+            } else {
+              const answers = batch.map((row) => {
                 const spec =
                   (row.key !== undefined ? backlogAnswers[row.key] : undefined) ??
                   backlogAnswers[row.text] ??
@@ -631,8 +668,14 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
                   parentNew,
                   duplicateOf: spec.duplicateOf ?? null,
                 };
-              }),
-            );
+              });
+              // Production wrapper for the strict schema; bare array for the
+              // prompt-following fallback modes (json_object / none).
+              content =
+                schemaName === 'backlog_match_answers'
+                  ? JSON.stringify({ answers })
+                  : JSON.stringify(answers);
+            }
           } else {
             content = opts.reply;
           }

@@ -63,17 +63,87 @@ export function buildAnalyzeResponseFormat(): Record<string, unknown> {
 }
 
 /**
+ * Backlog-match answer schema (todo_22 hotfix). MUST mirror the strict parser
+ * contract `aiBacklogMatchAnswerSchema` — a model honouring json_schema
+ * returns exactly what `parseMatchResponse` accepts. Before this builder the
+ * match calls went out with the ANALYZE schema (items without rowId), so a
+ * schema-honouring backend produced 100% unparseable answers → MODEL-01.
+ * Root is an object (`{"answers":[...]}`) — strict json_schema requires an
+ * object root; `extractJsonArray` unwraps the inner array. strict:true keeps
+ * every key in `required`, optionality is expressed with nullable types.
+ */
+export function buildBacklogMatchResponseFormat(): Record<string, unknown> {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'backlog_match_answers',
+      strict: true,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['answers'],
+        properties: {
+          answers: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: [
+                'rowId',
+                'businessName',
+                'type',
+                'parentExisting',
+                'parentNew',
+                'duplicateOf',
+              ],
+              properties: {
+                rowId: { type: 'string' },
+                businessName: { type: 'string' },
+                type: { type: 'string', enum: ['FUNCTION', 'NFR'] },
+                parentExisting: { type: ['string', 'null'] },
+                parentNew: {
+                  anyOf: [
+                    {
+                      type: 'object',
+                      additionalProperties: false,
+                      required: ['name', 'parentName'],
+                      properties: {
+                        name: { type: 'string' },
+                        parentName: { type: ['string', 'null'] },
+                      },
+                    },
+                    { type: 'null' },
+                  ],
+                },
+                duplicateOf: { type: ['string', 'null'] },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+/** Builds the `response_format` payload for the `json_schema` mode. */
+export type ResponseFormatBuilder = () => Record<string, unknown>;
+
+/**
  * Per-run negotiation state. `responseFormat()` yields the parameter for the
  * next call (undefined in `none` mode); `noteRejected()` downgrades one step
  * when the error is ABOUT the parameter and returns whether a downgrade
  * happened (the caller then repeats the call immediately, without burning a
- * retry attempt).
+ * retry attempt). The schema is stage-specific: analyze (default) and
+ * backlog-match negotiators carry DIFFERENT builders — the schema must always
+ * match the parser of the stage that owns the call.
  */
 export class ResponseFormatNegotiator {
   mode: ResponseFormatMode = 'json_schema';
 
+  constructor(private readonly buildFormat: ResponseFormatBuilder = buildAnalyzeResponseFormat) {}
+
   responseFormat(): Record<string, unknown> | undefined {
-    if (this.mode === 'json_schema') return buildAnalyzeResponseFormat();
+    if (this.mode === 'json_schema') return this.buildFormat();
     if (this.mode === 'json_object') return { type: 'json_object' };
     return undefined;
   }
