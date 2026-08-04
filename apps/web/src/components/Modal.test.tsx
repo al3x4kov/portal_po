@@ -70,4 +70,29 @@ describe('Modal size variant (task24)', () => {
     expect(body.className).toContain('flex-col');
     expect(body.className).toContain('gap-5');
   });
+
+  it('size="xl" takes ~90% of the viewport on desktop and keeps the flex-column body', () => {
+    renderWithProviders(
+      <Modal title="Огромная" onClose={vi.fn()} testid="modal" size="xl">
+        <p>content</p>
+      </Modal>,
+    );
+    const card = screen.getByTestId('modal');
+    // Desktop (md+): ~90% of the viewport — a table-driven step (backlog review
+    // gate) showed only ~3 rows inside the 70vh `large` card.
+    expect(card.className).toContain('md:w-[92vw]');
+    expect(card.className).toContain('md:max-w-[92vw]');
+    expect(card.className).toContain('md:h-[90vh]');
+    expect(card.className).toContain('md:max-h-[90vh]');
+    // Not the `large` geometry.
+    expect(card.className).not.toContain('md:w-[70vw]');
+    // Mobile stays as before: full width + 90vh cap (no md: prefix on these).
+    expect(card.className).toContain('w-full');
+    expect(card.className).toContain('max-h-[90vh]');
+    // Same flex column as `large`, so a flex-1 child absorbs the free height.
+    const body = screen.getByTestId('modal-body');
+    expect(body.className).toContain('flex-col');
+    expect(body.className).toContain('gap-5');
+    expect(body.className).toContain('min-h-0');
+  });
 });
