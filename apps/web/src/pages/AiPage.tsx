@@ -15,6 +15,11 @@ import { plural } from '../lib/plural';
 import { BusyButton } from '../components/BusyButton';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ModelListNotice, ModelRefreshButton } from '../components/ModelRefresh';
+import {
+  EmbeddingModelWarning,
+  ModelSelectOptions,
+  firstChatModel,
+} from '../components/ModelSelectOptions';
 import { Sidebar } from '../components/Sidebar';
 import { PathHeader } from '../components/PathHeader';
 import { useUiStore } from '../store/ui';
@@ -152,7 +157,11 @@ export function AiPage(): React.ReactElement {
         return;
       }
       setApiKey('');
-      if (!model && res.models.length > 0) setModel(res.models[0]);
+      // Auto-pick the first CHAT model — embedding models can't generate.
+      if (!model) {
+        const first = firstChatModel(res.models);
+        if (first) setModel(first);
+      }
       setStatus({
         kind: 'success',
         text: `Подключение успешно · загружено ${res.models.length} ${plural(
@@ -165,8 +174,11 @@ export function AiPage(): React.ReactElement {
       return;
     }
     const res = await modelsRefresh.refresh();
-    // Same auto-select rule: pick the first model if none chosen yet.
-    if (res.ok && !model && res.models.length > 0) setModel(res.models[0]);
+    // Same auto-select rule: pick the first chat model if none chosen yet.
+    if (res.ok && !model) {
+      const first = firstChatModel(res.models);
+      if (first) setModel(first);
+    }
   };
 
   const handleDeleteKey = async (): Promise<void> => {
@@ -311,11 +323,10 @@ export function AiPage(): React.ReactElement {
                       }}
                     >
                       {model.length === 0 ? <option value="">— выберите модель —</option> : null}
-                      {modelOptions.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
+                      <ModelSelectOptions
+                        models={modelOptions}
+                        embeddingGroupTestid="ai-model-embedding-group"
+                      />
                     </select>
                   )}
                   <ModelRefreshButton
@@ -327,6 +338,8 @@ export function AiPage(): React.ReactElement {
                     onClick={() => void handleRefreshModels()}
                   />
                 </div>
+                {/* Config saved before the embedding guard — warn, keep the value visible. */}
+                <EmbeddingModelWarning model={model} testid="ai-model-embedding-warning" />
                 <ModelListNotice testid="ai-models-notice" notice={modelsRefresh.notice} />
                 <p className="hint mt-1">
                   {manualModel ? (

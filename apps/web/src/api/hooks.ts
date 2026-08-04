@@ -17,6 +17,7 @@ import type {
   SourcePriority,
   SourceRef,
 } from '@po/core';
+import { isEmbeddingModelId } from '@po/core';
 import { useToast } from '../components/Toast';
 import { useUiStore } from '../store/ui';
 import { errorMessage } from './client';
@@ -368,8 +369,11 @@ export function useAiModelsRefresh(opts: UseAiModelsRefreshOptions): UseAiModels
     const models = res.data.models;
     const { selectedModel, fallbackModel, onModelReset } = optsRef.current;
     if (selectedModel && !models.includes(selectedModel)) {
+      // Never auto-pick an embedding model — it can't be used for generation.
       const fallback =
-        fallbackModel && models.includes(fallbackModel) ? fallbackModel : (models[0] ?? '');
+        fallbackModel && models.includes(fallbackModel) && !isEmbeddingModelId(fallbackModel)
+          ? fallbackModel
+          : (models.find((m) => !isEmbeddingModelId(m)) ?? '');
       onModelReset(fallback);
       setNotice({
         kind: 'reset',

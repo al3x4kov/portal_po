@@ -702,6 +702,8 @@ describe('todo_18 AI_MODEL_PRESET_DEFAULTS', () => {
       chunkChars: 24_000,
       reasoning: 'strip',
       ...RUN_FIELDS,
+      // Калибровка под реальный хаб: thinking-модели мало дефолтных 120 с.
+      perCallTimeoutSec: 240,
     });
     expect(AI_MODEL_PRESET_DEFAULTS['Qwen/Qwen3.6-27B']).toEqual({
       temperature: 0.2,
@@ -709,6 +711,7 @@ describe('todo_18 AI_MODEL_PRESET_DEFAULTS', () => {
       chunkChars: 16_000,
       reasoning: 'strip',
       ...RUN_FIELDS,
+      perCallTimeoutSec: 180,
     });
   });
 
@@ -731,6 +734,7 @@ describe('todo_18 resolveModelPreset (override ← default-by-id ← generic)', 
       chunkChars: 24_000,
       reasoning: 'strip',
       ...RUN_FIELDS,
+      perCallTimeoutSec: 240,
     });
   });
 
@@ -749,6 +753,7 @@ describe('todo_18 resolveModelPreset (override ← default-by-id ← generic)', 
       reasoning: 'strip',
       topP: 0.8,
       ...RUN_FIELDS,
+      perCallTimeoutSec: 180,
     });
   });
 

@@ -10,6 +10,7 @@ import {
 } from '@po/core';
 import type { AiConfigRepo } from '../repositories/AiConfigRepo.js';
 import { AiUpstreamError, BadRequestError } from '../lib/errors.js';
+import { assertChatCapableModel } from '../lib/embeddingGuard.js';
 import type { OpLogger } from '../lib/logger.js';
 import { buildChatMessages, buildDescriptionMessages, type AiChatMessage } from './aiPrompt.js';
 import { stripReasoning } from './aiReasoning.js';
@@ -142,6 +143,7 @@ export class AiHubService {
     if (!model) {
       throw new BadRequestError('No AI model is selected for this project.');
     }
+    assertChatCapableModel(model); // embedding-модель не умеет chat completions → 400
 
     const client = this.makeClient(cfg.apiKey, cfg.baseURL);
     const messages = buildDescriptionMessages(input);
@@ -189,6 +191,7 @@ export class AiHubService {
         'No AI model is selected. Choose a model in the chat or configure the project.',
       );
     }
+    assertChatCapableModel(model); // embedding-модель не умеет chat completions → 400
 
     const client = this.makeClient(cfg.apiKey, cfg.baseURL);
     const messages = buildChatMessages(input);

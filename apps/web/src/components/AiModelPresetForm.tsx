@@ -12,6 +12,7 @@ import {
 import { useSaveAiConfig } from '../api/hooks';
 import { errorMessage } from '../api/client';
 import { BusyButton } from './BusyButton';
+import { EmbeddingModelWarning, ModelSelectOptions, firstChatModel } from './ModelSelectOptions';
 
 /**
  * todo_18 · «Параметры модели (best practices)». Per-model request/response
@@ -118,13 +119,15 @@ export function AiModelPresetForm({
   defaultModel,
 }: AiModelPresetFormProps): React.ReactElement {
   const saveMut = useSaveAiConfig();
-  const [modelId, setModelId] = useState<string>(defaultModel || models[0] || '');
+  // Fallbacks skip embedding models — they can't be used for generation.
+  const [modelId, setModelId] = useState<string>(defaultModel || firstChatModel(models) || '');
   const [status, setStatus] = useState<Status>(null);
 
   // Preselect the project model once it (or the model list) arrives.
   useEffect(() => {
-    if (!modelId && (defaultModel || models[0])) {
-      setModelId(defaultModel || models[0]);
+    const fallback = defaultModel || firstChatModel(models);
+    if (!modelId && fallback) {
+      setModelId(fallback);
     }
   }, [modelId, defaultModel, models]);
 
@@ -256,12 +259,9 @@ export function AiModelPresetForm({
           }}
         >
           {models.length === 0 && modelId ? <option value={modelId}>{modelId}</option> : null}
-          {models.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
+          <ModelSelectOptions models={models} embeddingGroupTestid="ai-preset-embedding-group" />
         </select>
+        <EmbeddingModelWarning model={modelId} testid="ai-preset-embedding-warning" />
       </div>
 
       <form className="space-y-4" onSubmit={onSubmit} noValidate>

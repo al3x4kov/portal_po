@@ -111,6 +111,42 @@ export const AI_MODEL_PRESET_GENERIC_KEY = '__default__';
  * without a dedicated entry.
  */
 export const AI_MODEL_PRESET_DEFAULTS: Record<string, AiModelPreset> = {
+  'deepseek-ai/DeepSeek-V4-Flash': {
+    ...AI_MODEL_PRESET_RUN_DEFAULTS,
+    temperature: 0.2,
+    // Калибровка по реальным прогонам: на generic-пресете (4000) плотные
+    // release-notes фрагменты дважды падали с «ответ обрезан по лимиту
+    // токенов» — 8000 лечит обрезания.
+    maxOutputTokens: 8000,
+    chunkChars: 16_000,
+    reasoning: 'strip',
+    // Быстрая модель (медиана ответа ~1 с); при 429 governor сам сбросит пул.
+    parallelism: 3,
+  },
+  'GigaChat-2': {
+    ...AI_MODEL_PRESET_RUN_DEFAULTS,
+    // Осторожный лайт-профиль младшей модели линейки.
+    temperature: 0.2,
+    maxOutputTokens: 4000,
+    chunkChars: 8000,
+    reasoning: 'strip',
+  },
+  'GigaChat-2-Pro': {
+    ...AI_MODEL_PRESET_RUN_DEFAULTS,
+    temperature: 0.2,
+    maxOutputTokens: 6000,
+    chunkChars: 12_000,
+    reasoning: 'strip',
+  },
+  'GigaChat-2-Max': {
+    ...AI_MODEL_PRESET_RUN_DEFAULTS,
+    temperature: 0.2,
+    maxOutputTokens: 8000,
+    chunkChars: 16_000,
+    reasoning: 'strip',
+    // Старшая модель заметно медленнее на больших фрагментах — запас к дефолту.
+    perCallTimeoutSec: 150,
+  },
   'Qwen/Qwen3-Coder-Next': {
     temperature: 0.2,
     maxOutputTokens: 4000,
@@ -127,6 +163,8 @@ export const AI_MODEL_PRESET_DEFAULTS: Record<string, AiModelPreset> = {
     chunkChars: 24_000,
     reasoning: 'strip',
     ...AI_MODEL_PRESET_RUN_DEFAULTS,
+    // Thinking-модель: на плотных фрагментах дефолтных 120 с не хватает.
+    perCallTimeoutSec: 240,
   },
   'Qwen/Qwen3.6-27B': {
     temperature: 0.2,
@@ -135,6 +173,8 @@ export const AI_MODEL_PRESET_DEFAULTS: Record<string, AiModelPreset> = {
     chunkChars: 16_000,
     reasoning: 'strip',
     ...AI_MODEL_PRESET_RUN_DEFAULTS,
+    // Thinking-модель поменьше — умеренный запас к дефолтному тайм-ауту.
+    perCallTimeoutSec: 180,
   },
   [AI_MODEL_PRESET_GENERIC_KEY]: {
     temperature: 0.2,
@@ -167,6 +207,27 @@ export function resolveModelPreset(
   const generic = AI_MODEL_PRESET_DEFAULTS[AI_MODEL_PRESET_GENERIC_KEY]!;
   const byId = AI_MODEL_PRESET_DEFAULTS[modelId];
   return { ...generic, ...(byId ?? {}), ...definedOnly(overrides) };
+}
+
+/** Known embedding-only model ids of the hub without an `embed` substring (lowercased). */
+const EMBEDDING_MODEL_IDS = new Set([
+  'baai/bge-m3',
+  'embeddings',
+  'embeddings-2',
+  'embeddingsgigar',
+]);
+
+/**
+ * Heuristic: is `modelId` an embedding model? Embedding-модели не умеют chat
+ * completions — выбор такой модели для импорта/чата гарантированно падает,
+ * поэтому сервер отклоняет её на старте (400), а фронтенд может фильтровать
+ * список. Регистронезависимо: подстроки `embed`/`embedding` и `bge` — признак;
+ * плюс точные известные id хаба ({@link EMBEDDING_MODEL_IDS}).
+ */
+export function isEmbeddingModelId(modelId: string): boolean {
+  const id = modelId.trim().toLowerCase();
+  if (EMBEDDING_MODEL_IDS.has(id)) return true;
+  return id.includes('embed') || id.includes('bge');
 }
 
 /**

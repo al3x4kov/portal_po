@@ -25,6 +25,7 @@ import { Modal } from './Modal';
 import { BusyButton } from './BusyButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ModelListNotice, ModelRefreshButton } from './ModelRefresh';
+import { EmbeddingModelWarning, ModelSelectOptions } from './ModelSelectOptions';
 import { TaxonomyErrorCard, TaxonomyErrorDetails } from './AiImportErrorBlocks';
 import { AiImportHistoryList, formatDateTime } from './AiImportHistoryList';
 import { formatFileSize, formatTokens } from './AiImportModal';
@@ -610,11 +611,10 @@ export function AiBacklogImportModal({
                   {selectedModel.length === 0 ? (
                     <option value="">— выберите модель —</option>
                   ) : null}
-                  {modelOptions.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
+                  <ModelSelectOptions
+                    models={modelOptions}
+                    embeddingGroupTestid="ai-backlog-embedding-group"
+                  />
                 </select>
                 <ModelRefreshButton
                   testid="ai-models-refresh-backlog"
@@ -640,6 +640,9 @@ export function AiBacklogImportModal({
               </div>
             )}
           </div>
+
+          {/* Stored config may predate the embedding guard — warn, don't break. */}
+          <EmbeddingModelWarning model={selectedModel} testid="ai-backlog-embedding-warning" />
 
           <ModelListNotice testid="ai-models-notice-backlog" notice={modelsRefresh.notice} />
 

@@ -24,6 +24,7 @@ import type { AiClientFactory } from './AiHubService.js';
 import type { AiImportJobs, AiImportJobState } from './AiImportJobs.js';
 import type { OpLogger } from '../lib/logger.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../lib/errors.js';
+import { assertChatCapableModel } from '../lib/embeddingGuard.js';
 import { stripReasoning } from './aiReasoning.js';
 import { buildArchiveMap } from './aiImportPrompt.js';
 import {
@@ -180,6 +181,7 @@ export class AiImportService {
     if (!cfg.apiKey || !model) {
       throw new BadRequestError(AI_IMPORT_HINT_CONFIGURE);
     }
+    assertChatCapableModel(model); // embedding-модель не умеет chat completions → 400
     const apiKey = cfg.apiKey; // narrowed const — usable inside catch closure
     // todo_18: effective per-model preset (generic ← default-by-id ← override).
     // Drives temperature / token clamp / input chunking / reasoning for the whole run.
@@ -839,6 +841,7 @@ export class AiImportService {
     if (!cfg.apiKey || !model) {
       throw new BadRequestError(AI_IMPORT_HINT_CONFIGURE);
     }
+    assertChatCapableModel(model); // embedding-модель не умеет chat completions → 400
     const apiKey = cfg.apiKey;
 
     const job = this.deps.jobs.create(projectId); // ConflictError (409) when running

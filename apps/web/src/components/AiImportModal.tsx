@@ -24,6 +24,7 @@ import { Modal } from './Modal';
 import { BusyButton } from './BusyButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ModelListNotice, ModelRefreshButton } from './ModelRefresh';
+import { EmbeddingModelWarning, ModelSelectOptions } from './ModelSelectOptions';
 import { TaxonomyErrorCard, TaxonomyErrorDetails } from './AiImportErrorBlocks';
 import { AiImportHistoryList, formatDateTime } from './AiImportHistoryList';
 import { AI_IMPORT_LOG_BG, AI_IMPORT_LOG_LEVEL_COLOR, AI_IMPORT_LOG_TEXT } from '../lib/logColors';
@@ -705,11 +706,10 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                   {selectedModel.length === 0 ? (
                     <option value="">— выберите модель —</option>
                   ) : null}
-                  {modelOptions.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
+                  <ModelSelectOptions
+                    models={modelOptions}
+                    embeddingGroupTestid="ai-import-embedding-group"
+                  />
                 </select>
                 <ModelRefreshButton
                   testid="ai-models-refresh-import"
@@ -731,6 +731,9 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
               </div>
             )}
           </div>
+
+          {/* Stored config may predate the embedding guard — warn, don't break. */}
+          <EmbeddingModelWarning model={selectedModel} testid="ai-import-embedding-warning" />
 
           {/* A3: inline notice — selection reset after refresh / refresh failure. */}
           <ModelListNotice testid="ai-models-notice-import" notice={modelsRefresh.notice} />
