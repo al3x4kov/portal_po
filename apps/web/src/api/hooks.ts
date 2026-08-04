@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import type {
+  AiBacklogOverride,
   AiChatRequest,
   AiChatResponse,
   AiConfigUpdate,
@@ -452,8 +453,15 @@ export function useStartAiBacklogImport(projectId: string) {
  */
 export function useApplyAiBacklogImport() {
   const qc = useQueryClient();
-  return useMutation<AiImportJobView, Error, { jobId: string; rowIds: string[] }>({
-    mutationFn: ({ jobId, rowIds }) => aiImportApi.apply(jobId, rowIds),
+  return useMutation<
+    AiImportJobView,
+    Error,
+    { jobId: string; rowIds: string[]; overrides?: Record<string, AiBacklogOverride> }
+  >({
+    // task25: `overrides` — per-row review edits (name / parent / target),
+    // present only when at least one row really differs from the AI proposal.
+    mutationFn: ({ jobId, rowIds, overrides }) =>
+      aiImportApi.apply(jobId, overrides ? { rowIds, overrides } : { rowIds }),
     onSuccess: (job) => qc.setQueryData(queryKeys.aiImportJob(job.jobId), job),
   });
 }

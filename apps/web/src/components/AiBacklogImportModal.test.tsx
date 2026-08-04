@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { AiImportJobSummary, AiImportJobView } from '@po/core';
+import type { AiImportJobSummary, AiImportJobView, Requirement } from '@po/core';
 import { AiBacklogImportModal, batchFromLog } from './AiBacklogImportModal';
 import { SOURCE_TYPE_LABEL, SOURCE_TYPE_ICON, SOURCE_TYPES_ORDER } from '../lib/sourceTypes';
 import { renderWithProviders } from '../test/utils';
@@ -21,10 +21,13 @@ const confirmJob = vi.fn();
 const applyJob = vi.fn();
 const resumeJob = vi.fn();
 const listJobs = vi.fn();
+const listRequirements = vi.fn();
 
 vi.mock('../api/endpoints', () => ({
   projectsApi: {},
-  requirementsApi: {},
+  requirementsApi: {
+    list: (...a: unknown[]) => listRequirements(...a),
+  },
   linksApi: {},
   aiApi: {
     getConfig: (...a: unknown[]) => getConfig(...a),
@@ -201,6 +204,35 @@ const HISTORY: { jobs: AiImportJobSummary[] } = {
   ],
 };
 
+/** task25: the real project tree behind the parent-picker of the review step. */
+function treeNode(
+  slug: string,
+  type: Requirement['type'],
+  name: string,
+  parentSlug?: string,
+): Requirement {
+  return {
+    slug,
+    type,
+    name,
+    criticality: 'MEDIUM',
+    implemented: true,
+    links: parentSlug ? [{ type: 'CHILD_OF', targetSlug: parentSlug }] : [],
+    createdAt: '2026-08-01T00:00:00.000Z',
+    updatedAt: '2026-08-01T00:00:00.000Z',
+  };
+}
+
+const TREE = {
+  requirements: [
+    treeNode('repo-work', 'FUNCTION', 'Работа с репозиторием'),
+    treeNode('search', 'FUNCTION', 'Поиск', 'repo-work'),
+    treeNode('platform-compat', 'NFR', 'Совместимость платформ'),
+  ],
+  broken: [],
+  incomplete: [],
+};
+
 const xlsx = new File(['dummy-xlsx-bytes'], 'Книга2.xlsx', {
   type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 });
@@ -226,6 +258,7 @@ beforeEach(() => {
   applyJob.mockReset().mockResolvedValue({ ...REVIEW_JOB, status: 'running', stage: 'populate' });
   resumeJob.mockReset().mockResolvedValue({ jobId: 'job-b1' });
   listJobs.mockReset().mockResolvedValue({ jobs: [] });
+  listRequirements.mockReset().mockResolvedValue(TREE);
 });
 
 describe('AiBacklogImportModal — setup (T-305)', () => {
@@ -419,10 +452,12 @@ describe('review gate (PO №1, mockup 04, T-306)', () => {
     expect(within(dupRow).getByTestId('ai-backlog-badge-duplicate')).toHaveTextContent('дубль');
     expect(dupRow).toHaveTextContent('не будет записана (есть «Поиск по коду»)');
 
-    // НФТ badge + the file-target marker on the NFR row.
+    // НФТ badge + the file-target marker on the NFR row. task25: the target
+    // cell is now an editable pair prefilled with the row values.
     const nfrRow = rows.find((r) => r.getAttribute('data-rowid') === 'r4')!;
     expect(within(nfrRow).getByTestId('ai-backlog-badge-nfr')).toHaveTextContent('НФТ');
-    expect(within(nfrRow).getByTestId('ai-backlog-row-target')).toHaveTextContent('Q1 2027');
+    expect(within(nfrRow).getByTestId('ai-backlog-target-quarter-cell')).toHaveValue('Q1');
+    expect(within(nfrRow).getByTestId('ai-backlog-target-year-cell')).toHaveValue(2027);
     expect(within(nfrRow).getByTestId('ai-backlog-target-from-file')).toBeInTheDocument();
 
     // New-node badge on the row going under the proposed node.
@@ -443,7 +478,8 @@ describe('review gate (PO №1, mockup 04, T-306)', () => {
     expect(screen.getByTestId('ai-backlog-apply')).toHaveTextContent('Записать в проект (2)');
 
     await user.click(screen.getByTestId('ai-backlog-apply'));
-    expect(applyJob).toHaveBeenCalledWith('job-b1', ['r2', 'r4']);
+    // task25: the body form; no edits → no `overrides` key at all.
+    expect(applyJob).toHaveBeenCalledWith('job-b1', { rowIds: ['r2', 'r4'] });
   });
 
   it('select-all toggles every non-duplicate row; zero selection disables apply', async () => {
@@ -503,6 +539,239 @@ describe('review gate (PO №1, mockup 04, T-306)', () => {
   });
 });
 
+describe('review edits (task25): name / parent node / target term', () => {
+  async function openReview(user: ReturnType<typeof userEvent.setup>) {
+    getJob.mockResolvedValue(REVIEW_JOB);
+    renderModal();
+    await screen.findByTestId('ai-backlog-model-select');
+    await startJob(user);
+    await screen.findByTestId('ai-backlog-review-step');
+  }
+
+  function row(rowId: string): HTMLElement {
+    return screen
+      .getAllByTestId('ai-backlog-review-row')
+      .find((r) => r.getAttribute('data-rowid') === rowId)!;
+  }
+
+  it('renames the column to «Срок реализации» in the review table', async () => {
+    const user = userEvent.setup();
+    await openReview(user);
+    const table = screen.getByTestId('ai-backlog-review-table');
+    expect(within(table).getByText('Срок реализации')).toBeInTheDocument();
+    expect(within(table).queryByText('Target')).not.toBeInTheDocument();
+  });
+
+  it('inline name edit: Enter saves, the row gets the «изменено» badge, apply carries the override', async () => {
+    const user = userEvent.setup();
+    await openReview(user);
+
+    await user.click(within(row('r1')).getByTestId('ai-backlog-edit-name'));
+    const input = within(row('r1')).getByTestId('ai-backlog-name-input');
+    await user.clear(input);
+    await user.type(input, 'Граф коммитов{Enter}');
+
+    expect(within(row('r1')).queryByTestId('ai-backlog-name-input')).not.toBeInTheDocument();
+    expect(row('r1')).toHaveTextContent('Граф коммитов');
+    expect(within(row('r1')).getByTestId('ai-backlog-row-edited')).toHaveTextContent('изменено');
+
+    await user.click(screen.getByTestId('ai-backlog-apply'));
+    expect(applyJob).toHaveBeenCalledWith('job-b1', {
+      rowIds: ['r1', 'r2', 'r4'],
+      overrides: { r1: { businessName: 'Граф коммитов' } },
+    });
+  });
+
+  it('re-editing back to the original value (blur save) removes the override', async () => {
+    const user = userEvent.setup();
+    await openReview(user);
+
+    await user.click(within(row('r1')).getByTestId('ai-backlog-edit-name'));
+    let input = within(row('r1')).getByTestId('ai-backlog-name-input');
+    await user.clear(input);
+    await user.type(input, 'Граф коммитов{Enter}');
+    expect(within(row('r1')).getByTestId('ai-backlog-row-edited')).toBeInTheDocument();
+
+    // Blur (a click elsewhere) also saves; the original value clears the edit.
+    await user.click(within(row('r1')).getByTestId('ai-backlog-edit-name'));
+    input = within(row('r1')).getByTestId('ai-backlog-name-input');
+    await user.clear(input);
+    await user.type(input, 'Визуализация графа коммитов');
+    await user.click(screen.getByTestId('ai-backlog-selected-count'));
+
+    expect(within(row('r1')).queryByTestId('ai-backlog-row-edited')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('ai-backlog-apply'));
+    expect(applyJob).toHaveBeenCalledWith('job-b1', { rowIds: ['r1', 'r2', 'r4'] });
+  });
+
+  it('Esc cancels the name edit without saving and keeps the modal open', async () => {
+    const user = userEvent.setup();
+    await openReview(user);
+
+    await user.click(within(row('r1')).getByTestId('ai-backlog-edit-name'));
+    const input = within(row('r1')).getByTestId('ai-backlog-name-input');
+    await user.clear(input);
+    await user.type(input, 'Черновик{Escape}');
+
+    expect(screen.getByTestId('ai-backlog-review-step')).toBeInTheDocument();
+    expect(row('r1')).toHaveTextContent('Визуализация графа коммитов');
+    expect(within(row('r1')).queryByTestId('ai-backlog-row-edited')).not.toBeInTheDocument();
+  });
+
+  it('an empty name is not saved: the input stays with a hint', async () => {
+    const user = userEvent.setup();
+    await openReview(user);
+
+    await user.click(within(row('r1')).getByTestId('ai-backlog-edit-name'));
+    const input = within(row('r1')).getByTestId('ai-backlog-name-input');
+    await user.clear(input);
+    await user.keyboard('{Enter}');
+
+    expect(within(row('r1')).getByTestId('ai-backlog-name-input')).toBeInTheDocument();
+    expect(row('r1')).toHaveTextContent('Бизнес-имя не может быть пустым');
+    expect(within(row('r1')).queryByTestId('ai-backlog-row-edited')).not.toBeInTheDocument();
+  });
+
+  it('parent picker: searches the existing nodes of the ROW type and reparents the row', async () => {
+    const user = userEvent.setup();
+    await openReview(user);
+
+    await user.click(within(row('r1')).getByTestId('ai-backlog-edit-parent'));
+    const popover = await screen.findByTestId('ai-backlog-parent-popover');
+    // r1 is a FUNCTION row — only the 2 FUNCTION nodes are offered.
+    expect(within(popover).getAllByTestId('ai-backlog-parent-option')).toHaveLength(2);
+
+    await user.type(within(popover).getByTestId('ai-backlog-parent-search'), 'поиск');
+    const options = within(popover).getAllByTestId('ai-backlog-parent-option');
+    expect(options).toHaveLength(1);
+    // Orientation info: the node type and its own parent.
+    expect(options[0]).toHaveTextContent('Поиск');
+    expect(options[0]).toHaveTextContent('ФТ');
+    expect(options[0]).toHaveTextContent('в «Работа с репозиторием»');
+
+    await user.click(options[0]!);
+    expect(screen.queryByTestId('ai-backlog-parent-popover')).not.toBeInTheDocument();
+    expect(row('r1')).toHaveTextContent('Поиск');
+    expect(within(row('r1')).getByTestId('ai-backlog-row-edited')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('ai-backlog-apply'));
+    expect(applyJob).toHaveBeenCalledWith('job-b1', {
+      rowIds: ['r1', 'r2', 'r4'],
+      overrides: { r1: { parent: { kind: 'existing', name: 'Поиск' } } },
+    });
+  });
+
+  it('parent picker: creates a new ROOT node with a custom name', async () => {
+    const user = userEvent.setup();
+    await openReview(user);
+
+    await user.click(within(row('r1')).getByTestId('ai-backlog-edit-parent'));
+    const popover = await screen.findByTestId('ai-backlog-parent-popover');
+    await user.type(
+      within(popover).getByTestId('ai-backlog-parent-search'),
+      'Интеграции с внешними системами',
+    );
+    const create = within(popover).getByTestId('ai-backlog-parent-create');
+    expect(create).toHaveTextContent('Создать новый узел: «Интеграции с внешними системами»');
+    await user.click(create);
+
+    expect(row('r1')).toHaveTextContent('Интеграции с внешними системами');
+    expect(within(row('r1')).getByTestId('ai-backlog-badge-new-node')).toBeInTheDocument();
+    expect(within(row('r1')).getByTestId('ai-backlog-row-edited')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('ai-backlog-apply'));
+    expect(applyJob).toHaveBeenCalledWith('job-b1', {
+      rowIds: ['r1', 'r2', 'r4'],
+      overrides: { r1: { parent: { kind: 'new', name: 'Интеграции с внешними системами' } } },
+    });
+  });
+
+  it('«Вернуть предложенное» drops the parent edit back to the AI proposal', async () => {
+    const user = userEvent.setup();
+    await openReview(user);
+
+    await user.click(within(row('r1')).getByTestId('ai-backlog-edit-parent'));
+    let popover = await screen.findByTestId('ai-backlog-parent-popover');
+    // No edit yet — nothing to reset.
+    expect(within(popover).queryByTestId('ai-backlog-parent-reset')).not.toBeInTheDocument();
+    await user.type(within(popover).getByTestId('ai-backlog-parent-search'), 'поиск');
+    await user.click(within(popover).getAllByTestId('ai-backlog-parent-option')[0]!);
+
+    await user.click(within(row('r1')).getByTestId('ai-backlog-edit-parent'));
+    popover = await screen.findByTestId('ai-backlog-parent-popover');
+    await user.click(within(popover).getByTestId('ai-backlog-parent-reset'));
+
+    expect(row('r1')).toHaveTextContent('Работа с репозиторием');
+    expect(within(row('r1')).queryByTestId('ai-backlog-row-edited')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('ai-backlog-apply'));
+    expect(applyJob).toHaveBeenCalledWith('job-b1', { rowIds: ['r1', 'r2', 'r4'] });
+  });
+
+  it('target edit: the 📄 marker gives way to «изменено», apply carries the quarter/year pair', async () => {
+    const user = userEvent.setup();
+    await openReview(user);
+
+    // r4 has a file-provided term (Q1 2027) — override the quarter only.
+    expect(within(row('r4')).getByTestId('ai-backlog-target-from-file')).toBeInTheDocument();
+    await user.selectOptions(within(row('r4')).getByTestId('ai-backlog-target-quarter-cell'), 'Q3');
+
+    expect(within(row('r4')).queryByTestId('ai-backlog-target-from-file')).not.toBeInTheDocument();
+    expect(within(row('r4')).getByTestId('ai-backlog-row-edited')).toBeInTheDocument();
+    expect(within(row('r4')).getByTestId('ai-backlog-row-target')).toHaveTextContent('изменено');
+
+    await user.click(screen.getByTestId('ai-backlog-apply'));
+    expect(applyJob).toHaveBeenCalledWith('job-b1', {
+      rowIds: ['r1', 'r2', 'r4'],
+      overrides: { r4: { targetQuarter: 'Q3', targetYear: 2027 } },
+    });
+  });
+
+  it('an edit of a deselected row is NOT sent (overrides ⊆ rowIds)', async () => {
+    const user = userEvent.setup();
+    await openReview(user);
+
+    await user.click(within(row('r1')).getByTestId('ai-backlog-edit-name'));
+    const input = within(row('r1')).getByTestId('ai-backlog-name-input');
+    await user.clear(input);
+    await user.type(input, 'Граф коммитов{Enter}');
+    await user.click(within(row('r1')).getByTestId('ai-backlog-row-checkbox'));
+
+    await user.click(screen.getByTestId('ai-backlog-apply'));
+    expect(applyJob).toHaveBeenCalledWith('job-b1', { rowIds: ['r2', 'r4'] });
+  });
+
+  it('a 400 on apply (invalid override) is shown inline, the review step survives', async () => {
+    applyJob.mockRejectedValue(
+      new ApiError(400, {
+        code: 'VALIDATION',
+        message: 'Узел «Нет такого» не найден в дереве проекта (строка r1).',
+      }),
+    );
+    const user = userEvent.setup();
+    await openReview(user);
+
+    await user.click(screen.getByTestId('ai-backlog-apply'));
+    expect(await screen.findByTestId('ai-backlog-apply-error')).toHaveTextContent(
+      'Узел «Нет такого» не найден',
+    );
+    expect(screen.getByTestId('ai-backlog-review-step')).toBeInTheDocument();
+    expect(screen.getByTestId('ai-backlog-apply')).not.toBeDisabled();
+  });
+
+  it('a duplicate row offers no editors at all', async () => {
+    const user = userEvent.setup();
+    await openReview(user);
+
+    const dupRow = row('r3');
+    expect(within(dupRow).queryByTestId('ai-backlog-edit-name')).not.toBeInTheDocument();
+    expect(within(dupRow).queryByTestId('ai-backlog-edit-parent')).not.toBeInTheDocument();
+    expect(within(dupRow).queryByTestId('ai-backlog-target-quarter-cell')).not.toBeInTheDocument();
+    expect(within(dupRow).queryByTestId('ai-backlog-target-year-cell')).not.toBeInTheDocument();
+  });
+});
+
 describe('report (mockup 03) and errors', () => {
   it('renders the final counters, the mapping table with badges and usage', async () => {
     getJob.mockResolvedValue(SUCCEEDED_JOB);
@@ -520,6 +789,9 @@ describe('report (mockup 03) and errors', () => {
 
     const table = screen.getByTestId('ai-backlog-report-table');
     expect(within(table).getAllByTestId('ai-backlog-report-row')).toHaveLength(4);
+    // task25: the report also carries the renamed «Срок реализации» column.
+    expect(within(table).getByText('Срок реализации')).toBeInTheDocument();
+    expect(within(table).getAllByTestId('ai-backlog-report-row')[0]).toHaveTextContent('Q4 2026');
     expect(within(table).getByTestId('ai-backlog-badge-duplicate')).toHaveTextContent('дубль');
     expect(within(table).getByTestId('ai-backlog-badge-nfr')).toHaveTextContent('НФТ');
     expect(within(table).getByTestId('ai-backlog-badge-new-node')).toHaveTextContent('новый узел');

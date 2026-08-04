@@ -868,9 +868,68 @@ export const aiImportConfirmBodySchema = z
   });
 export type AiImportConfirmBody = z.infer<typeof aiImportConfirmBodySchema>;
 
-/** Body of `POST /api/ai-import/:jobId/apply` — the reviewed row selection. */
+/**
+ * task25 · one review-step edit of a backlog row, keyed by `rowId` in the
+ * apply body. Every field is optional (an empty object is a no-op):
+ * - `businessName` — new name of the future requirement (same rule as
+ *   requirement names: trimmed, 1..200);
+ * - `parent` — reparent the row: the EXACT name of an existing tree node
+ *   (validated server-side against the real tree, same-type CHILD_OF rule) or
+ *   a new ROOT node with a custom name (v1 — root only);
+ * - `targetQuarter`/`targetYear` — the per-row «Срок реализации», always a pair.
+ * The server merges these into the saved mappings BEFORE populate, so the
+ * report and the checkpoint always reflect the edited values.
+ */
+export const aiBacklogOverrideSchema = z
+  .object({
+    businessName: z
+      .string()
+      .trim()
+      .min(1, 'бизнес-имя не может быть пустым')
+      .max(200, 'бизнес-имя длиннее 200 символов')
+      .optional(),
+    parent: z
+      .discriminatedUnion('kind', [
+        z.object({
+          kind: z.literal('existing'),
+          name: z
+            .string()
+            .trim()
+            .min(1, 'имя узла не может быть пустым')
+            .max(200, 'имя узла длиннее 200 символов'),
+        }),
+        z.object({
+          kind: z.literal('new'),
+          name: z
+            .string()
+            .trim()
+            .min(1, 'имя нового узла не может быть пустым')
+            .max(200, 'имя нового узла длиннее 200 символов'),
+        }),
+      ])
+      .optional(),
+    targetQuarter: z.enum(TARGET_QUARTERS).optional(),
+    targetYear: z
+      .number()
+      .int()
+      .min(2020, 'год вне диапазона 2020–2100')
+      .max(2100, 'год вне диапазона 2020–2100')
+      .optional(),
+  })
+  .refine((v) => (v.targetQuarter === undefined) === (v.targetYear === undefined), {
+    message: 'квартал и год срока реализации задаются вместе',
+  });
+export type AiBacklogOverride = z.infer<typeof aiBacklogOverrideSchema>;
+
+/**
+ * Body of `POST /api/ai-import/:jobId/apply` — the reviewed row selection.
+ * task25: plus optional per-row edits; override keys MUST be a subset of
+ * `rowIds` (an edit of an unselected/unknown row is rejected with 400).
+ * Old clients sending `{rowIds}` only stay valid.
+ */
 export const aiBacklogApplyBodySchema = z.object({
   rowIds: z.array(z.string().min(1)).min(1).max(AI_BACKLOG_MAX_ROWS),
+  overrides: z.record(z.string().min(1), aiBacklogOverrideSchema).optional(),
 });
 export type AiBacklogApplyBody = z.infer<typeof aiBacklogApplyBodySchema>;
 

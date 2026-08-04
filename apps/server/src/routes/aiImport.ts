@@ -24,6 +24,17 @@ const idParams = z.object({ id: z.string().min(1) });
 const jobParams = z.object({ jobId: z.string().min(1) });
 
 /**
+ * task25: the HTTP boundary checks only the SHAPE of `overrides`; each entry's
+ * content is validated in the service against the core schema and the real
+ * tree, so a bad edit yields 400 with the rowId in the text (spec КП-4) —
+ * not the generic 422 of `parseInput`. The full client contract stays
+ * {@link aiBacklogApplyBodySchema} (it is what OpenAPI publishes).
+ */
+const applyBody = aiBacklogApplyBodySchema.extend({
+  overrides: z.record(z.string().min(1), z.unknown()).optional(),
+});
+
+/**
  * AI-import routes (Task 11 / todo_20): start a documentation-import job
  * (multipart archive + optional `model` override), poll its status, confirm
  * the estimate, cancel, resume from a checkpoint, list the run history and
@@ -173,10 +184,11 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
   });
 
   // todo_22: apply the reviewed backlog mapping — the ONLY step that writes.
+  // task25: plus optional per-row edits made on the review step.
   app.post('/api/ai-import/:jobId/apply', async (req): Promise<AiImportJobView> => {
     const { jobId } = parseInput(jobParams, req.params);
-    const body = parseInput(aiBacklogApplyBodySchema, req.body);
-    return service.apply(jobId, body.rowIds);
+    const body = parseInput(applyBody, req.body);
+    return service.apply(jobId, body.rowIds, body.overrides);
   });
 
   // todo_20 T-212: resume failed | cancelled | interrupted from the checkpoint.

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, CircleStop, RefreshCw, TriangleAlert } from 'lucide-react';
+import { Check, CircleStop, Pencil, RefreshCw, TriangleAlert } from 'lucide-react';
 import type {
   AiBacklogMapping,
+  AiBacklogOverride,
   AiImportJobSummary,
   AiImportJobView,
   AiImportStage,
+  RequirementType,
   TargetQuarter,
 } from '@po/core';
 import { AI_BACKLOG_MAX_BYTES, TARGET_QUARTERS } from '@po/core';
@@ -16,6 +18,7 @@ import {
   useApplyAiBacklogImport,
   useCancelAiImport,
   useConfirmAiImport,
+  useRequirements,
   useResumeAiImport,
   useStartAiBacklogImport,
 } from '../api/hooks';
@@ -105,6 +108,29 @@ interface AiBacklogImportModalProps {
 type Phase =
   'setup' | 'preview' | 'running' | 'review' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
 
+/**
+ * task25: local (unsaved) review edits of one row. Values equal to the AI
+ * proposal are never stored — a row is «изменено» iff it has an entry here.
+ * Edits live in the modal state only (v1): closing the review keeps the job
+ * but drops the pending edits.
+ */
+interface RowEdits {
+  businessName?: string;
+  parent?: NonNullable<AiBacklogOverride['parent']>;
+  /** Always a pair — the contract requires quarter and year together. */
+  target?: { quarter: TargetQuarter; year: number };
+}
+
+/** An existing tree node offered by the parent-picker (task25). */
+interface NodeOption {
+  name: string;
+  type: RequirementType;
+  /** Name of its own parent — orientation info in the picker list. */
+  parentName: string | null;
+}
+
+const TYPE_SHORT: Record<RequirementType, string> = { FUNCTION: 'ФТ', NFR: 'НФТ' };
+
 export function AiBacklogImportModal({
   projectId,
   onClose,
@@ -119,6 +145,8 @@ export function AiBacklogImportModal({
   const [targetYear, setTargetYear] = useState<number>(new Date().getFullYear());
   // Review selection: rowIds to write (default — everything except duplicates).
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  // task25: per-row review edits (business name / parent node / target term).
+  const [rowEdits, setRowEdits] = useState<Record<string, RowEdits>>({});
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const [cancelReviewConfirmOpen, setCancelReviewConfirmOpen] = useState(false);
@@ -191,6 +219,8 @@ export function AiBacklogImportModal({
     if (jobId && review && phase === 'review' && selectionInitRef.current !== jobId) {
       selectionInitRef.current = jobId;
       setSelected(new Set(review.mappings.filter((m) => !m.duplicateOf).map((m) => m.rowId)));
+      // task25: pending edits belong to one review of one job.
+      setRowEdits({});
     }
   }, [jobId, review, phase]);
 
@@ -245,13 +275,28 @@ export function AiBacklogImportModal({
     confirmMut.mutate({ jobId, target: { targetQuarter, targetYear } });
   };
 
-  /** «Записать в проект (N)» — the ONLY write of the whole flow. */
+  /**
+   * «Записать в проект (N)» — the ONLY write of the whole flow. task25: the
+   * body carries `overrides` only for the selected rows that really differ
+   * from the AI proposal; a 400 (invalid override) lands in the same inline
+   * error block and keeps the review step alive.
+   */
   const doApply = (): void => {
     if (!jobId || selected.size === 0 || applyMut.isPending) return;
     setApplyError(null);
+    const overrides = buildOverrides();
     applyMut.mutate(
-      { jobId, rowIds: [...selected] },
-      { onError: (err) => setApplyError(errorMessage(err)) },
+      {
+        jobId,
+        rowIds: [...selected],
+        ...(Object.keys(overrides).length > 0 ? { overrides } : {}),
+      },
+      {
+        // The server merged the edits into the saved mappings — local pending
+        // edits are now redundant (the fresh view already shows them).
+        onSuccess: () => setRowEdits({}),
+        onError: (err) => setApplyError(errorMessage(err)),
+      },
     );
   };
 
@@ -333,6 +378,94 @@ export function AiBacklogImportModal({
 
   const toggleAll = (): void => {
     setSelected(allSelected ? new Set() : new Set(selectableIds));
+  };
+
+  /* ── task25 · review edits ─────────────────────────────────────────────── */
+
+  // The parent-picker searches the REAL project tree — load it only on review.
+  const requirementsQuery = useRequirements(phase === 'review' ? projectId : undefined);
+  const nodeOptions = useMemo<NodeOption[]>(() => {
+    const reqs = requirementsQuery.data?.requirements ?? [];
+    // Slugs are unique within (project × type); CHILD_OF stays inside a type.
+    const nameByTypeSlug = new Map(reqs.map((r) => [`${r.type}:${r.slug}`, r.name]));
+    return reqs.map((r) => {
+      const childOf = r.links.find((l) => l.type === 'CHILD_OF');
+      return {
+        name: r.name,
+        type: r.type,
+        parentName: childOf
+          ? (nameByTypeSlug.get(`${r.type}:${childOf.targetSlug}`) ?? null)
+          : null,
+      };
+    });
+  }, [requirementsQuery.data]);
+
+  /** Merge an edit patch into the row entry; empty entries are dropped. */
+  const patchRow = (rowId: string, patch: (prev: RowEdits) => RowEdits): void => {
+    setRowEdits((prev) => {
+      const entry = patch(prev[rowId] ?? {});
+      const next = { ...prev };
+      if (Object.keys(entry).length === 0) delete next[rowId];
+      else next[rowId] = entry;
+      return next;
+    });
+  };
+
+  /** Save the inline-edited business name; the original value clears the edit. */
+  const saveBusinessName = (m: AiBacklogMapping, name: string): void => {
+    patchRow(m.rowId, ({ businessName: _prev, ...rest }) =>
+      name === m.businessName ? rest : { ...rest, businessName: name },
+    );
+  };
+
+  /** Reparent the row (existing node or a new root node with a custom name). */
+  const saveParent = (m: AiBacklogMapping, parent: NonNullable<RowEdits['parent']>): void => {
+    patchRow(m.rowId, ({ parent: _prev, ...rest }) =>
+      parent.kind === m.parent.kind && parent.name === m.parent.name ? rest : { ...rest, parent },
+    );
+  };
+
+  /** Drop the parent edit — back to the AI proposal («вернуть предложенное»). */
+  const resetParent = (rowId: string): void => {
+    patchRow(rowId, ({ parent: _prev, ...rest }) => rest);
+  };
+
+  /** Per-row «Срок реализации»: quarter + year always travel as a pair. */
+  const saveTarget = (m: AiBacklogMapping, quarter: TargetQuarter, year: number): void => {
+    patchRow(m.rowId, ({ target: _prev, ...rest }) =>
+      quarter === m.targetQuarter && year === m.targetYear
+        ? rest
+        : { ...rest, target: { quarter, year } },
+    );
+  };
+
+  /** Overrides for the apply body: selected rows with a real difference only. */
+  const buildOverrides = (): Record<string, AiBacklogOverride> => {
+    const out: Record<string, AiBacklogOverride> = {};
+    for (const m of mappings) {
+      if (!selected.has(m.rowId)) continue;
+      const edits = rowEdits[m.rowId];
+      if (!edits) continue;
+      const entry: AiBacklogOverride = {};
+      if (edits.businessName !== undefined && edits.businessName !== m.businessName) {
+        entry.businessName = edits.businessName;
+      }
+      if (
+        edits.parent &&
+        (edits.parent.kind !== m.parent.kind || edits.parent.name !== m.parent.name)
+      ) {
+        entry.parent = edits.parent;
+      }
+      if (
+        edits.target &&
+        (edits.target.quarter !== m.targetQuarter || edits.target.year !== m.targetYear)
+      ) {
+        entry.targetQuarter = edits.target.quarter;
+        entry.targetYear = edits.target.year;
+      }
+      if (Object.keys(entry).length > 0) out[m.rowId] = entry;
+    }
+    return out;
   };
 
   const footer =
@@ -920,7 +1053,7 @@ export function AiBacklogImportModal({
                     <th className="px-3 py-2 font-medium">Исходная формулировка</th>
                     <th className="px-3 py-2 font-medium">Бизнес-имя</th>
                     <th className="px-3 py-2 font-medium">Узел (куда встроится)</th>
-                    <th className="w-28 px-3 py-2 font-medium">Target</th>
+                    <th className="w-44 px-3 py-2 font-medium">Срок реализации</th>
                   </tr>
                 </thead>
                 <tbody style={{ color: 'var(--color-text-2)' }}>
@@ -961,7 +1094,14 @@ export function AiBacklogImportModal({
                           {m.sourceText}
                         </td>
                         <td className="px-3 py-1.5">
-                          {m.businessName}{' '}
+                          {isDuplicate ? (
+                            m.businessName
+                          ) : (
+                            <BusinessNameEditor
+                              name={rowEdits[m.rowId]?.businessName ?? m.businessName}
+                              onSave={(name) => saveBusinessName(m, name)}
+                            />
+                          )}{' '}
                           {m.type === 'NFR' ? (
                             <span
                               className="badge"
@@ -985,6 +1125,19 @@ export function AiBacklogImportModal({
                             >
                               дубль
                             </span>
+                          ) : null}{' '}
+                          {rowEdits[m.rowId] ? (
+                            <span
+                              className="badge"
+                              style={{
+                                background: 'var(--color-warning-bg)',
+                                color: 'var(--color-warning-fg)',
+                              }}
+                              title="строка отредактирована — в проект запишутся новые значения"
+                              data-testid="ai-backlog-row-edited"
+                            >
+                              изменено
+                            </span>
                           ) : null}
                         </td>
                         <td className="px-3 py-1.5">
@@ -993,38 +1146,26 @@ export function AiBacklogImportModal({
                               — не будет записана (есть «{m.duplicateOf}»)
                             </span>
                           ) : (
-                            <>
-                              {m.parent.name}{' '}
-                              {m.parent.kind === 'new' ? (
-                                <span
-                                  className="badge"
-                                  style={{
-                                    background: 'var(--color-info-bg)',
-                                    color: 'var(--color-info-fg)',
-                                  }}
-                                  data-testid="ai-backlog-badge-new-node"
-                                >
-                                  новый узел
-                                </span>
-                              ) : null}
-                            </>
+                            <ParentEditor
+                              parent={rowEdits[m.rowId]?.parent ?? m.parent}
+                              overridden={Boolean(rowEdits[m.rowId]?.parent)}
+                              options={nodeOptions.filter((o) => o.type === m.type)}
+                              typeLabel={TYPE_SHORT[m.type]}
+                              loading={requirementsQuery.isLoading}
+                              onPick={(p) => saveParent(m, p)}
+                              onReset={() => resetParent(m.rowId)}
+                            />
                           )}
                         </td>
                         <td className="px-3 py-1.5 text-xs" data-testid="ai-backlog-row-target">
                           {isDuplicate ? null : (
-                            <>
-                              {m.targetQuarter} {m.targetYear}
-                              {m.targetFromFile ? (
-                                <span
-                                  title="срок из файла"
-                                  aria-label="срок из файла"
-                                  data-testid="ai-backlog-target-from-file"
-                                >
-                                  {' '}
-                                  📄
-                                </span>
-                              ) : null}
-                            </>
+                            <TargetEditor
+                              quarter={rowEdits[m.rowId]?.target?.quarter ?? m.targetQuarter}
+                              year={rowEdits[m.rowId]?.target?.year ?? m.targetYear}
+                              fromFile={m.targetFromFile}
+                              overridden={Boolean(rowEdits[m.rowId]?.target)}
+                              onChange={(q, y) => saveTarget(m, q, y)}
+                            />
                           )}
                         </td>
                       </tr>
@@ -1172,6 +1313,7 @@ export function AiBacklogImportModal({
                           <th className="px-3 py-2 font-medium">Исходная формулировка</th>
                           <th className="px-3 py-2 font-medium">Бизнес-имя</th>
                           <th className="px-3 py-2 font-medium">Родительский узел</th>
+                          <th className="w-28 px-3 py-2 font-medium">Срок реализации</th>
                         </tr>
                       </thead>
                       <tbody style={{ color: 'var(--color-text-2)' }}>
@@ -1242,6 +1384,9 @@ export function AiBacklogImportModal({
                                   ) : null}
                                 </>
                               )}
+                            </td>
+                            <td className="px-3 py-1.5 text-xs">
+                              {m.duplicateOf ? null : `${m.targetQuarter} ${m.targetYear}`}
                             </td>
                           </tr>
                         ))}
@@ -1535,5 +1680,306 @@ export function AiBacklogImportModal({
         />
       ) : null}
     </Modal>
+  );
+}
+
+/* ── task25 · review-cell editors ─────────────────────────────────────────── */
+
+const EMPTY_NAME_HINT = 'Бизнес-имя не может быть пустым';
+
+/**
+ * Inline editor of the «Бизнес-имя» cell: click (or the ✎ icon) opens an
+ * input right in the cell; Enter/blur saves, Esc cancels, an empty value is
+ * rejected with a hint. The saved value goes to the row edits of the modal.
+ */
+function BusinessNameEditor({
+  name,
+  onSave,
+}: {
+  name: string;
+  onSave: (name: string) => void;
+}): React.ReactElement {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [emptyError, setEmptyError] = useState(false);
+
+  const commit = (): void => {
+    const trimmed = draft.trim();
+    if (trimmed.length === 0) {
+      setEmptyError(true);
+      return;
+    }
+    onSave(trimmed);
+    setEditing(false);
+  };
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-left"
+        title="Изменить бизнес-имя"
+        data-testid="ai-backlog-edit-name"
+        onClick={() => {
+          setDraft(name);
+          setEmptyError(false);
+          setEditing(true);
+        }}
+      >
+        {name}
+        <Pencil
+          className="icon-sm shrink-0"
+          style={{ color: 'var(--color-text-3)' }}
+          aria-hidden="true"
+        />
+      </button>
+    );
+  }
+  return (
+    <span className="inline-flex flex-col gap-1">
+      <input
+        className="input min-w-48 py-1 text-sm"
+        aria-label="Бизнес-имя"
+        aria-invalid={emptyError || undefined}
+        data-testid="ai-backlog-name-input"
+        autoFocus
+        maxLength={200}
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          if (emptyError) setEmptyError(false);
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          } else if (e.key === 'Escape') {
+            // Esc cancels the edit only — the modal must stay open.
+            e.stopPropagation();
+            setEditing(false);
+          }
+        }}
+      />
+      {emptyError ? (
+        <span className="text-xs" role="alert" style={{ color: 'var(--color-danger-fg)' }}>
+          {EMPTY_NAME_HINT}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * «Узел (куда встроится)» cell: the button opens a small popover with a
+ * case-insensitive substring search over the EXISTING nodes of the row's type
+ * (type/parent shown for orientation), a «Создать новый узел» action for a
+ * custom ROOT node (v1) and «Вернуть предложенное» to drop the edit.
+ */
+function ParentEditor({
+  parent,
+  overridden,
+  options,
+  typeLabel,
+  loading,
+  onPick,
+  onReset,
+}: {
+  parent: { kind: 'existing' | 'new'; name: string };
+  overridden: boolean;
+  options: NodeOption[];
+  typeLabel: string;
+  loading: boolean;
+  onPick: (parent: { kind: 'existing' | 'new'; name: string }) => void;
+  onReset: () => void;
+}): React.ReactElement {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const query = search.trim().toLowerCase();
+  const filtered = options.filter((o) => o.name.toLowerCase().includes(query));
+
+  const close = (): void => {
+    setOpen(false);
+    setSearch('');
+  };
+
+  return (
+    <span className="relative inline-block">
+      <button
+        type="button"
+        className="inline-flex flex-wrap items-center gap-1 text-left underline decoration-dotted underline-offset-2"
+        title="Изменить узел, в который встроится строка"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        data-testid="ai-backlog-edit-parent"
+        onClick={() => (open ? close() : setOpen(true))}
+      >
+        {parent.name}
+        {parent.kind === 'new' ? (
+          <span
+            className="badge"
+            style={{ background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }}
+            data-testid="ai-backlog-badge-new-node"
+          >
+            новый узел
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <>
+          {/* Transparent backdrop: a click outside just closes the picker. */}
+          <div className="fixed inset-0 z-10" aria-hidden="true" onClick={close} />
+          <div
+            className="absolute left-0 top-full z-20 mt-1 w-72 rounded-lg border p-2 shadow-lg"
+            style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+            role="dialog"
+            aria-label="Выбор узла для строки"
+            data-testid="ai-backlog-parent-popover"
+          >
+            <input
+              className="input w-full py-1 text-sm"
+              placeholder="Поиск узла или имя нового…"
+              aria-label="Поиск по существующим узлам"
+              data-testid="ai-backlog-parent-search"
+              autoFocus
+              maxLength={200}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.stopPropagation();
+                  close();
+                }
+              }}
+            />
+            <ul
+              className="mt-1 max-h-44 overflow-y-auto"
+              role="listbox"
+              aria-label="Существующие узлы"
+            >
+              {loading ? (
+                <li className="hint px-2 py-1">Загружаем узлы…</li>
+              ) : filtered.length === 0 ? (
+                <li className="hint px-2 py-1">
+                  {options.length === 0 ? `Узлов типа ${typeLabel} нет` : 'Ничего не найдено'}
+                </li>
+              ) : (
+                filtered.map((o) => (
+                  <li key={o.name}>
+                    <button
+                      type="button"
+                      className="w-full rounded px-2 py-1 text-left text-sm hover:bg-[var(--color-surface-2)]"
+                      role="option"
+                      aria-selected={parent.kind === 'existing' && parent.name === o.name}
+                      data-testid="ai-backlog-parent-option"
+                      onClick={() => {
+                        onPick({ kind: 'existing', name: o.name });
+                        close();
+                      }}
+                    >
+                      {o.name}{' '}
+                      <span className="text-xs" style={{ color: 'var(--color-text-3)' }}>
+                        {typeLabel}
+                        {o.parentName ? ` · в «${o.parentName}»` : ' · корень'}
+                      </span>
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+            {search.trim().length > 0 ? (
+              <button
+                type="button"
+                className="mt-1 w-full rounded px-2 py-1 text-left text-sm font-semibold hover:bg-[var(--color-surface-2)]"
+                style={{ color: 'var(--color-primary)' }}
+                data-testid="ai-backlog-parent-create"
+                onClick={() => {
+                  onPick({ kind: 'new', name: search.trim() });
+                  close();
+                }}
+              >
+                + Создать новый узел: «{search.trim()}»
+              </button>
+            ) : null}
+            {overridden ? (
+              <button
+                type="button"
+                className="mt-1 w-full rounded px-2 py-1 text-left text-sm hover:bg-[var(--color-surface-2)]"
+                style={{ color: 'var(--color-text-2)' }}
+                data-testid="ai-backlog-parent-reset"
+                onClick={() => {
+                  onReset();
+                  close();
+                }}
+              >
+                Вернуть предложенное
+              </button>
+            ) : null}
+            <p className="hint mt-1 px-2">Новый узел будет создан корневым.</p>
+          </div>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * «Срок реализации» cell: a compact Q1–Q4 select + a year input prefilled
+ * with the row values. Any change becomes a per-row override; the 📄 marker
+ * («срок из файла») stays until the term is overridden, then the row shows
+ * the «изменено» badge instead.
+ */
+function TargetEditor({
+  quarter,
+  year,
+  fromFile,
+  overridden,
+  onChange,
+}: {
+  quarter: TargetQuarter;
+  year: number;
+  fromFile: boolean;
+  overridden: boolean;
+  onChange: (quarter: TargetQuarter, year: number) => void;
+}): React.ReactElement {
+  return (
+    <span className="flex items-center gap-1">
+      <select
+        className="input w-auto cursor-pointer py-0.5 text-xs"
+        aria-label="Квартал срока реализации"
+        data-testid="ai-backlog-target-quarter-cell"
+        value={quarter}
+        onChange={(e) => onChange(e.target.value as TargetQuarter, year)}
+      >
+        {TARGET_QUARTERS.map((q) => (
+          <option key={q} value={q}>
+            {q}
+          </option>
+        ))}
+      </select>
+      <input
+        type="number"
+        className="input w-16 py-0.5 text-xs"
+        aria-label="Год срока реализации"
+        data-testid="ai-backlog-target-year-cell"
+        min={2020}
+        max={2100}
+        value={year}
+        onChange={(e) => onChange(quarter, Number(e.target.value))}
+      />
+      {overridden ? (
+        <span title="срок изменён вручную" style={{ color: 'var(--color-warning-fg)' }}>
+          изменено
+        </span>
+      ) : fromFile ? (
+        <span
+          title="срок из файла"
+          aria-label="срок из файла"
+          data-testid="ai-backlog-target-from-file"
+        >
+          📄
+        </span>
+      ) : null}
+    </span>
   );
 }

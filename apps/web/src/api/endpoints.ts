@@ -1,4 +1,5 @@
 import type {
+  AiBacklogApplyBody,
   AiChatRequest,
   AiChatResponse,
   AiConfigUpdate,
@@ -233,11 +234,14 @@ export const aiImportApi = {
    * todo_22 (T-306): write the reviewed selection into the project — the ONLY
    * step of the backlog flow that writes. 409 when the job is not on the
    * review gate, 400 on unknown rowIds, 422 on an empty selection.
+   * task25: the body optionally carries per-row `overrides` (edited business
+   * name / parent node / target term); override keys must be a subset of
+   * `rowIds` — invalid edits come back as 400 with a russian message.
    */
-  apply: (jobId: string, rowIds: string[]): Promise<AiImportJobView> =>
+  apply: (jobId: string, body: AiBacklogApplyBody): Promise<AiImportJobView> =>
     apiRequest(`/ai-import/${encodeURIComponent(jobId)}/apply`, {
       method: 'POST',
-      body: { rowIds },
+      body,
     }),
   /** todo_20 T-212: resume failed | cancelled | interrupted from the checkpoint.
    *  202 with the SAME jobId — the caller keeps polling the same view. */

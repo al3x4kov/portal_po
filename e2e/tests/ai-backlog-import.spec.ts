@@ -272,13 +272,20 @@ test.describe('todo_22 · счастливый путь импорта бэкл�
       await expect(page.getByTestId('ai-backlog-selected-count')).toHaveText('выбрано 3 из 3');
       await expect(reviewRow(page, 'r3').getByTestId('ai-backlog-badge-new-node')).toBeVisible();
       await expect(reviewRow(page, 'r4').getByTestId('ai-backlog-badge-nfr')).toBeVisible();
-      // Target: срок из файла (📄) против общего выбора для строки без срока.
-      await expect(reviewRow(page, 'r2').getByTestId('ai-backlog-row-target')).toContainText(
-        'Q2 2027',
+      // «Срок реализации» (task25): ячейка — select квартала + input года;
+      // срок из файла (📄) против общего выбора для строки без срока.
+      await expect(reviewRow(page, 'r2').getByTestId('ai-backlog-target-quarter-cell')).toHaveValue(
+        'Q2',
+      );
+      await expect(reviewRow(page, 'r2').getByTestId('ai-backlog-target-year-cell')).toHaveValue(
+        '2027',
       );
       await expect(reviewRow(page, 'r2').getByTestId('ai-backlog-target-from-file')).toBeVisible();
-      await expect(reviewRow(page, 'r4').getByTestId('ai-backlog-row-target')).toContainText(
-        `${def.quarter} ${def.year}`,
+      await expect(reviewRow(page, 'r4').getByTestId('ai-backlog-target-quarter-cell')).toHaveValue(
+        def.quarter,
+      );
+      await expect(reviewRow(page, 'r4').getByTestId('ai-backlog-target-year-cell')).toHaveValue(
+        String(def.year),
       );
       await expect(reviewRow(page, 'r4').getByTestId('ai-backlog-target-from-file')).toHaveCount(0);
       // Инвариант «до apply записей нет»: в проекте только сеяное требование.

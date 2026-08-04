@@ -53,6 +53,7 @@ import { runPopulateStage } from './aiImport/populateStage.js';
 import { runRelateStage } from './aiImport/relateStage.js';
 import { buildBacklogPreview, parseBacklogXlsx, type BacklogRow } from './aiImport/backlogXlsx.js';
 import { runBacklogMatchStage } from './aiImport/backlogMatchStage.js';
+import { mergeBacklogOverrides } from './aiImport/backlogOverrides.js';
 import { runBacklogPopulateStage } from './aiImport/backlogPopulateStage.js';
 
 // Re-exported so the public surface (routes, tests) is unchanged after the
@@ -1041,8 +1042,17 @@ export class AiImportService {
    * 409 when the job is not on the review gate (a `failed` backlog job with a
    * saved review may re-apply — the populate is idempotent); 400 on unknown
    * rowIds. Nothing was written to the project before this call.
+   *
+   * task25: optional `overrides` (rowId → review-step edit) are merged into
+   * the mappings BEFORE populate ({@link mergeBacklogOverrides}, every failure
+   * → 400 with the rowId in the text) and persisted with the first checkpoint,
+   * so a re-apply after a populate crash uses the SAME edited values.
    */
-  async apply(jobId: string, rowIds: string[]): Promise<AiImportJobView> {
+  async apply(
+    jobId: string,
+    rowIds: string[],
+    overrides?: Record<string, unknown>,
+  ): Promise<AiImportJobView> {
     let job = this.deps.jobs.get(jobId);
     if (!job) {
       const cp = await this.deps.checkpoints?.findByJobId(jobId);
@@ -1066,6 +1076,12 @@ export class AiImportService {
     const unknown = rowIds.filter((id) => !known.has(id));
     if (unknown.length > 0) {
       throw new BadRequestError(`Неизвестные строки в выборе: ${unknown.slice(0, 5).join(', ')}.`);
+    }
+    if (overrides !== undefined && Object.keys(overrides).length > 0) {
+      // task25: validate against the REAL tree and merge before any write; a
+      // 400 here leaves the job untouched on the review gate.
+      const { requirements } = await this.deps.makeRequirementService(job.projectId).list();
+      job.backlogReview = mergeBacklogOverrides(review, overrides, new Set(rowIds), requirements);
     }
     const ctx = await this.ensureBacklogCtx(job);
     if (reApplicable) this.deps.jobs.reactivate(job);
@@ -1102,6 +1118,9 @@ export class AiImportService {
     });
     const rt = this.buildRuntime(job, counters, budget, ctx.recorder);
     try {
+      // task25: persist the (possibly override-merged) review BEFORE the first
+      // write — a crash mid-populate must resume with the same edited values.
+      rt.checkpoint();
       const dict = await this.deps.readDictionaries?.(job.projectId);
       const priorities = dict ? [...dict.priorities].sort((a, b) => a.order - b.order) : [];
       const outcome = await runBacklogPopulateStage(rt, {

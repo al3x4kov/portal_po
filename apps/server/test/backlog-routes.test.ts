@@ -196,6 +196,91 @@ describe('T-304 · backlog import routes', () => {
     expect(badConfirm.statusCode).toBe(422); // lone quarter fails the contract refine
   });
 
+  it('task25: apply с overrides — правки доезжают; невалидные → 400 с текстом', async () => {
+    const { body, contentType } = multipart({ filename: 'b.xlsx', content: XLSX });
+    const started = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${PROJECT}/ai-backlog-import`,
+      headers: { 'content-type': contentType },
+      payload: body,
+    });
+    const { jobId } = started.json() as { jobId: string };
+    await poll(jobId, (v) => v.status === 'awaiting-confirmation');
+    await app.inject({
+      method: 'POST',
+      url: `/api/ai-import/${jobId}/confirm`,
+      payload: { targetQuarter: 'Q2', targetYear: 2027 },
+    });
+    await poll(jobId, (v) => v.status === 'awaiting-review');
+
+    // Правка для строки вне выбора → 400, шаг выверки жив.
+    const outside = await app.inject({
+      method: 'POST',
+      url: `/api/ai-import/${jobId}/apply`,
+      payload: { rowIds: ['r2'], overrides: { r3: { businessName: 'x' } } },
+    });
+    expect(outside.statusCode).toBe(400);
+    expect((outside.json() as { message: string }).message).toMatch(/«r3»/);
+
+    // Невалидное содержимое правки (год вне диапазона) → 400 с rowId.
+    const badYear = await app.inject({
+      method: 'POST',
+      url: `/api/ai-import/${jobId}/apply`,
+      payload: {
+        rowIds: ['r2'],
+        overrides: { r2: { targetQuarter: 'Q1', targetYear: 1999 } },
+      },
+    });
+    expect(badYear.statusCode).toBe(400);
+    expect((badYear.json() as { message: string }).message).toMatch(/«r2»/);
+
+    // Валидные правки: имя + срок + свой новый корневой узел.
+    const applied = await app.inject({
+      method: 'POST',
+      url: `/api/ai-import/${jobId}/apply`,
+      payload: {
+        rowIds: ['r2', 'r3'],
+        overrides: {
+          r2: {
+            businessName: 'Импортированный отчёт',
+            parent: { kind: 'new', name: 'Витрина отчётов' },
+            targetQuarter: 'Q4',
+            targetYear: 2028,
+          },
+        },
+      },
+    });
+    expect(applied.statusCode).toBe(200);
+    const done = await poll(jobId, (v) => v.status === 'succeeded');
+    expect(done.backlogReview?.mappings.find((m) => m.rowId === 'r2')).toMatchObject({
+      businessName: 'Импортированный отчёт',
+      targetQuarter: 'Q4',
+      targetYear: 2028,
+    });
+
+    const reqs = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${PROJECT}/requirements`,
+    });
+    const requirements = (
+      reqs.json() as {
+        requirements: Array<{
+          name: string;
+          slug: string;
+          targetQuarter?: string;
+          targetYear?: number;
+          links?: Array<{ type: string; targetSlug: string }>;
+        }>;
+      }
+    ).requirements;
+    const byName = new Map(requirements.map((r) => [r.name, r]));
+    const created = byName.get('Импортированный отчёт');
+    expect(created).toMatchObject({ targetQuarter: 'Q4', targetYear: 2028 });
+    const node = byName.get('Витрина отчётов');
+    expect(node).toBeDefined();
+    expect(created?.links).toContainEqual({ type: 'CHILD_OF', targetSlug: node!.slug });
+  });
+
   it('no file in the multipart → 400; unknown project → 404', async () => {
     const empty = await app.inject({
       method: 'POST',
