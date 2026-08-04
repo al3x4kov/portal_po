@@ -191,10 +191,13 @@ export const aiImportApi = {
     file: File,
     model?: string,
     inferLinks?: boolean,
+    buildTree?: boolean,
   ): Promise<AiImportStartResponse> => {
     const fd = new FormData();
     if (model) fd.append('model', model);
     if (inferLinks) fd.append('inferLinks', 'true');
+    // Логическое дерево «навыка AI PO»: то же правило — поле только при включении.
+    if (buildTree) fd.append('buildTree', 'true');
     fd.append('file', file);
     return apiRequest(`/projects/${encodeURIComponent(projectId)}/ai-import`, {
       method: 'POST',

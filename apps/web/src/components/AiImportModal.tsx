@@ -61,6 +61,13 @@ const INFER_LINKS_HINT =
   'Деревья ФТ и НФТ строятся всегда; эта опция дополнительно связывает НФТ ' +
   'с ФТ по смыслу. Возможны неточные связи; новые требования не добавляются.';
 
+const BUILD_TREE_LABEL = 'Собрать логическое дерево требований (навык AI Product Owner)';
+const BUILD_TREE_HINT =
+  'Модель-PO спроектирует бизнес-домены и разделы и разложит по ним все ФТ/НФТ ' +
+  'вместо повторения структуры файлов документации. Группирующие узлы будут созданы ' +
+  'как требования с пометкой «ИИ». Рекомендуется для больших архивов — без этой опции ' +
+  'сотни требований чаще остаются плоским списком.';
+
 /** Name of the optional relate step shown in the progress/result view. */
 const RELATE_STEP_LABEL = 'Проставление связей ФТ↔НФТ';
 
@@ -163,6 +170,8 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   const [modelOverride, setModelOverride] = useState<string | null>(null);
   // B2: optional AI relate step (ФТ↔НФТ links), off by default.
   const [inferLinks, setInferLinks] = useState(false);
+  // buildTree: логическое дерево «навыка AI PO» вместо легаси-структуризации.
+  const [buildTree, setBuildTree] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   // §2.18.1: «Остановить» is guarded by its own mini-confirm (not instant).
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
@@ -248,7 +257,7 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
     if (!file || !modelReady || startMut.isPending) return;
     setStartError(null);
     startMut.mutate(
-      { file, model: modelOverride ?? undefined, inferLinks },
+      { file, model: modelOverride ?? undefined, inferLinks, buildTree },
       {
         onSuccess: (res) => setJobId(res.jobId),
         onError: (err) => setStartError(errorMessage(err)),
@@ -737,6 +746,21 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
 
           {/* A3: inline notice — selection reset after refresh / refresh failure. */}
           <ModelListNotice testid="ai-models-notice-import" notice={modelsRefresh.notice} />
+
+          {/* buildTree: логическое дерево «навыка AI PO» (opt-in). */}
+          <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-primary)]"
+              data-testid="ai-import-build-tree"
+              checked={buildTree}
+              onChange={(e) => setBuildTree(e.target.checked)}
+            />
+            <span>
+              {BUILD_TREE_LABEL}
+              <span className="hint mt-0.5 block">{BUILD_TREE_HINT}</span>
+            </span>
+          </label>
 
           {/* B2 + §2.18.4: opt-in AI relate step, human wording + honest hint. */}
           <label className="flex cursor-pointer items-start gap-2.5 text-sm">

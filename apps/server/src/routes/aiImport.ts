@@ -8,6 +8,7 @@ import { z } from 'zod';
 import {
   aiBacklogApplyBodySchema,
   aiImportConfirmBodySchema,
+  aiImportBuildTreeFieldSchema,
   aiImportInferLinksFieldSchema,
   DomainError,
   type AiImportJobList,
@@ -59,6 +60,7 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
     let uploadPath: string | undefined;
     let model: string | undefined;
     let inferLinksRaw: string | undefined;
+    let buildTreeRaw: string | undefined;
     // Translate a busboy parse error into BAD_REQUEST (as routes/archive.ts).
     try {
       const parts = req.parts();
@@ -84,6 +86,10 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
           // todo_16 B2: optional boolean flag, same text-field style as `model`.
           const value = String(part.value).trim();
           if (value.length > 0) inferLinksRaw = value;
+        } else if (part.fieldname === 'buildTree') {
+          // Логическое дерево «навык AI PO»: тот же стиль текстового поля.
+          const value = String(part.value).trim();
+          if (value.length > 0) buildTreeRaw = value;
         }
       }
     } catch (err) {
@@ -104,7 +110,15 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
         }
         inferLinks = parsed.data;
       }
-      const started = await service.start(id, uploadPath, model, inferLinks);
+      let buildTree = false;
+      if (buildTreeRaw !== undefined) {
+        const parsed = aiImportBuildTreeFieldSchema.safeParse(buildTreeRaw);
+        if (!parsed.success) {
+          throw new BadRequestError('Поле buildTree должно быть "true" или "false".');
+        }
+        buildTree = parsed.data;
+      }
+      const started = await service.start(id, uploadPath, model, inferLinks, buildTree);
       reply.code(202);
       return started;
     } catch (err) {

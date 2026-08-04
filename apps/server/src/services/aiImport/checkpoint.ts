@@ -118,6 +118,8 @@ export const aiJobCheckpointSchema = z.object({
   projectId: z.string().min(1),
   model: z.string().min(1),
   inferLinks: z.boolean(),
+  /** buildTree (навык AI PO); absent in older checkpoints ⇒ false. */
+  buildTree: z.boolean().optional(),
   startedAt: z.string(),
   finishedAt: z.string().optional(),
   status: z.enum(AI_IMPORT_STATUSES),

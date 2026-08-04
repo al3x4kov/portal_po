@@ -48,6 +48,7 @@ import { runEstimateStage } from './aiImport/estimateStage.js';
 import { runAnalyzeStage, type AnalyzeResume } from './aiImport/analyzeStage.js';
 import { runDedupeStage } from './aiImport/dedupe.js';
 import { runStructureStage } from './aiImport/structureStage.js';
+import { runPoStructureStage } from './aiImport/poStructureStage.js';
 import { runAggregateStage } from './aiImport/aggregateStage.js';
 import { runPopulateStage } from './aiImport/populateStage.js';
 import { runRelateStage } from './aiImport/relateStage.js';
@@ -95,6 +96,10 @@ export interface AiImportServiceDeps {
   chunkChars?: number;
   /** Structure batch size override for tests; production uses the core constant (50). */
   structureBatch?: number;
+  /** buildTree (PO skill): taxonomy-round size override for tests; production uses 150. */
+  poTaxonomyBatch?: number;
+  /** buildTree (PO skill): assignment-batch size override for tests; production uses 40. */
+  poAssignBatch?: number;
   /** todo_20 T-209: injectable backoff sleep (tests make it instant). */
   sleep?: (ms: number) => Promise<void>;
   /** todo_20 T-209: injectable jitter source. */
@@ -134,6 +139,8 @@ interface RunContext {
   baseURL: string;
   preset: AiModelPreset;
   inferLinks: boolean;
+  /** buildTree: логическое дерево «навыка AI PO» вместо легаси-этапа structure. */
+  buildTree: boolean;
   recorder: CheckpointRecorder;
   fresh?: { archivePath: string; archiveBytes: number };
   resumed?: { checkpoint: AiJobCheckpoint };
@@ -172,6 +179,7 @@ export class AiImportService {
     archivePath: string,
     modelOverride?: string,
     inferLinks = false,
+    buildTree = false,
   ): Promise<AiImportStartResponse> {
     if (!(await this.deps.projectExists(projectId))) {
       throw new NotFoundError(`Project not found: "${projectId}".`);
@@ -202,6 +210,7 @@ export class AiImportService {
         projectId,
         model,
         inferLinks,
+        buildTree,
         startedAt: job.startedAt ?? this.deps.now(),
         status: 'running',
         stage: 'unpack',
@@ -219,6 +228,7 @@ export class AiImportService {
       baseURL: cfg.baseURL,
       preset,
       inferLinks,
+      buildTree,
       recorder,
       fresh: { archivePath, archiveBytes: stat.size },
     })
@@ -302,6 +312,7 @@ export class AiImportService {
       baseURL: cfg.baseURL,
       preset,
       inferLinks: checkpoint.inferLinks,
+      buildTree: checkpoint.buildTree ?? false,
       recorder,
       resumed: { checkpoint },
     })
@@ -1381,22 +1392,44 @@ export class AiImportService {
         if (state.analyze) state.analyze.extracted = [...deduped.extracted];
       });
 
-      const structured = await runStructureStage(rt, {
-        extracted: deduped.extracted,
-        archiveMap,
-        client: analyzed.client,
-        model: ctx.model,
-        apiKey: ctx.apiKey,
-        preset: ctx.preset,
-        structureBatch: this.deps.structureBatch ?? AI_IMPORT_STRUCTURE_BATCH,
-      });
-      if (!structured.ok) return;
+      // buildTree (навык AI PO): вместо зеркалирования структуры документации
+      // модель проектирует бизнес-таксономию и раскладывает по ней требования;
+      // группирующие узлы создаются как обычные требования через populate.
+      let structureParentByKey: ReadonlyMap<string, string | null>;
+      let extractedForAggregate = deduped.extracted;
+      if (ctx.buildTree) {
+        const poStructured = await runPoStructureStage(rt, {
+          extracted: deduped.extracted,
+          archiveMap,
+          client: analyzed.client,
+          model: ctx.model,
+          apiKey: ctx.apiKey,
+          preset: ctx.preset,
+          taxonomyBatch: this.deps.poTaxonomyBatch,
+          assignBatch: this.deps.poAssignBatch,
+        });
+        if (!poStructured.ok) return;
+        structureParentByKey = poStructured.structureParentByKey;
+        extractedForAggregate = [...poStructured.groups, ...deduped.extracted];
+      } else {
+        const structured = await runStructureStage(rt, {
+          extracted: deduped.extracted,
+          archiveMap,
+          client: analyzed.client,
+          model: ctx.model,
+          apiKey: ctx.apiKey,
+          preset: ctx.preset,
+          structureBatch: this.deps.structureBatch ?? AI_IMPORT_STRUCTURE_BATCH,
+        });
+        if (!structured.ok) return;
+        structureParentByKey = structured.structureParentByKey;
+      }
       rt.checkpoint();
 
       const requirementService = this.deps.makeRequirementService(job.projectId);
       const aggregated = await runAggregateStage(rt, {
-        extracted: deduped.extracted,
-        structureParentByKey: structured.structureParentByKey,
+        extracted: extractedForAggregate,
+        structureParentByKey,
         requirementService,
       });
       if (!aggregated.ok) return;

@@ -277,11 +277,18 @@ import {
   AI_IMPORT_STRUCTURE_BATCH,
   AI_IMPORT_STRUCTURE_MAX_TOKENS,
   AI_IMPORT_TEMPERATURE,
+  AI_IMPORT_PO_ASSIGN_BATCH,
+  AI_IMPORT_PO_GROUP_NAME_MAX,
+  AI_IMPORT_PO_MAX_CHILDREN,
+  AI_IMPORT_PO_MAX_ROOTS,
+  AI_IMPORT_PO_TAXONOMY_BATCH,
   aiExtractedRequirementSchema,
+  aiImportBuildTreeFieldSchema,
   aiImportJobViewSchema,
   aiImportLogEntrySchema,
   aiImportResultSchema,
   aiImportStartResponseSchema,
+  aiPoAssignmentSchema,
   aiStructureNodeSchema,
 } from './ai.js';
 import { requirementCreateShape } from './contracts.js';
@@ -376,6 +383,38 @@ describe('T13 aiStructureNodeSchema (structure-stage answer contract)', () => {
       source: 'a.md § 1',
     });
     expect(node).toEqual({ type: 'FUNCTION', name: 'Вход', parentName: null });
+  });
+});
+
+describe('buildTree: логическое дерево «навык AI PO» — контракт', () => {
+  it('aiImportBuildTreeFieldSchema принимает только "true"/"false" и превращает в boolean', () => {
+    expect(aiImportBuildTreeFieldSchema.parse('true')).toBe(true);
+    expect(aiImportBuildTreeFieldSchema.parse('false')).toBe(false);
+    expect(aiImportBuildTreeFieldSchema.safeParse('1').success).toBe(false);
+    expect(aiImportBuildTreeFieldSchema.safeParse('').success).toBe(false);
+  });
+
+  it('константы PO-этапа: батчи и капы дерева', () => {
+    expect(AI_IMPORT_PO_TAXONOMY_BATCH).toBe(150);
+    expect(AI_IMPORT_PO_ASSIGN_BATCH).toBe(40);
+    expect(AI_IMPORT_PO_MAX_ROOTS).toBe(16);
+    expect(AI_IMPORT_PO_MAX_CHILDREN).toBe(20);
+    expect(AI_IMPORT_PO_GROUP_NAME_MAX).toBe(120);
+  });
+
+  it('aiPoAssignmentSchema: узел по id либо явный null (корень)', () => {
+    expect(aiPoAssignmentSchema.parse({ type: 'FUNCTION', name: 'Вход', node: 'F1.2' })).toEqual({
+      type: 'FUNCTION',
+      name: 'Вход',
+      node: 'F1.2',
+    });
+    expect(aiPoAssignmentSchema.parse({ type: 'NFR', name: 'SLA', node: null }).node).toBeNull();
+    // node обязателен (опущенное поле — невалидный ответ, батч ретраится).
+    expect(aiPoAssignmentSchema.safeParse({ type: 'NFR', name: 'SLA' }).success).toBe(false);
+    // Длинный «id» — галлюцинация, не узел таксономии.
+    expect(
+      aiPoAssignmentSchema.safeParse({ type: 'NFR', name: 'SLA', node: 'x'.repeat(21) }).success,
+    ).toBe(false);
   });
 });
 

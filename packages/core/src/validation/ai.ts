@@ -1078,3 +1078,57 @@ export const aiStructureNodeSchema = z.object({
   parentName: z.string().nullable(),
 });
 export type AiStructureNode = z.infer<typeof aiStructureNodeSchema>;
+
+/*
+ * ── Логическое дерево «навык AI Product Owner» (buildTree) ─────────────────
+ * Opt-in замена этапа structure для больших импортов: модель-«PO» сначала
+ * проектирует бизнес-таксономию (домены → разделы, map-reduce по батчам имён),
+ * затем раскладывает по ней ВСЕ извлечённые требования; портал создаёт
+ * группирующие узлы как обычные требования (origin AI_DOCS). Прежний режим
+ * (structure по структуре документации) не мог создавать группы и поэтому
+ * деградировал в плоский список на сотнях требований.
+ */
+
+/**
+ * Multipart text field `buildTree` of `POST /api/projects/:id/ai-import`
+ * (same style as `inferLinks`). Default: absent = false — the legacy
+ * documentation-mirror structure stage keeps running unchanged.
+ */
+export const aiImportBuildTreeFieldSchema = z
+  .enum(['true', 'false'])
+  .transform((value) => value === 'true');
+
+/**
+ * Requirement names per taxonomy-design round. Names-only lines are short
+ * (~60 chars), so a round of 150 stays well inside a small context window
+ * while keeping the number of rounds low even for ~1000 requirements.
+ */
+export const AI_IMPORT_PO_TAXONOMY_BATCH = 150;
+/**
+ * Requirements per assignment call. One answer element is ~30–50 tokens; a
+ * batch of 40 fits the default answer budgets of weak models with head-room.
+ */
+export const AI_IMPORT_PO_ASSIGN_BATCH = 40;
+/** Max root domains per requirement type — a PO tree wider than this is unreadable. */
+export const AI_IMPORT_PO_MAX_ROOTS = 16;
+/** Max subgroups under one root domain. */
+export const AI_IMPORT_PO_MAX_CHILDREN = 20;
+/**
+ * Max length of a group-node name. Requirement names allow 200 chars, but a
+ * grouping section longer than this is a model failure — it is truncated.
+ */
+export const AI_IMPORT_PO_GROUP_NAME_MAX = 120;
+
+/**
+ * One element of the assignment answer: a requirement of the batch (echoed
+ * type + name) placed into a taxonomy node by its short id («F1», «F1.2»,
+ * «N3»…). `node: null` — the model leaves the requirement at the root.
+ * Unknown ids are dropped by the server with a warn (the requirement stays a
+ * root) — exactly like unknown parents of the legacy structure stage.
+ */
+export const aiPoAssignmentSchema = z.object({
+  type: z.enum(REQUIREMENT_TYPES),
+  name: z.string().min(1).max(200),
+  node: z.string().max(20).nullable(),
+});
+export type AiPoAssignment = z.infer<typeof aiPoAssignmentSchema>;

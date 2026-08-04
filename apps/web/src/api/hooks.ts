@@ -417,19 +417,24 @@ export const AI_IMPORT_POLL_MS = 800;
 
 /**
  * Starts an AI-import job: uploads the archive, gets back `{ jobId }`.
- * `inferLinks` (todo_16 B2) opts into the AI relate step; when falsy the call
+ * `inferLinks` (todo_16 B2) opts into the AI relate step, `buildTree` — into
+ * the AI-PO logical tree; when falsy the call
  * keeps the exact pre-B2 shape so the off-path behaviour stays byte-identical.
  */
 export function useStartAiImport(projectId: string) {
   return useMutation<
     AiImportStartResponse,
     Error,
-    { file: File; model?: string; inferLinks?: boolean }
+    { file: File; model?: string; inferLinks?: boolean; buildTree?: boolean }
   >({
-    mutationFn: ({ file, model, inferLinks }) =>
-      inferLinks
-        ? aiImportApi.start(projectId, file, model, true)
-        : aiImportApi.start(projectId, file, model),
+    // Флаги добавляют аргументы только включёнными, поэтому off-path вызов
+    // (и его запрос) остаётся байт-в-байт прежним.
+    mutationFn: ({ file, model, inferLinks, buildTree }) =>
+      buildTree
+        ? aiImportApi.start(projectId, file, model, inferLinks ?? false, true)
+        : inferLinks
+          ? aiImportApi.start(projectId, file, model, true)
+          : aiImportApi.start(projectId, file, model),
   });
 }
 
