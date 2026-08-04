@@ -15,7 +15,7 @@ import type { AiChatMessage } from '../aiPrompt.js';
 import { extractJsonArray } from '../aiImportPrompt.js';
 import { AI_IMPORT_JSON_ATTEMPTS } from './constants.js';
 import { normalizeRequirementName } from './dedupe.js';
-import { sanitize } from './text.js';
+import { sanitize, shortenText } from './text.js';
 import type { AiCallErrorClass } from './aiCall.js';
 import type { AiImportRuntime } from './types.js';
 import type { BacklogRow } from './backlogXlsx.js';
@@ -246,12 +246,43 @@ export async function runBacklogMatchStage(
     );
   }
 
+  /** Human row reference for log lines: the backlog key when present, else rowId. */
+  const rowRef = (row: BacklogRow): string => row.key ?? row.rowId;
+
+  /**
+   * One human-readable per-row log line «исходное → преобразованное» (запрос
+   * PO по пилоту): source formulation, business name, where the row lands in
+   * the tree, the effective target and the duplicate verdict — one line each.
+   */
+  const describeMapping = (row: BacklogRow, mapping: AiBacklogMapping): string => {
+    const typeLabel = mapping.type === 'FUNCTION' ? 'ФТ' : 'НФТ';
+    const parent =
+      mapping.parent.kind === 'existing'
+        ? `узел: «${mapping.parent.name}» (существующий)`
+        : mapping.parent.parentName != null
+          ? `новый узел: «${mapping.parent.name}» (под «${mapping.parent.parentName}»)`
+          : `новый корневой узел: «${mapping.parent.name}»`;
+    const target = `срок: ${mapping.targetQuarter} ${mapping.targetYear}${mapping.targetFromFile ? ' (из файла)' : ''}`;
+    const duplicate =
+      mapping.duplicateOf !== undefined
+        ? ` · дубль существующего «${mapping.duplicateOf}» — при записи будет пропущена`
+        : '';
+    return (
+      `Строка ${rowRef(row)}: «${shortenText(row.text)}» → ${typeLabel} «${mapping.businessName}» · ` +
+      `${parent} · ${target}${duplicate}`
+    );
+  };
+
   /** Accept one validated answer into the mapping (deterministic post-check). */
-  const accept = (answer: AiBacklogMatchAnswer): boolean => {
+  const accept = (answer: AiBacklogMatchAnswer): 'accepted' | 'rejected' | 'repeat' => {
     const row = rowById.get(answer.rowId);
-    if (!row) return false;
+    if (!row) return 'rejected';
+    // Повторный ответ модели по уже размеченной строке (дважды в одном ответе
+    // или в другом батче того же прогона): первый ответ побеждает — молчаливая
+    // перезапись выглядела в логе «дублирующей операцией» над строкой.
+    if (mappingByRowId.has(answer.rowId)) return 'repeat';
     const businessName = answer.businessName.trim();
-    if (businessName.length === 0) return false;
+    if (businessName.length === 0) return 'rejected';
 
     let parent: AiBacklogMapping['parent'] | undefined;
     const wantsExisting = answer.parentExisting != null && answer.parentExisting.trim().length > 0;
@@ -263,7 +294,7 @@ export async function runBacklogMatchStage(
         // Hallucinated existing parent → a NEW root business node (допущение T-303).
         rt.log(
           'warn',
-          `Строка ${answer.rowId}: узел «${answer.parentExisting!.trim()}» не найден в дереве — будет создан новым корневым узлом.`,
+          `Строка ${rowRef(row)}: узел «${answer.parentExisting!.trim()}» не найден в дереве — будет создан новым корневым узлом.`,
         );
         parent = {
           kind: 'new',
@@ -283,7 +314,7 @@ export async function runBacklogMatchStage(
         } else {
           rt.log(
             'warn',
-            `Строка ${answer.rowId}: родитель нового узла «${rawParent}» не найден — узел станет корневым.`,
+            `Строка ${rowRef(row)}: родитель нового узла «${rawParent}» не найден — узел станет корневым.`,
           );
         }
       }
@@ -293,7 +324,7 @@ export async function runBacklogMatchStage(
         parentName: newNodes.get(normalizeRequirementName(answer.parentNew.name))!.parentName,
       };
     } else {
-      return false; // no parent proposed — the row goes back to the queue
+      return 'rejected'; // no parent proposed — the row goes back to the queue
     }
 
     let duplicateOf: string | undefined;
@@ -304,12 +335,12 @@ export async function runBacklogMatchStage(
       } else {
         rt.log(
           'warn',
-          `Строка ${answer.rowId}: дубль «${answer.duplicateOf.trim()}» не найден среди требований — пометка снята.`,
+          `Строка ${rowRef(row)}: дубль «${answer.duplicateOf.trim()}» не найден среди требований — пометка снята.`,
         );
       }
     }
 
-    mappingByRowId.set(row.rowId, {
+    const mapping: AiBacklogMapping = {
       rowId: row.rowId,
       ...(row.key !== undefined ? { key: row.key } : {}),
       sourceText: row.text,
@@ -320,17 +351,33 @@ export async function runBacklogMatchStage(
       targetQuarter: row.target?.quarter ?? input.target.quarter,
       targetYear: row.target?.year ?? input.target.year,
       targetFromFile: row.target !== undefined,
-    });
-    return true;
+    };
+    mappingByRowId.set(row.rowId, mapping);
+    rt.log('info', describeMapping(row, mapping));
+    return 'accepted';
   };
 
-  let processedBatches = 0;
+  // Честная нумерация: sentBatches растёт с КАЖДОЙ отправкой. Повторы и
+  // дробления получают явную пометку — прежняя метка застревала на
+  // «батч N/N+», и в логе пилота повторные отправки выглядели дублирующими
+  // операциями над одними и теми же строками.
+  let sentBatches = 0;
   while (queue.length > 0) {
     if (rt.cancelled()) return { ok: false };
     const batch = queue.shift()!;
     const batchRowIds = new Set(batch.map((row) => row.rowId));
-    const label = `Разметка бэклога (батч ${Math.min(processedBatches + 1, totalBatches)}/${totalBatches}${queue.length + processedBatches + 1 > totalBatches ? '+' : ''})`;
-    rt.log('info', `${label}: строк ${batch.length} — запрос к модели…`);
+    sentBatches += 1;
+    const label =
+      sentBatches <= totalBatches
+        ? `Разметка бэклога (батч ${sentBatches}/${totalBatches})`
+        : `Разметка бэклога (доп. батч ${sentBatches} — повторная отправка)`;
+    rt.log(
+      'info',
+      `${label}: строк ${batch.length} (${batch
+        .slice(0, 8)
+        .map((row) => rowRef(row))
+        .join(', ')}${batch.length > 8 ? ', …' : ''}) — запрос к модели…`,
+    );
 
     const outcome = await rt.chat<AiBacklogMatchAnswer[]>({
       client: input.client,
@@ -363,13 +410,26 @@ export async function runBacklogMatchStage(
       return { ok: false };
     }
 
-    const accepted =
-      outcome.kind === 'ok' ? outcome.value.filter((answer) => accept(answer)).length : 0;
+    let accepted = 0;
+    let repeats = 0;
+    if (outcome.kind === 'ok') {
+      for (const answer of outcome.value) {
+        const verdict = accept(answer);
+        if (verdict === 'accepted') accepted += 1;
+        else if (verdict === 'repeat') repeats += 1;
+      }
+    }
+    if (repeats > 0) {
+      rt.log(
+        'warn',
+        `${label}: повторных ответов по уже размеченным строкам: ${repeats} — использован первый ответ, повторы проигнорированы.`,
+      );
+    }
     const unanswered = batch.filter((row) => !mappingByRowId.has(row.rowId));
     if (unanswered.length > 0) {
       if (accepted === 0 && unanswered.length === 1) {
         rt.failCode('MODEL-01', {
-          message: `Модель не смогла разметить строку бэклога ${unanswered[0]!.rowId} даже отдельным запросом.`,
+          message: `Модель не смогла разметить строку бэклога ${rowRef(unanswered[0]!)} даже отдельным запросом.`,
         });
         return { ok: false };
       }
@@ -382,12 +442,17 @@ export async function runBacklogMatchStage(
       }
       rt.log(
         'warn',
-        `${label}: без ответа осталось строк: ${unanswered.length} — отправлю повторно.`,
+        `${label}: модель не ответила по строкам: ${unanswered
+          .slice(0, 8)
+          .map((row) => rowRef(row))
+          .join(
+            ', ',
+          )}${unanswered.length > 8 ? ` и ещё ${unanswered.length - 8}` : ''} — отправлю их повторно.`,
       );
       queue.push(unanswered);
     }
 
-    processedBatches += 1;
+    rt.log('info', `Размечено строк: ${mappingByRowId.size} из ${input.rows.length}.`);
     job.progress = Math.min(
       80,
       10 + Math.round((70 * mappingByRowId.size) / Math.max(1, input.rows.length)),

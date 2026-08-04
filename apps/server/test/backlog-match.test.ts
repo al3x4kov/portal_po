@@ -288,6 +288,75 @@ describe('T-303 · backlog match stage', () => {
     expect(outcome.review.mappings).toHaveLength(45);
   });
 
+  it('per-row лог «исходное → преобразованное»: строка, бизнес-имя, узел, срок', async () => {
+    const all = rows(2, 2); // у AB-2 срок из файла
+    const harness = makeHarness([answerFor(all)]);
+    const outcome = await runBacklogMatchStage(harness.rt, input(harness, all));
+    expect(outcome.ok).toBe(true);
+    const infos = harness.job.log.filter((l) => l.level === 'info').map((l) => l.message);
+    expect(infos).toContain(
+      'Строка AB-1: «Формулировка задачи номер 1» → ФТ «Бизнес r2» · ' +
+        'узел: «История изменений» (существующий) · срок: Q1 2027',
+    );
+    // Срок из файла помечен явно; итоговая строка прогресса присутствует.
+    expect(
+      infos.some((m) => m.startsWith('Строка AB-2:') && m.includes('Q3 2027 (из файла)')),
+    ).toBe(true);
+    expect(infos).toContain('Размечено строк: 2 из 2.');
+  });
+
+  it('повторный ответ модели по той же строке: первый побеждает, warn со счётчиком', async () => {
+    const all = rows(1);
+    const twice = JSON.stringify([
+      {
+        rowId: 'r2',
+        businessName: 'Первый вариант',
+        type: 'FUNCTION',
+        parentExisting: 'История изменений',
+        parentNew: null,
+        duplicateOf: null,
+      },
+      {
+        rowId: 'r2',
+        businessName: 'Второй вариант',
+        type: 'FUNCTION',
+        parentExisting: 'Просмотр диффа',
+        parentNew: null,
+        duplicateOf: null,
+      },
+    ]);
+    const harness = makeHarness([twice]);
+    const outcome = await runBacklogMatchStage(harness.rt, input(harness, all));
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.review.mappings).toHaveLength(1);
+    expect(outcome.review.mappings[0]!.businessName).toBe('Первый вариант');
+    const warns = harness.job.log.filter((l) => l.level === 'warn').map((l) => l.message);
+    expect(warns.some((w) => w.includes('повторных ответов по уже размеченным строкам: 1'))).toBe(
+      true,
+    );
+  });
+
+  it('переотправка без ответа: warn называет строки, доп. батч помечен явно', async () => {
+    const all = rows(3);
+    // Батч 1 (r2,r3): ответ только по r2; батч 2 (r4): полный; доп. батч: r3.
+    const harness = makeHarness([answerFor([all[0]!]), answerFor([all[2]!]), answerFor([all[1]!])]);
+    const outcome = await runBacklogMatchStage(harness.rt, input(harness, all, { batchSize: 2 }));
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.review.mappings).toHaveLength(3);
+    const messages = harness.job.log.map((l) => l.message);
+    expect(
+      messages.some(
+        (m) => m.includes('модель не ответила по строкам: AB-2') && m.includes('повторно'),
+      ),
+    ).toBe(true);
+    // Честная нумерация: третий отправленный батч — явно «доп.», а не «батч 2/2».
+    expect(
+      messages.some((m) => m.includes('доп. батч 3 — повторная отправка') && m.includes('AB-2')),
+    ).toBe(true);
+  });
+
   it('fatal upstream errors map to registry codes (auth → CFG-02)', async () => {
     const all = rows(2);
     const harness = makeHarness([{ upstream: 'auth' }]);

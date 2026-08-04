@@ -12,6 +12,15 @@ export function formatMb(bytes: number): string {
 }
 
 /**
+ * One-line preview of a source formulation for log lines («исходное →
+ * преобразованное»): whitespace collapsed, cut at `max` chars with an ellipsis.
+ */
+export function shortenText(text: string, max = 80): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  return oneLine.length <= max ? oneLine : `${oneLine.slice(0, max - 1).trimEnd()}…`;
+}
+
+/**
  * Diagnostic for «no documentation files» (spec §4: readable, actionable):
  * instead of a mute refusal, tell the user WHAT the archive actually holds —
  * total file count, extension breakdown, and unsafe-entry count when present.
