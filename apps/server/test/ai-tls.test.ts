@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Agent, ProxyAgent } from 'undici';
+import { Agent, EnvHttpProxyAgent, ProxyAgent } from 'undici';
 import { APIConnectionTimeoutError } from 'openai';
 import { buildAiDispatcher, createOpenAiClientFactory } from '../src/services/openaiClient.js';
 import { AiHubService } from '../src/services/AiHubService.js';
@@ -46,8 +46,26 @@ describe('buildAiDispatcher (env → scoped TLS/proxy)', () => {
     }
   });
 
-  it('AI_HUB_PROXY → a ProxyAgent', () => {
+  it('AI_HUB_PROXY → a ProxyAgent (принудительный, NO_PROXY не применяется)', () => {
     expect(buildAiDispatcher({ AI_HUB_PROXY: 'http://127.0.0.1:8888' })).toBeInstanceOf(ProxyAgent);
+  });
+
+  it('HTTPS_PROXY из окружения → EnvHttpProxyAgent (уважает NO_PROXY)', () => {
+    // Раньше здесь был ProxyAgent, который гнал в прокси и запросы к
+    // 127.0.0.1/localhost (локальный Ollama/vLLM/e2e-стаб) — хаб за
+    // корпоративным прокси становился недостижим.
+    const d = buildAiDispatcher({
+      HTTPS_PROXY: 'http://127.0.0.1:8888',
+      NO_PROXY: 'localhost,127.0.0.1',
+    });
+    expect(d).toBeInstanceOf(EnvHttpProxyAgent);
+    expect(d).not.toBeInstanceOf(ProxyAgent);
+  });
+
+  it('lowercase https_proxy/no_proxy работают так же', () => {
+    expect(
+      buildAiDispatcher({ https_proxy: 'http://127.0.0.1:8888', no_proxy: 'localhost' }),
+    ).toBeInstanceOf(EnvHttpProxyAgent);
   });
 });
 
