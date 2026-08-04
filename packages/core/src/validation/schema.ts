@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  AI_ORIGINS,
   CRITICALITIES,
   LINK_TYPES,
   PRIORITY_COLORS,
@@ -121,6 +122,9 @@ export const requirementSchema = z.object({
   infoItems: z.array(infoItemSchema).optional(),
   sources: z.array(sourceEntrySchema).optional(),
   releaseDate: isoDateSchema.optional(),
+  // task26 provenance: written by the server (AI import) / the review toggle.
+  origin: z.enum(AI_ORIGINS).optional(),
+  aiValidated: z.boolean().optional(),
 });
 
 export type RequirementInput = z.input<typeof requirementSchema>;

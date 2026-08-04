@@ -56,8 +56,17 @@ export interface RequirementCreateInput {
   releaseDate?: string;
 }
 
-/** Body for PUT /api/projects/:id/requirements/:rid (type is immutable). */
-export type RequirementUpdateInput = Omit<RequirementCreateInput, 'type'>;
+/**
+ * Body for PUT /api/projects/:id/requirements/:rid (type is immutable).
+ *
+ * task26: `aiValidated` is the ONLY provenance field a client may change —
+ * `origin` is server-owned (set by AI import) and is stripped from update
+ * payloads, so it is deliberately absent here.
+ */
+export type RequirementUpdateInput = Omit<RequirementCreateInput, 'type'> & {
+  /** task26: человек проверил ИИ-требование («проверено» в карточке). */
+  aiValidated?: boolean;
+};
 
 /* ── todo_19 · Project dictionaries (priorities + sources) ─────────────────── */
 

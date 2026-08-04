@@ -75,6 +75,14 @@ interface UiState {
   sourceFilter: Set<string>;
   setSourceFilter: (sources: Iterable<string>) => void;
 
+  /**
+   * task26: «Только непроверенные (ИИ)» — keep just the requirements an AI
+   * import created and nobody confirmed yet. false = no such filter.
+   */
+  aiPendingFilter: boolean;
+  setAiPendingFilter: (on: boolean) => void;
+  toggleAiPendingFilter: () => void;
+
   /** Clear every applied filter at once (UX-6 "Сбросить фильтры"). */
   resetFilters: () => void;
 
@@ -142,11 +150,16 @@ export const useUiStore = create<UiState>((set, get) => ({
   sourceFilter: new Set<string>(),
   setSourceFilter: (sources) => set({ sourceFilter: new Set(sources) }),
 
+  aiPendingFilter: false,
+  setAiPendingFilter: (aiPendingFilter) => set({ aiPendingFilter }),
+  toggleAiPendingFilter: () => set((state) => ({ aiPendingFilter: !state.aiPendingFilter })),
+
   resetFilters: () =>
     set({
       criticalityFilter: new Set<Criticality>(),
       implementationFilter: new Set<ImplStatus>(),
       sourceFilter: new Set<string>(),
+      aiPendingFilter: false,
     }),
 
   modal: null,

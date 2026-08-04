@@ -1,7 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { TriangleAlert } from 'lucide-react';
-import { SOURCE_PRESETS, type Requirement, type RequirementType } from '@po/core';
+import {
+  countAiPendingReview,
+  SOURCE_PRESETS,
+  type Requirement,
+  type RequirementType,
+} from '@po/core';
 import {
   useProject,
   useRequirements,
@@ -51,6 +56,7 @@ export function Main(): React.ReactElement {
   const criticalityFilter = useUiStore((s) => s.criticalityFilter);
   const implementationFilter = useUiStore((s) => s.implementationFilter);
   const sourceFilter = useUiStore((s) => s.sourceFilter);
+  const aiPendingFilter = useUiStore((s) => s.aiPendingFilter);
   const setSearch = useUiStore((s) => s.setSearch);
   const resetFilters = useUiStore((s) => s.resetFilters);
 
@@ -112,6 +118,7 @@ export function Main(): React.ReactElement {
         criticalityFilter,
         implementationFilter,
         sourceFilter,
+        aiPendingOnly: aiPendingFilter,
       }),
     [
       functional,
@@ -122,6 +129,7 @@ export function Main(): React.ReactElement {
       criticalityFilter,
       implementationFilter,
       sourceFilter,
+      aiPendingFilter,
     ],
   );
   const nfrVis = useMemo(
@@ -135,6 +143,7 @@ export function Main(): React.ReactElement {
         criticalityFilter,
         implementationFilter,
         sourceFilter,
+        aiPendingOnly: aiPendingFilter,
       }),
     [
       nfr,
@@ -145,6 +154,7 @@ export function Main(): React.ReactElement {
       criticalityFilter,
       implementationFilter,
       sourceFilter,
+      aiPendingFilter,
     ],
   );
 
@@ -154,7 +164,13 @@ export function Main(): React.ReactElement {
   const searchActive = search.trim().length > 0;
   const searchEmpty = searchActive && matchCount === 0;
   const filtersActive =
-    criticalityFilter.size > 0 || implementationFilter.size > 0 || sourceFilter.size > 0;
+    criticalityFilter.size > 0 ||
+    implementationFilter.size > 0 ||
+    sourceFilter.size > 0 ||
+    aiPendingFilter;
+  // task26: счётчик «Не проверено» — по всему проекту (ФТ + НФТ), независимо от
+  // активных фильтров; правило считает ядро (countAiPendingReview).
+  const aiPendingCount = useMemo(() => countAiPendingReview(requirements), [requirements]);
   // UX-6: empty purely because of the criticality/implementation/source filters (no search).
   const filtersEmpty = !searchActive && filtersActive && shown === 0 && total > 0;
 
@@ -214,7 +230,12 @@ export function Main(): React.ReactElement {
         />
 
         {!reqQuery.isLoading && !reqQuery.isError ? (
-          <TreeToolbar shown={shown} total={total} availableSources={availableSources} />
+          <TreeToolbar
+            shown={shown}
+            total={total}
+            availableSources={availableSources}
+            aiPendingCount={aiPendingCount}
+          />
         ) : null}
 
         <main

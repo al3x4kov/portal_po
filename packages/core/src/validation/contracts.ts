@@ -40,6 +40,15 @@ export const requirementCreateSchema = z.object(requirementCreateShape);
  * validator instance as {@link requirementCreateShape}.
  */
 export const requirementUpdateShape = {
+  /**
+   * task26: the human-review toggle of an AI-created requirement. Optional and
+   * PRESERVING — an update that omits it keeps the stored value, so a client
+   * that knows nothing about task26 can never silently re-raise the highlight.
+   * `origin` is deliberately absent from both shapes: provenance is written by
+   * the server only, and a client-sent `origin` is stripped (Zod strips unknown
+   * keys) rather than honoured.
+   */
+  aiValidated: z.boolean().optional(),
   name: requirementCreateShape.name,
   criticality: requirementCreateShape.criticality,
   description: requirementCreateShape.description,

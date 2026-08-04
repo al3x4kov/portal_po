@@ -13,6 +13,7 @@ describe('TreeToolbar (T-1101/1103/1105)', () => {
       criticalityFilter: new Set(),
       implementationFilter: new Set(),
       sourceFilter: new Set(),
+      aiPendingFilter: false,
       expanded: new Set(),
     }),
   );
@@ -316,6 +317,56 @@ describe('TreeToolbar (T-1101/1103/1105)', () => {
       await user.click(screen.getByTestId('source-filter'));
       await user.type(screen.getByTestId('source-search'), 'zzzzz');
       expect(screen.getByTestId('source-search-empty')).toHaveTextContent('Ничего не найдено');
+    });
+  });
+
+  /**
+   * task26 / DEF-26-1 — панель фильтров обязана помещаться в 768px: группа
+   * ужимается и переносится, подпись ИИ-фильтра компактная, полная
+   * формулировка живёт в title/aria-label. jsdom не считает layout, поэтому
+   * фиксируем компактную форму через классы/атрибуты.
+   */
+  describe('«Только непроверенные (ИИ)» — компактная форма (task26 / DEF-26-1)', () => {
+    it('renders a compact label with the full wording in title/aria-label', () => {
+      renderWithProviders(<TreeToolbar shown={5} total={5} aiPendingCount={2} />);
+      const btn = screen.getByTestId('filter-ai-pending');
+      // Видимая подпись короткая — иначе группа не влезает в узкий вьюпорт.
+      expect(btn).toHaveTextContent('Непроверенные');
+      expect(btn.textContent).not.toContain('Только непроверенные');
+      // Смысл не теряется: доступное имя и тултип содержат полную формулировку.
+      expect(btn).toHaveAccessibleName('Только непроверенные (ИИ)');
+      expect(btn.getAttribute('title')).toContain('Только непроверенные (ИИ)');
+      // Контракт для e2e сохранён.
+      expect(btn).toHaveAttribute('aria-pressed', 'false');
+      expect(btn).toHaveAttribute('data-active', 'false');
+    });
+
+    it('lets the filter group shrink and wrap instead of overflowing the page', () => {
+      renderWithProviders(<TreeToolbar shown={5} total={5} aiPendingCount={2} />);
+      const group = screen.getByTestId('filter-group');
+      expect(group.className).toContain('flex-wrap');
+      expect(group.className).toContain('max-w-full');
+      expect(group.className).toContain('min-w-0');
+      // `flex-none` запрещал сжатие и давал горизонтальный скролл (DEF-26-1).
+      expect(group.className).not.toContain('flex-none');
+      // Счётчик живёт внутри той же переносимой группы.
+      expect(group).toContainElement(screen.getByTestId('ai-pending-count'));
+    });
+
+    it('keeps the toggle/counter contract: aria-pressed, data-count and click-to-enable', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(<TreeToolbar shown={5} total={5} aiPendingCount={3} />);
+      const counter = screen.getByTestId('ai-pending-count');
+      expect(counter).toHaveAttribute('data-count', '3');
+      expect(counter).toHaveTextContent('Не проверено: 3');
+
+      await user.click(counter);
+      expect(useUiStore.getState().aiPendingFilter).toBe(true);
+      expect(screen.getByTestId('filter-ai-pending')).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('filter-ai-pending')).toHaveAttribute('data-active', 'true');
+
+      await user.click(screen.getByTestId('filter-ai-pending'));
+      expect(useUiStore.getState().aiPendingFilter).toBe(false);
     });
   });
 });

@@ -8,6 +8,7 @@ export * from './domain/exportFields.js';
 export * from './domain/nameKey.js';
 export * from './domain/quarters.js';
 export * from './domain/dates.js';
+export * from './domain/aiOrigin.js';
 
 // Validation
 export * from './validation/schema.js';

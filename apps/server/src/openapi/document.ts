@@ -381,6 +381,11 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
       put: {
         tags: ['requirements'],
         summary: 'Обновить требование',
+        description:
+          'Обновляет редактируемые поля требования. `aiValidated` (task26) — отметка «проверено» ' +
+          'для требований, созданных ИИ: `true` снимает подсветку «не проверено», `false` возвращает её, ' +
+          'отсутствие поля сохраняет текущее значение. Поле `origin` (происхождение ИИ-импорта) ' +
+          'проставляет только сервер: в теле запроса оно игнорируется и изменить его нельзя.',
         parameters: [idParam, slugParam],
         requestBody: jsonBody('UpdateRequirement'),
         responses: {

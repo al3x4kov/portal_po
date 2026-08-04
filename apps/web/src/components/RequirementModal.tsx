@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import {
   CRITICALITIES,
   TARGET_QUARTERS,
+  type AiOrigin,
   type InfoItem,
   type Link,
   type LinkType,
@@ -58,6 +59,12 @@ interface RequirementModalProps {
 const FORM_ID = 'requirement-form';
 const MAX_DESCRIPTION = 5000;
 
+/** task26: откуда требование пришло (поле сервера, менять нельзя). */
+const ORIGIN_LABEL: Record<AiOrigin, string> = {
+  AI_DOCS: 'ИИ-импорт из документации',
+  AI_BACKLOG: 'ИИ-импорт из бэклога',
+};
+
 type Tab = 'main' | 'priority' | 'desc' | 'links' | 'info';
 
 function takenMessage(type: RequirementType): string {
@@ -111,6 +118,10 @@ export function RequirementModal({
     () => requirement?.sources?.map(toDraft) ?? [],
   );
   const [releaseDate, setReleaseDate] = useState<string>(requirement?.releaseDate ?? '');
+  // task26: «Проверка» — отметка человека для требований, созданных ИИ. Живёт
+  // локально (как infoItems/releaseDate) и уезжает на сервер тем же submit'ом.
+  const aiOrigin = requirement?.origin;
+  const [aiValidated, setAiValidated] = useState<boolean>(requirement?.aiValidated === true);
   const [showInfoForm, setShowInfoForm] = useState(false);
   const [infoType, setInfoType] = useState('');
   const [infoValue, setInfoValue] = useState('');
@@ -228,6 +239,9 @@ export function RequirementModal({
       // cleared when the requirement is implemented (mirrors targetQuarter/Year).
       sources: sources.length > 0 ? sources : undefined,
       releaseDate: values.implemented || releaseDate.length === 0 ? undefined : releaseDate,
+      // task26: отметку шлём явно (true/false) и только у ИИ-требований;
+      // `origin` — поле сервера, клиент его не отправляет.
+      aiValidated: aiOrigin ? aiValidated : undefined,
     };
   };
 
@@ -460,6 +474,54 @@ export function RequirementModal({
             className="mt-4"
           >
             <div className="space-y-4">
+              {/* task26 · «Проверка» — только у требований, созданных ИИ.
+                  У созданных вручную (origin отсутствует) блока нет. */}
+              {aiOrigin ? (
+                <section
+                  className="rounded-lg border p-3"
+                  style={{
+                    borderColor: aiValidated ? 'var(--color-border)' : 'var(--color-warning-fg)',
+                    background: aiValidated ? 'var(--color-surface-2)' : 'var(--color-warning-bg)',
+                  }}
+                  aria-labelledby="req-ai-review-title"
+                  data-testid="req-ai-review-block"
+                  data-origin={aiOrigin}
+                  data-validated={aiValidated ? 'true' : 'false'}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span
+                      className="label m-0"
+                      id="req-ai-review-title"
+                      style={aiValidated ? undefined : { color: 'var(--color-warning-fg)' }}
+                    >
+                      Проверка
+                    </span>
+                    <span className="chip" data-testid="req-ai-origin">
+                      {ORIGIN_LABEL[aiOrigin]}
+                    </span>
+                  </div>
+                  <label
+                    className="mt-2 flex cursor-pointer items-center gap-2.5 text-sm font-semibold"
+                    htmlFor="req-ai-validated"
+                  >
+                    <input
+                      id="req-ai-validated"
+                      type="checkbox"
+                      className="h-4 w-4"
+                      data-testid="req-ai-validated-toggle"
+                      checked={aiValidated}
+                      onChange={(e) => setAiValidated(e.target.checked)}
+                    />
+                    Проверено
+                  </label>
+                  <p className="hint mt-1.5" data-testid="req-ai-validated-hint">
+                    {aiValidated
+                      ? 'Требование отмечено как проверенное — после сохранения подсветка «не проверено» в дереве снимется.'
+                      : 'Требование создано ИИ и ещё не проверено — в дереве оно подсвечено. Поставьте отметку и сохраните, чтобы снять подсветку.'}
+                  </p>
+                </section>
+              ) : null}
+
               <div>
                 <label className="label" htmlFor="req-name-input">
                   Имя требования <span style={{ color: 'var(--color-danger)' }}>*</span>

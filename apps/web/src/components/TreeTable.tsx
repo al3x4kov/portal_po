@@ -8,11 +8,13 @@ import {
   GitBranchPlus,
   Link2,
   ShieldPlus,
+  Sparkles,
   Trash2,
 } from 'lucide-react';
 import {
   aggregatePriorityId,
   aggregateRiceScore,
+  isAiPendingReview,
   type LinkType,
   type Requirement,
   type SourceEntry,
@@ -171,6 +173,9 @@ function Row({
   // UX-2: deletion of a node with children is allowed as a reinforced cascade
   // (Main opens the confirm dialog); the row button only signals the intent.
   const cascadeDelete = row.hasChildren;
+  // task26: «создано ИИ, не проверено» — правило берём из ядра, не дублируем.
+  // Признак двойной (НФТ доступности): мягкая заливка строки + текстовый бейдж.
+  const aiPending = isAiPendingReview(req);
 
   // todo_19 (T-207): aggregate RICE + senior source/priority for the new columns.
   const sources = req.sources ?? [];
@@ -190,10 +195,17 @@ function Row({
   return (
     <tr
       className="group border-b"
-      style={{ borderColor: 'var(--color-border)', opacity: isContext ? 0.6 : 1 }}
+      style={{
+        borderColor: 'var(--color-border)',
+        opacity: isContext ? 0.6 : 1,
+        // Мягкая заливка — существующий токен предупреждения, читаемый в обеих
+        // темах (light: пастельный янтарь, dark: глубокий коричневый).
+        ...(aiPending ? { background: 'var(--color-warning-bg)' } : null),
+      }}
       data-testid={`tree-row-${req.slug}`}
       data-req-name={req.name}
       data-row-kind={row.kind}
+      data-ai-pending={aiPending ? 'true' : undefined}
     >
       <td className="py-2.5 pr-3 align-middle">
         <div className="flex min-w-0 items-center gap-1.5">
@@ -248,6 +260,25 @@ function Row({
           >
             {req.name}
           </button>
+          {/* task26 · «ИИ, не проверено»: цвет НЕ единственный признак — рядом
+              текстовая метка с расшифровкой в title/aria-label. */}
+          {aiPending ? (
+            <span
+              className="badge flex-none px-2 py-0 text-[11px]"
+              style={{
+                background: 'var(--color-surface)',
+                color: 'var(--color-warning-fg)',
+                border: '1px solid var(--color-warning-fg)',
+              }}
+              data-testid="ai-pending-badge"
+              data-slug={req.slug}
+              title="Создано ИИ, не проверено"
+              aria-label="Создано ИИ, не проверено"
+            >
+              <Sparkles className="icon-sm" aria-hidden="true" />
+              ИИ
+            </span>
+          ) : null}
           {isContext ? (
             <span
               className="text-[11px] font-semibold uppercase tracking-wide"

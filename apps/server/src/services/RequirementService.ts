@@ -7,6 +7,7 @@ import {
   toSlug,
   validateRequirement,
   ValidationError,
+  type AiOrigin,
   type Criticality,
   type InfoItem,
   type ProjectDictionaries,
@@ -37,7 +38,15 @@ export interface RequirementDictionariesPort {
   write(dict: ProjectDictionaries): Promise<ProjectDictionaries>;
 }
 
-/** Editable fields a client may supply when creating a requirement. */
+/**
+ * Fields supplied when creating a requirement.
+ *
+ * `origin` (task26) is the ONE field no public client may set: the REST/MCP
+ * create contract (`requirementCreateShape`) does not declare it, so a body
+ * carrying it has the key stripped by Zod. Only server-side callers — the two
+ * AI import populate stages — pass it, and they do so through THIS service so
+ * every core rule (uniqueness, slug, validation, atomic write) still applies.
+ */
 export interface RequirementInput {
   type: RequirementType;
   name: string;
@@ -50,10 +59,21 @@ export interface RequirementInput {
   infoItems?: InfoItem[];
   sources?: SourceEntry[];
   releaseDate?: string;
+  /** AI provenance (task26); server-side callers only. */
+  origin?: AiOrigin;
 }
 
-/** Editable fields on update; `type` is immutable and therefore omitted. */
-export type RequirementUpdate = Omit<RequirementInput, 'type'>;
+/**
+ * Editable fields on update; `type` is immutable and therefore omitted, and so
+ * is `origin` — provenance is written once, at creation (task26).
+ *
+ * `aiValidated` is the human-review toggle: `true`/`false` set it explicitly,
+ * omitting it PRESERVES the stored value so a client that knows nothing about
+ * task26 cannot silently re-raise the "not reviewed" highlight.
+ */
+export type RequirementUpdate = Omit<RequirementInput, 'type' | 'origin'> & {
+  aiValidated?: boolean;
+};
 
 /** Drop an empty sources array so the field is present only when non-empty (like scenarios). */
 function normalizeSources(sources?: SourceEntry[]): SourceEntry[] | undefined {
@@ -173,6 +193,8 @@ export class RequirementService implements RequirementServicePort {
             infoItems: input.infoItems,
             sources: normalizeSources(input.sources),
             releaseDate: input.releaseDate,
+            // task26: an AI-created requirement starts unreviewed (no flag).
+            origin: input.origin,
             links: [],
             createdAt: ts,
             updatedAt: ts,
@@ -210,6 +232,8 @@ export class RequirementService implements RequirementServicePort {
           infoItems: input.infoItems,
           sources: normalizeSources(input.sources),
           releaseDate: input.releaseDate,
+          origin: existing.origin, // task26: provenance is immutable
+          aiValidated: input.aiValidated ?? existing.aiValidated, // absent ⇒ preserve
           links: existing.links,
           createdAt: existing.createdAt,
           updatedAt: this.now(),

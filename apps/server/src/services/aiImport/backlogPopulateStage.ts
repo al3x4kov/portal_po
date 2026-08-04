@@ -118,6 +118,9 @@ export async function runBacklogPopulateStage(
       targetQuarter: target.quarter,
       targetYear: target.year,
       sources: [source],
+      // task26: every item this import writes — rows AND the business nodes it
+      // creates itself — is marked as AI-made and not yet reviewed.
+      origin: 'AI_BACKLOG',
     });
     index(req);
     // Mirror into the shared job counters («что уже создано» on fail/cancel).

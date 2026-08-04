@@ -439,3 +439,65 @@ describe('computeVisibleRows — source filter (FR-19, todo_19 sources[])', () =
     expect(res.rows.map((r) => r.requirement.slug)).toEqual(['a']);
   });
 });
+
+/**
+ * task26 — «Только непроверенные (ИИ)».
+ *   pay (человек)
+ *     card  — origin AI_DOCS, не проверено  → match
+ *     token — origin AI_DOCS, aiValidated   → отсеивается
+ *   payout — человек                        → отсеивается
+ */
+function aiForest() {
+  const pay = req('pay', 'Платежи', 'CRITICAL', undefined, ['card', 'token']);
+  const card = req('card', 'Оплата картой', 'HIGH', 'pay');
+  card.origin = 'AI_DOCS';
+  const token = req('token', 'Токенизация', 'HIGH', 'pay');
+  token.origin = 'AI_DOCS';
+  token.aiValidated = true;
+  const payout = req('payout', 'Выплаты', 'HIGH');
+  return buildForest([pay, card, token, payout]);
+}
+
+describe('computeVisibleRows — «Только непроверенные (ИИ)» (task26)', () => {
+  const base = {
+    search: '',
+    collapsed: false,
+    expanded: NONE,
+    criticalityFilter: NO_CRIT,
+  } as const;
+
+  it('keeps only AI requirements pending review, with ancestors as context', () => {
+    const res = computeVisibleRows({ ...base, forest: aiForest(), aiPendingOnly: true });
+    expect(res.rows.map((r) => r.requirement.slug)).toEqual(['pay', 'card']);
+    // The parent survives only as context (it is not itself pending review).
+    expect(res.rows.map((r) => r.kind)).toEqual(['context', 'match']);
+    expect(res.matchCount).toBe(1);
+    expect(res.total).toBe(4);
+  });
+
+  it('aiPendingOnly=false behaves like no filter', () => {
+    const res = computeVisibleRows({ ...base, forest: aiForest(), aiPendingOnly: false });
+    expect(res.rows).toHaveLength(4);
+  });
+
+  it('intersects (AND) with the name search', () => {
+    const res = computeVisibleRows({
+      ...base,
+      forest: aiForest(),
+      search: 'выплат',
+      aiPendingOnly: true,
+    });
+    // «Выплаты» matches the search but was created by a human → nothing left.
+    expect(res.rows).toHaveLength(0);
+  });
+
+  it('intersects (AND) with the criticality filter', () => {
+    const res = computeVisibleRows({
+      ...base,
+      forest: aiForest(),
+      criticalityFilter: new Set<Criticality>(['LOW']),
+      aiPendingOnly: true,
+    });
+    expect(res.rows).toHaveLength(0);
+  });
+});

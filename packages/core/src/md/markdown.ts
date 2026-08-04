@@ -39,6 +39,8 @@ const META_KEYS = [
   'updatedAt',
   'source',
   'releaseDate',
+  'origin',
+  'aiValidated',
 ] as const;
 const HEADER_RE = /^###\s+Requirement:\s*(.+?)\s*$/;
 const META_RE = /^-\s+(\w+):\s*(.*)$/;
@@ -93,6 +95,14 @@ export function serialize(req: Requirement, opts?: SerializeOptions): string {
   lines.push(`- updatedAt: ${req.updatedAt}`);
   if (has('source') && req.source !== undefined) {
     lines.push(`- source: ${req.source}`);
+  }
+  // task26 provenance: always written (never part of the export field mask) —
+  // it is metadata of the record itself, like createdAt/updatedAt.
+  if (req.origin !== undefined) {
+    lines.push(`- origin: ${req.origin}`);
+  }
+  if (req.aiValidated !== undefined) {
+    lines.push(`- aiValidated: ${String(req.aiValidated)}`);
   }
 
   if (has('description') && req.description !== undefined && req.description.length > 0) {
@@ -268,6 +278,17 @@ export function parse(md: string, ctx: ParseContext): Requirement {
   if (sources.length > 0) candidate.sources = sources;
   if (meta.releaseDate !== undefined && meta.releaseDate.trim().length > 0) {
     candidate.releaseDate = meta.releaseDate.trim();
+  }
+  // task26: absent bullets ⇒ human-made (every pre-task26 file reads that way).
+  if (meta.origin !== undefined && meta.origin.trim().length > 0) {
+    candidate.origin = meta.origin.trim();
+  }
+  if (meta.aiValidated !== undefined && meta.aiValidated.trim().length > 0) {
+    const raw = meta.aiValidated.trim();
+    if (raw !== 'true' && raw !== 'false') {
+      throw new ParseError(`Invalid "aiValidated" value: "${raw}" (expected true|false).`);
+    }
+    candidate.aiValidated = raw === 'true';
   }
 
   // Migration (T-105): a legacy `source:string` with no explicit sources becomes

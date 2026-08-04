@@ -90,6 +90,9 @@ export async function runPopulateStage(
         criticality,
         description: record.description,
         implemented: true,
+        // task26: provenance is stamped at creation time, through the service —
+        // never patched onto the `.md` afterwards.
+        origin: 'AI_DOCS',
       });
       slugByKey.set(key, created.slug);
       if (item.parentKey) linkCandidates.push({ item });

@@ -114,6 +114,14 @@ export interface ProjectDictionaries {
   sources: SourceRef[];
 }
 
+/**
+ * Origin of a requirement created by an AI import (task26): documentation
+ * import (`AI_DOCS`) or backlog import (`AI_BACKLOG`). The field is written by
+ * the SERVER only, never by a client — its absence means "created by a human".
+ */
+export const AI_ORIGINS = ['AI_DOCS', 'AI_BACKLOG'] as const;
+export type AiOrigin = (typeof AI_ORIGINS)[number];
+
 /** A typed, directed edge to another requirement (stored on both endpoints). */
 export interface Link {
   type: LinkType;
@@ -165,4 +173,16 @@ export interface Requirement {
   sources?: SourceEntry[];
   /** PO release date, ISO `yyyy-mm-dd`. Cleared when implemented === true. */
   releaseDate?: string;
+  /**
+   * Provenance (task26): set by the server when an AI import created this
+   * requirement. Undefined = created by a human (also true for every `.md`
+   * written before task26 — no retro-migration, PO decision №2).
+   */
+  origin?: AiOrigin;
+  /**
+   * Human review flag for an AI-created requirement (task26). `true` = a person
+   * checked it; undefined/`false` = not checked yet. Meaningful only together
+   * with {@link Requirement.origin} — see `isAiPendingReview`.
+   */
+  aiValidated?: boolean;
 }

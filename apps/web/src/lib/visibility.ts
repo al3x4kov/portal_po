@@ -1,4 +1,4 @@
-import type { Criticality, Requirement } from '@po/core';
+import { isAiPendingReview, type Criticality, type Requirement } from '@po/core';
 import type { TreeNode } from './tree';
 import { sourceNamesOf } from './sources';
 
@@ -60,6 +60,14 @@ export interface VisibilityInput {
    * source at all («Не задан»). See {@link sourceNamesOf} (todo_19).
    */
   sourceFilter?: ReadonlySet<string>;
+  /**
+   * task26: «Только непроверенные (ИИ)». true = keep only requirements an AI
+   * import created and a human has not confirmed yet (see `isAiPendingReview`
+   * in @po/core — the single source of that rule). Behaves like every other
+   * filter: intersection (AND) with search/criticality/… + ancestors kept as
+   * context so a match never becomes an orphan.
+   */
+  aiPendingOnly?: boolean;
 }
 
 export interface VisibilityResult {
@@ -103,7 +111,8 @@ export function computeVisibleRows(input: VisibilityInput): VisibilityResult {
   const critActive = criticalityFilter.size > 0;
   const implActive = implementationFilter.size > 0;
   const srcActive = sourceFilter.size > 0;
-  const filterActive = searchActive || critActive || implActive || srcActive;
+  const aiPendingActive = input.aiPendingOnly === true;
+  const filterActive = searchActive || critActive || implActive || srcActive || aiPendingActive;
   const total = countNodes(forest);
 
   const matchesSelf = (req: Requirement): boolean => {
@@ -111,7 +120,9 @@ export function computeVisibleRows(input: VisibilityInput): VisibilityResult {
     const okCrit = !critActive || criticalityFilter.has(req.criticality);
     const okImpl = !implActive || implementationFilter.has(req.implemented ? 'DONE' : 'PLANNED');
     const okSource = !srcActive || matchesSource(req);
-    return okSearch && okCrit && okImpl && okSource; // intersection (AND) of the active predicates
+    // task26: the highlight rule lives in @po/core — never re-derived here.
+    const okAiPending = !aiPendingActive || isAiPendingReview(req);
+    return okSearch && okCrit && okImpl && okSource && okAiPending; // intersection (AND) of the active predicates
   };
 
   const matchesSource = (req: Requirement): boolean => {

@@ -16,6 +16,7 @@ function resetStore() {
     criticalityFilter: new Set<Criticality>(),
     implementationFilter: new Set<ImplStatus>(),
     sourceFilter: new Set<string>(),
+    aiPendingFilter: false,
     modal: null,
   });
 }
@@ -158,14 +159,26 @@ describe('filters', () => {
     expect([...s().sourceFilter].sort()).toEqual(['docA', 'docB']);
   });
 
+  it('task26: setAiPendingFilter / toggleAiPendingFilter drive the «только непроверенные» flag', () => {
+    expect(s().aiPendingFilter).toBe(false);
+    s().setAiPendingFilter(true);
+    expect(s().aiPendingFilter).toBe(true);
+    s().toggleAiPendingFilter();
+    expect(s().aiPendingFilter).toBe(false);
+    s().toggleAiPendingFilter();
+    expect(s().aiPendingFilter).toBe(true);
+  });
+
   it('resetFilters clears every applied filter', () => {
     s().setCriticalityFilter(['HIGH']);
     s().setImplementationFilter(['DONE']);
     s().setSourceFilter(['x']);
+    s().setAiPendingFilter(true);
     s().resetFilters();
     expect(s().criticalityFilter.size).toBe(0);
     expect(s().implementationFilter.size).toBe(0);
     expect(s().sourceFilter.size).toBe(0);
+    expect(s().aiPendingFilter).toBe(false);
   });
 });
 

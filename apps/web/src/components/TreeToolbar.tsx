@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FoldVertical, Search, UnfoldVertical, X } from 'lucide-react';
+import { FoldVertical, Search, Sparkles, UnfoldVertical, X } from 'lucide-react';
 import { CRITICALITIES, type Criticality } from '@po/core';
 import { useUiStore, type ImplStatus } from '../store/ui';
 import { CRITICALITY_COLOR_VAR, CRITICALITY_LABEL } from '../lib/criticality';
@@ -9,6 +9,12 @@ interface TreeToolbarProps {
   total: number;
   /** FR-19: unique source values present in the current project requirements. */
   availableSources?: string[];
+  /**
+   * task26: project-wide number of AI-created requirements nobody confirmed yet
+   * (counted with `countAiPendingReview`, over BOTH ФТ and НФТ, independent of
+   * the active filters). Drives the «Не проверено: N» counter.
+   */
+  aiPendingCount?: number;
 }
 
 const CRIT_TESTID: Record<Criticality, string> = {
@@ -52,6 +58,7 @@ export function TreeToolbar({
   shown,
   total,
   availableSources = [],
+  aiPendingCount = 0,
 }: TreeToolbarProps): React.ReactElement {
   const treeMode = useUiStore((s) => s.treeMode);
   const setTreeMode = useUiStore((s) => s.setTreeMode);
@@ -63,6 +70,9 @@ export function TreeToolbar({
   const setImplementationFilter = useUiStore((s) => s.setImplementationFilter);
   const srcApplied = useUiStore((s) => s.sourceFilter);
   const setSourceFilter = useUiStore((s) => s.setSourceFilter);
+  const aiPendingApplied = useUiStore((s) => s.aiPendingFilter);
+  const setAiPendingFilter = useUiStore((s) => s.setAiPendingFilter);
+  const toggleAiPendingFilter = useUiStore((s) => s.toggleAiPendingFilter);
   const graphView = useUiStore((s) => s.graphView);
   const setGraphView = useUiStore((s) => s.setGraphView);
   const resetFilters = useUiStore((s) => s.resetFilters);
@@ -93,9 +103,14 @@ export function TreeToolbar({
     : sourceOptions;
 
   // §2.6: единая строка «Показано X из Y · Сбросить фильтры» активна при любом фильтре.
-  const filtersActive = applied.size > 0 || implApplied.size > 0 || srcApplied.size > 0;
+  const filtersActive =
+    applied.size > 0 || implApplied.size > 0 || srcApplied.size > 0 || aiPendingApplied;
   // UX-6: общий счётчик активных фильтров для сгруппированного блока.
-  const activeFilterCount = applied.size + implApplied.size + srcApplied.size;
+  const activeFilterCount =
+    applied.size + implApplied.size + srcApplied.size + (aiPendingApplied ? 1 : 0);
+  // task26: счётчик «Не проверено» видим, когда есть что проверять, либо пока
+  // включён фильтр (чтобы было видно, как N обнуляется, и можно было выключить).
+  const showAiPendingCount = aiPendingCount > 0 || aiPendingApplied;
 
   // Sync the draft with the applied set whenever the dropdown opens.
   useEffect(() => {
@@ -299,7 +314,9 @@ export function TreeToolbar({
 
       {/* UX-6 · единый блок фильтров (Критичность | Реализация | Источник) */}
       <div
-        className="inline-flex flex-none flex-wrap items-center gap-2 rounded-lg border px-2 py-1"
+        // DEF-26-1: группа обязана ужиматься/переноситься — при `flex-none` её
+        // max-content ширина вылезала за 768px и давала горизонтальный скролл.
+        className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-2 rounded-lg border px-2 py-1"
         role="group"
         aria-label="Фильтры"
         style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}
@@ -607,6 +624,43 @@ export function TreeToolbar({
             </div>
           ) : null}
         </div>
+
+        {/* task26 · «Только непроверенные (ИИ)» + счётчик «Не проверено: N» */}
+        {/* DEF-26-1: подпись компактная («Непроверенные»), полная формулировка —
+            в title/aria-label, чтобы панель фильтров помещалась в 768px. */}
+        <button
+          type="button"
+          className="btn btn-secondary inline-flex min-w-0 items-center gap-1.5 text-sm"
+          style={
+            aiPendingApplied
+              ? { borderColor: 'var(--color-warning-fg)', color: 'var(--color-warning-fg)' }
+              : undefined
+          }
+          aria-pressed={aiPendingApplied}
+          aria-label="Только непроверенные (ИИ)"
+          data-testid="filter-ai-pending"
+          data-active={aiPendingApplied ? 'true' : 'false'}
+          title="Только непроверенные (ИИ): требования, созданные ИИ и ещё не проверенные"
+          onClick={toggleAiPendingFilter}
+        >
+          <Sparkles className="icon-sm flex-none" aria-hidden="true" />
+          <span className="truncate">Непроверенные</span>
+        </button>
+
+        {showAiPendingCount ? (
+          <button
+            type="button"
+            className="badge"
+            style={{ background: 'var(--color-warning-bg)', color: 'var(--color-warning-fg)' }}
+            data-testid="ai-pending-count"
+            data-count={aiPendingCount}
+            aria-label={`Не проверено требований, созданных ИИ: ${aiPendingCount}. Показать только их`}
+            title="Показать только непроверенные требования, созданные ИИ"
+            onClick={() => setAiPendingFilter(true)}
+          >
+            Не проверено: {aiPendingCount}
+          </button>
+        ) : null}
 
         {/* UX-6 · общий счётчик активных фильтров + «Сбросить» внутри блока */}
         {filtersActive ? (
