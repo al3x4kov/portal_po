@@ -653,7 +653,9 @@ export function AiBacklogImportModal({
       title="AI-импорт бэклога"
       testid="ai-backlog-import"
       widthClass="max-w-[640px]"
-      size="large"
+      // Шаг выверки — таблица на десятки строк: даём ей почти весь экран,
+      // иначе в 70vh в область видимости попадало ~3 строки.
+      size={phase === 'review' ? 'xl' : 'large'}
       onClose={requestClose}
       onOverlayClick={requestClose}
       footer={footer}
@@ -988,15 +990,17 @@ export function AiBacklogImportModal({
         /* PO №1 (mockup 04): the mandatory review gate — nothing written yet. */
         <div className="flex min-h-0 flex-1 flex-col gap-4" data-testid="ai-backlog-review-step">
           {review.newNodes.length > 0 ? (
+            /* shrink-0 + свой скролл: список новых узлов не должен отбирать
+               высоту у таблицы соответствий, ради которой открыт этот шаг. */
             <section
-              className="rounded-lg p-4"
+              className="shrink-0 rounded-lg p-4"
               style={{ background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }}
               data-testid="ai-backlog-new-nodes"
             >
               <h4 className="mb-2 text-sm font-semibold">
                 Будут созданы новые узлы дерева ({review.newNodes.length})
               </h4>
-              <ul className="space-y-1 text-sm">
+              <ul className="max-h-24 space-y-1 overflow-y-auto text-sm">
                 {review.newNodes.map((n) => (
                   <li key={n.name} data-testid="ai-backlog-new-node">
                     • <b>{n.name}</b> — {n.parentName ? `под «${n.parentName}»` : 'корневой узел'} (
@@ -1053,7 +1057,7 @@ export function AiBacklogImportModal({
                     <th className="px-3 py-2 font-medium">Исходная формулировка</th>
                     <th className="px-3 py-2 font-medium">Бизнес-имя</th>
                     <th className="px-3 py-2 font-medium">Узел (куда встроится)</th>
-                    <th className="w-44 px-3 py-2 font-medium">Срок реализации</th>
+                    <th className="w-52 px-3 py-2 font-medium">Срок реализации</th>
                   </tr>
                 </thead>
                 <tbody style={{ color: 'var(--color-text-2)' }}>
@@ -1943,9 +1947,9 @@ function TargetEditor({
   onChange: (quarter: TargetQuarter, year: number) => void;
 }): React.ReactElement {
   return (
-    <span className="flex items-center gap-1">
+    <span className="flex flex-wrap items-center gap-1">
       <select
-        className="input w-auto cursor-pointer py-0.5 text-xs"
+        className="input w-auto shrink-0 cursor-pointer py-0.5 pr-1 pl-2 text-xs"
         aria-label="Квартал срока реализации"
         data-testid="ai-backlog-target-quarter-cell"
         value={quarter}
@@ -1957,9 +1961,11 @@ function TargetEditor({
           </option>
         ))}
       </select>
+      {/* w-16 + нативные стрелки number-инпута наезжали на «2026»: убираем
+          спиннер (input-no-spin) и даём полю запас по ширине. */}
       <input
         type="number"
-        className="input w-16 py-0.5 text-xs"
+        className="input input-no-spin w-[4.5rem] shrink-0 px-2 py-0.5 text-xs"
         aria-label="Год срока реализации"
         data-testid="ai-backlog-target-year-cell"
         min={2020}

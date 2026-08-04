@@ -304,6 +304,17 @@ html.dark {
     border-color: var(--color-border);
     color: var(--color-text);
   }
+  /* Узкие number-поля (год в таблицах): нативный спиннер перекрывает текст —
+     прячем его, значение меняется вводом с клавиатуры. */
+  .input-no-spin {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+  .input-no-spin::-webkit-outer-spin-button,
+  .input-no-spin::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
   .input:focus {
     outline: 2px solid var(--color-primary);
     outline-offset: 1px;

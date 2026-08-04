@@ -9,8 +9,11 @@ import { useFocusTrap } from '../hooks/useFocusTrap';
  *   and the body becomes a flex column, so a child with
  *   `flex-1` (e.g. the AI-import log) stretches into the extra height.
  *   Below 768px it behaves exactly like `default` (near-full width, auto height).
+ * - `xl` — like `large`, but ~90% of the viewport on ≥768px. For steps built
+ *   around a long scrollable table (backlog review gate), where 70vh showed
+ *   only ~3 rows at a time. Below 768px identical to `default`.
  */
-export type ModalSize = 'default' | 'large';
+export type ModalSize = 'default' | 'large' | 'xl';
 
 interface ModalProps {
   title: string;
@@ -98,7 +101,9 @@ export function Modal({
           // ceiling (capped at 640px) so the stretching log gets real room.
           size === 'large'
             ? 'md:h-[max(70vh,min(640px,80vh))] md:max-h-[80vh] md:w-[70vw] md:max-w-[70vw]'
-            : ''
+            : size === 'xl'
+              ? 'md:h-[90vh] md:max-h-[90vh] md:w-[92vw] md:max-w-[92vw]'
+              : ''
         }`}
       >
         <header
@@ -130,9 +135,9 @@ export function Modal({
         <div
           data-testid={`${testid}-body`}
           className={
-            size === 'large'
+            size === 'large' || size === 'xl'
               ? // task24: flex column (gap-5 ≙ space-y-5) so a `flex-1` child
-                // (the analysis log) soaks up the free height of the 70vh card.
+                // (the analysis log, the review table) soaks up the free height.
                 'flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-6'
               : 'flex-1 space-y-5 overflow-y-auto p-6'
           }
