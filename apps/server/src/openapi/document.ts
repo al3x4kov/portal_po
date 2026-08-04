@@ -591,6 +591,14 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
                     enum: ['true', 'false'],
                     description: 'Опциональный шаг простановки связей ФТ↔НФТ (по умолчанию false).',
                   },
+                  buildTree: {
+                    type: 'string',
+                    enum: ['true', 'false'],
+                    description:
+                      'Логическое дерево «навыка AI Product Owner»: модель проектирует бизнес-таксономию ' +
+                      '(домены → разделы) и раскладывает по ней все ФТ/НФТ; группирующие узлы создаются ' +
+                      'как требования с пометкой ИИ (по умолчанию false — структуризация по документации).',
+                  },
                 },
               },
             },

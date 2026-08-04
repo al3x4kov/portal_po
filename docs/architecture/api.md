@@ -50,7 +50,7 @@
 | GET | `/api/ai/models` | → `{ models: string[] }` | 400/5xx (провайдер) |
 | POST | `/api/ai/chat` | `{ messages[], model?, projectId? }` → `{ message }` | 400/5xx |
 | POST | `/api/ai/generate-description` | `{ projectId, requirement…, hint? }` → `{ description }` | 400/5xx |
-| POST | `/api/projects/:id/ai-import` | multipart (`file` + опц. `model`, `inferLinks`) → **202** `{ jobId }` | 400/404/413 |
+| POST | `/api/projects/:id/ai-import` | multipart (`file` + опц. `model`, `inferLinks`, `buildTree` — логическое дерево «навыка AI PO») → **202** `{ jobId }` | 400/404/413 |
 | GET | `/api/ai-import/:jobId` | → `AiImportJobView` `{ jobId, projectId, status, stage, progress, log[], result?, error?, relate? }` (`status`: `running\|succeeded\|failed\|cancelled`) | 404 (нет/истёк/после рестарта) |
 | POST | `/api/ai-import/:jobId/cancel` | отменить импорт-джобу → `AiImportJobView` | 404 |
 
