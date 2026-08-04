@@ -4,6 +4,7 @@ import type {
   Criticality,
   GenerateDescriptionRequest,
   RequirementType,
+  TestModelKind,
 } from '@po/core';
 
 /**
@@ -118,4 +119,89 @@ const CHAT_SYSTEM_PROMPT = [
  */
 export function buildChatMessages(input: AiChatRequest): AiChatMessage[] {
   return [{ role: 'system', content: CHAT_SYSTEM_PROMPT }, ...input.messages];
+}
+
+/*
+ * ── AI-генерация тестовых моделей (смок / крит-регресс / полная) ────────────
+ */
+
+/** Методика по виду модели — вставляется в system prompt тест-генерации. */
+const TESTGEN_KIND_GUIDE: Record<TestModelKind, string> = {
+  smoke: [
+    'Вид модели: SMOKE. Для каждого требования — ОДИН быстрый кейс «функция жива»:',
+    'минимальное действие, время выполнения ≤ 2 минут, без глубоких проверок.',
+  ].join(' '),
+  'crit-regression': [
+    'Вид модели: КРИТИЧЕСКИЙ РЕГРЕСС. Для каждого требования — кейс с позитивным',
+    'сценарием по основному действию И обязательным негативным сценарием',
+    '(невалидные данные / нарушение предусловия / граничное значение).',
+  ].join(' '),
+  full: [
+    'Вид модели: ПОЛНЫЙ РЕГРЕСС. Для каждого требования — развёрнутый кейс:',
+    'позитивный happy-path по шагам, негативный сценарий и граничный случай;',
+    'шаги конкретные и проверяемые.',
+  ].join(' '),
+};
+
+/**
+ * System prompt (RU) тест-генерации. Персона — senior QA; золотое правило то же,
+ * что у извлечения из документации: использовать ТОЛЬКО переданные требования,
+ * каждый кейс якорится их slug'ом (анти-галлюцинационная проверка сервера
+ * отбрасывает всё, что ссылается на несуществующий slug).
+ */
+export function buildTestCasesSystemPrompt(kind: TestModelKind, negatives: boolean): string {
+  return [
+    'Ты — опытный senior QA-инженер. По списку требований продукта составь тест-кейсы',
+    'для модели тестирования.',
+    TESTGEN_KIND_GUIDE[kind],
+    'Золотое правило: используй ТОЛЬКО переданные требования и их описания.',
+    'Не выдумывай функций, экранов, кнопок и данных, которых нет в описаниях;',
+    'если описание скудное — пиши шаги общо, но честно, без изобретённых деталей.',
+    'Каждый кейс обязан ссылаться на требование полем slug — ровно тем значением,',
+    'которое передано в списке. Ровно один кейс на каждое требование списка.',
+    negatives
+      ? 'Поля negativeSteps/negativeExpected обязательны для каждого кейса.'
+      : 'Поля negativeSteps/negativeExpected НЕ включай.',
+    'Ответ верни СТРОГО как JSON-объект вида {"cases":[{"slug":string,"title":string,',
+    '"goal":string,"precondition":string,"steps":[string],"expected":string',
+    negatives ? ',"negativeSteps":[string],"negativeExpected":string}]}.' : '}]}.',
+    'Без markdown, без преамбул и пояснений.',
+  ].join(' ');
+}
+
+/** Один элемент списка требований в user-сообщении тест-генерации. */
+export interface TestGenRequirementInfo {
+  slug: string;
+  type: RequirementType;
+  criticality: Criticality;
+  name: string;
+  description?: string;
+  /** Имена прямых детей (контекст ветки для крит/полной модели). */
+  childNames: string[];
+}
+
+/** Per-requirement description budget в промпте тест-генерации. */
+export const AI_TESTGEN_DESC_CHARS = 400;
+
+/** Build the two-message conversation for one test-generation batch. */
+export function buildTestCasesMessages(
+  kind: TestModelKind,
+  requirements: TestGenRequirementInfo[],
+  negatives: boolean,
+): AiChatMessage[] {
+  const lines = requirements.map((r) => {
+    const desc = (r.description ?? '').replace(/\s+/g, ' ').trim();
+    const short =
+      desc.length > AI_TESTGEN_DESC_CHARS ? `${desc.slice(0, AI_TESTGEN_DESC_CHARS - 1)}…` : desc;
+    const children = r.childNames.length > 0 ? ` · дети: ${r.childNames.join(', ')}` : '';
+    return `${r.slug}\t${TYPE_LABEL[r.type]}\t${CRITICALITY_LABEL_RU[r.criticality]}\t${r.name}\t${short}${children}`;
+  });
+  const user = [
+    `Требования (${requirements.length} шт., формат: slug, тип, критичность, имя, описание через табуляцию):`,
+    ...lines,
+  ].join('\n');
+  return [
+    { role: 'system', content: buildTestCasesSystemPrompt(kind, negatives) },
+    { role: 'user', content: user },
+  ];
 }

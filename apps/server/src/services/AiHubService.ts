@@ -3,16 +3,33 @@ import {
   AI_CHAT_TEMPERATURE,
   AI_GEN_MAX_TOKENS,
   AI_GEN_TEMPERATURE,
+  AI_TESTGEN_MAX_TOKENS,
+  AI_TESTGEN_TEMPERATURE,
+  aiTestCaseSchema,
   resolveModelPreset,
   type AiChatRequest,
+  type AiGenerateTestsRequest,
+  type AiGenerateTestsResponse,
   type AiModelPreset,
   type GenerateDescriptionRequest,
+  type Requirement,
 } from '@po/core';
 import type { AiConfigRepo } from '../repositories/AiConfigRepo.js';
 import { AiUpstreamError, BadRequestError } from '../lib/errors.js';
 import { assertChatCapableModel } from '../lib/embeddingGuard.js';
 import type { OpLogger } from '../lib/logger.js';
-import { buildChatMessages, buildDescriptionMessages, type AiChatMessage } from './aiPrompt.js';
+import {
+  buildChatMessages,
+  buildDescriptionMessages,
+  buildTestCasesMessages,
+  type AiChatMessage,
+  type TestGenRequirementInfo,
+} from './aiPrompt.js';
+import { extractJsonArray } from './aiImportPrompt.js';
+import {
+  buildTestGenResponseFormat,
+  isResponseFormatRejection,
+} from './aiImport/structuredOutput.js';
 import { stripReasoning } from './aiReasoning.js';
 import { sanitize } from '../lib/redact.js';
 
@@ -216,6 +233,111 @@ export class AiHubService {
       throw new AiUpstreamError('AI Hub returned an empty chat response.');
     }
     return text;
+  }
+
+  /**
+   * Тест-генерация (развилка «Генерации артефактов»): один вызов хаба на батч
+   * выбранных требований + детерминированная анти-галлюцинационная проверка.
+   *
+   * Правила проверки (якорь — slug требования из ЭТОГО батча):
+   * - кейс с чужим/выдуманным slug'ом отбрасывается;
+   * - второй кейс на тот же slug отбрасывается (первый побеждает);
+   * - невалидная форма кейса отбрасывается;
+   * - требования без кейса возвращаются списком `missing` — клиент достраивает
+   *   их детерминированным шаблоном, чтобы покрытие модели не терялось.
+   *
+   * `requirements` — батч, уже загруженный роутом из проекта (источник истины);
+   * `nameBySlug` — полный словарь имён проекта для контекста детей в промпте.
+   */
+  async generateTestCases(
+    input: AiGenerateTestsRequest,
+    requirements: Requirement[],
+    nameBySlug: ReadonlyMap<string, string>,
+  ): Promise<AiGenerateTestsResponse> {
+    const cfg = await this.repo.read();
+    if (!cfg.apiKey) {
+      throw new BadRequestError('AI Hub API key is not configured.');
+    }
+    const model = input.model ?? cfg.modelByProject[input.projectId];
+    if (!model) {
+      throw new BadRequestError('No AI model is selected for this project.');
+    }
+    assertChatCapableModel(model);
+
+    const negatives = input.kind === 'smoke' ? (input.negatives ?? false) : true;
+    const infos: TestGenRequirementInfo[] = requirements.map((r) => ({
+      slug: r.slug,
+      type: r.type,
+      criticality: r.criticality,
+      name: r.name,
+      ...(r.description !== undefined ? { description: r.description } : {}),
+      childNames: r.links
+        .filter((l) => l.type === 'PARENT_OF')
+        .map((l) => nameBySlug.get(l.targetSlug))
+        .filter((n): n is string => n !== undefined),
+    }));
+    const messages = buildTestCasesMessages(input.kind, infos, negatives);
+    const preset = resolveModelPreset(model, cfg.modelPresets?.[model]);
+    const params = {
+      model,
+      messages,
+      temperature: AI_TESTGEN_TEMPERATURE,
+      max_tokens: Math.min(AI_TESTGEN_MAX_TOKENS, preset.maxOutputTokens),
+      ...(preset.topP !== undefined ? { top_p: preset.topP } : {}),
+    };
+
+    const client = this.makeClient(cfg.apiKey, cfg.baseURL);
+    let content: string | null;
+    try {
+      const res = await client.chat.completions.create({
+        ...params,
+        response_format: buildTestGenResponseFormat(),
+      });
+      content = res.choices?.[0]?.message?.content ?? null;
+    } catch (err) {
+      // Бэкенд без structured output (vLLM/Ollama/прокси): один повтор без
+      // response_format — как фолбэк-негоциация AI-импорта, но в один шаг.
+      if (!isResponseFormatRejection(err)) {
+        throw new AiUpstreamError(
+          sanitize(`AI Hub test generation failed: ${describeError(err)}`, cfg.apiKey),
+        );
+      }
+      try {
+        const res = await client.chat.completions.create(params);
+        content = res.choices?.[0]?.message?.content ?? null;
+      } catch (err2) {
+        throw new AiUpstreamError(
+          sanitize(`AI Hub test generation failed: ${describeError(err2)}`, cfg.apiKey),
+        );
+      }
+    }
+
+    const text = this.cleanAnswer(content, preset);
+    const array = extractJsonArray(text);
+    if (array === null) {
+      throw new AiUpstreamError(
+        'Ответ модели не распознан как JSON-массив тест-кейсов — повторите генерацию.',
+      );
+    }
+
+    const allowed = new Set(requirements.map((r) => r.slug));
+    const bySlug = new Map<string, (typeof aiTestCaseSchema)['_output']>();
+    let dropped = 0;
+    for (const raw of array) {
+      // strict json_schema выражает опциональность null'ами — нормализуем.
+      const candidate =
+        typeof raw === 'object' && raw !== null
+          ? Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== null))
+          : raw;
+      const parsed = aiTestCaseSchema.safeParse(candidate);
+      if (!parsed.success || !allowed.has(parsed.data.slug) || bySlug.has(parsed.data.slug)) {
+        dropped += 1;
+        continue;
+      }
+      bySlug.set(parsed.data.slug, parsed.data);
+    }
+    const missing = requirements.map((r) => r.slug).filter((s) => !bySlug.has(s));
+    return { cases: [...bySlug.values()], dropped, missing };
   }
 
   /**

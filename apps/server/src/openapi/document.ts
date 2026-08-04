@@ -3,6 +3,8 @@ import { z } from 'zod';
 import {
   aiBacklogApplyBodySchema,
   aiChatRequestSchema,
+  aiGenerateTestsRequestSchema,
+  aiGenerateTestsResponseSchema,
   aiChatResponseSchema,
   aiConfigUpdateSchema,
   aiConfigViewSchema,
@@ -130,6 +132,8 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
     AiBacklogApplyBody: toSchema(aiBacklogApplyBodySchema),
     AiModelsView: toSchema(aiModelsViewSchema),
     AiChatRequest: toSchema(aiChatRequestSchema),
+    AiGenerateTestsRequest: toSchema(aiGenerateTestsRequestSchema),
+    AiGenerateTestsResponse: toSchema(aiGenerateTestsResponseSchema),
     AiChatResponse: toSchema(aiChatResponseSchema),
     GenerateDescriptionRequest: toSchema(generateDescriptionRequestSchema),
     GenerateDescriptionResponse: toSchema(generateDescriptionResponseSchema),
@@ -548,6 +552,22 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
         responses: {
           200: jsonResponse('Ответ ассистента (одно сообщение роли assistant).', 'AiChatResponse'),
           400: errorResponse('Ошибка валидации тела или не выбрана модель.'),
+        },
+      },
+    },
+    '/api/ai/generate-tests': {
+      post: {
+        tags: ['ai'],
+        summary: 'AI-генерация тест-кейсов для батча требований',
+        description:
+          'Развилка «Генерации артефактов»: модель-QA пишет кейсы по описаниям требований батча. ' +
+          'Ответ проходит анти-галлюцинационную проверку: кейсы с чужим/выдуманным slug отброшены ' +
+          '(`dropped`), требования без кейса возвращены списком `missing` — клиент достраивает их ' +
+          'детерминированным шаблоном.',
+        requestBody: jsonBody('AiGenerateTestsRequest'),
+        responses: {
+          200: jsonResponse('Валидные кейсы + счётчики проверки.', 'AiGenerateTestsResponse'),
+          400: errorResponse('Ошибка валидации, неизвестные slug или AI-хаб не настроен.'),
         },
       },
     },

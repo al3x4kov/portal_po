@@ -373,8 +373,9 @@ test.describe('T4 · ExportTasksModal «Генерация артефактов�
     await expect(page.getByTestId('gen-step-2')).toHaveAttribute('data-state', 'todo');
     await expect(page.getByTestId('gen-step-3')).toHaveAttribute('data-state', 'todo');
 
-    // Направление crit-regression → шаг 2 (вопрос о нереализованных ФТ).
+    // Направление crit-regression → способ «Шаблон» → шаг 2 (вопрос о нереализованных ФТ).
     await page.getByTestId('export-tasks-dir-crit-regression').click();
+    await page.getByTestId('export-mode-template').click();
     await expect(page.getByTestId('unimpl-question')).toBeVisible();
     await expect(page.getByTestId('gen-step-1')).toHaveAttribute('data-state', 'done');
     await expect(page.getByTestId('gen-step-2')).toHaveAttribute('data-state', 'active');
@@ -396,7 +397,9 @@ test.describe('T4 · ExportTasksModal «Генерация артефактов�
     await expect(page.getByTestId('unimpl-question')).toBeVisible();
     await expect(page.getByTestId('gen-step-2')).toHaveAttribute('data-state', 'active');
 
-    // «Назад» с шага 2 → на шаг 1 (выбор направления).
+    // «Назад» с шага 2: сперва на развилку «Способ», затем на выбор направления.
+    await page.getByTestId('gen-back-1').click();
+    await expect(page.getByTestId('gen-mode')).toBeVisible();
     await page.getByTestId('gen-back-1').click();
     await expect(page.getByTestId('gen-step-1')).toHaveAttribute('data-state', 'active');
     await expect(page.getByTestId('export-tasks-dir-tracker')).toBeVisible();

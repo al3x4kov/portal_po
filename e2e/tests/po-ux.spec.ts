@@ -361,8 +361,9 @@ test.describe('Wave 1-2 UX', () => {
     const modal = page.getByTestId('export-tasks-modal');
     await expect(modal).toBeVisible();
 
-    // Выбрать направление «smoke» — перейти к предпросмотру (нет вопроса об unimpl).
+    // Выбрать направление «smoke», способ «Шаблон» — к предпросмотру (нет unimpl-вопроса).
     await page.getByTestId('export-tasks-dir-smoke').click();
+    await page.getByTestId('export-mode-template').click();
 
     // Предпросмотр MD должен появиться.
     await expect(page.getByTestId('export-tasks-preview')).toBeVisible();

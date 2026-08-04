@@ -282,7 +282,13 @@ import {
   AI_IMPORT_PO_MAX_CHILDREN,
   AI_IMPORT_PO_MAX_ROOTS,
   AI_IMPORT_PO_TAXONOMY_BATCH,
+  AI_TESTGEN_BATCH,
+  AI_TESTGEN_MAX_SLUGS,
+  TEST_MODEL_KINDS,
   aiExtractedRequirementSchema,
+  aiGenerateTestsRequestSchema,
+  aiGenerateTestsResponseSchema,
+  aiTestCaseSchema,
   aiImportBuildTreeFieldSchema,
   aiImportJobViewSchema,
   aiImportLogEntrySchema,
@@ -400,6 +406,45 @@ describe('buildTree: логическое дерево «навык AI PO» — 
     expect(AI_IMPORT_PO_MAX_ROOTS).toBe(16);
     expect(AI_IMPORT_PO_MAX_CHILDREN).toBe(20);
     expect(AI_IMPORT_PO_GROUP_NAME_MAX).toBe(120);
+  });
+
+  it('тест-генерация: контракт запроса/ответа и константы', () => {
+    expect(TEST_MODEL_KINDS).toEqual(['smoke', 'crit-regression', 'full']);
+    expect(AI_TESTGEN_BATCH).toBe(10);
+    expect(AI_TESTGEN_MAX_SLUGS).toBe(30);
+    const req = aiGenerateTestsRequestSchema.parse({
+      projectId: 'Demo',
+      kind: 'smoke',
+      slugs: ['vhod'],
+      negatives: true,
+    });
+    expect(req.kind).toBe('smoke');
+    // Пустой батч и превышение лимита отвергаются.
+    expect(
+      aiGenerateTestsRequestSchema.safeParse({ projectId: 'Demo', kind: 'full', slugs: [] })
+        .success,
+    ).toBe(false);
+    expect(
+      aiGenerateTestsRequestSchema.safeParse({
+        projectId: 'Demo',
+        kind: 'full',
+        slugs: Array.from({ length: AI_TESTGEN_MAX_SLUGS + 1 }, (_, i) => `s${i}`),
+      }).success,
+    ).toBe(false);
+
+    const kase = aiTestCaseSchema.parse({
+      slug: 'vhod',
+      title: 'Вход по паролю',
+      goal: 'Проверить базовый вход',
+      precondition: 'Пользователь зарегистрирован',
+      steps: ['Открыть форму', 'Ввести пароль'],
+      expected: 'Пользователь вошёл',
+    });
+    expect(kase.negativeSteps).toBeUndefined();
+    // Кейс без шагов невалиден.
+    expect(aiTestCaseSchema.safeParse({ ...kase, steps: [] }).success).toBe(false);
+    const res = aiGenerateTestsResponseSchema.parse({ cases: [kase], dropped: 1, missing: ['x'] });
+    expect(res.dropped).toBe(1);
   });
 
   it('aiPoAssignmentSchema: узел по id либо явный null (корень)', () => {

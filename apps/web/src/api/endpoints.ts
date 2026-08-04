@@ -11,6 +11,8 @@ import type {
   AiModelsView,
   ExportOptionalField,
   GenerateDescriptionRequest,
+  AiGenerateTestsRequest,
+  AiGenerateTestsResponse,
   GenerateDescriptionResponse,
   ProjectDictionaries,
   Requirement,
@@ -171,6 +173,9 @@ export const aiApi = {
   listModels: (): Promise<AiModelsView> => apiRequest('/ai/models'),
   generateDescription: (input: GenerateDescriptionRequest): Promise<GenerateDescriptionResponse> =>
     apiRequest('/ai/generate-description', { method: 'POST', body: input }),
+  /** Развилка «Генерации артефактов»: AI-кейсы для одного батча требований. */
+  generateTests: (input: AiGenerateTestsRequest): Promise<AiGenerateTestsResponse> =>
+    apiRequest('/ai/generate-tests', { method: 'POST', body: input }),
   /** Task 9: one chat turn — sends the trailing history, gets one assistant reply. */
   chat: (input: AiChatRequest): Promise<AiChatResponse> =>
     apiRequest('/ai/chat', { method: 'POST', body: input }),

@@ -179,6 +179,7 @@ describe('T-532 — ExportTasksModal unimpl-question step', () => {
     );
 
     await user.click(screen.getByTestId('export-tasks-dir-crit-regression'));
+    await user.click(await screen.findByTestId('export-mode-template'));
     expect(await screen.findByTestId('unimpl-question')).toBeInTheDocument();
     // preview should NOT be shown yet
     expect(screen.queryByTestId('export-tasks-preview')).not.toBeInTheDocument();
@@ -196,6 +197,7 @@ describe('T-532 — ExportTasksModal unimpl-question step', () => {
     );
 
     await user.click(screen.getByTestId('export-tasks-dir-crit-regression'));
+    await user.click(await screen.findByTestId('export-mode-template'));
     // Should go straight to preview
     expect(await screen.findByTestId('export-tasks-preview')).toBeInTheDocument();
     expect(screen.queryByTestId('unimpl-question')).not.toBeInTheDocument();
@@ -210,6 +212,7 @@ describe('T-532 — ExportTasksModal unimpl-question step', () => {
     );
 
     await user.click(screen.getByTestId('export-tasks-dir-crit-regression'));
+    await user.click(await screen.findByTestId('export-mode-template'));
     await screen.findByTestId('unimpl-question');
     await user.click(screen.getByTestId('unimpl-include-yes'));
 
@@ -228,6 +231,7 @@ describe('T-532 — ExportTasksModal unimpl-question step', () => {
     );
 
     await user.click(screen.getByTestId('export-tasks-dir-crit-regression'));
+    await user.click(await screen.findByTestId('export-mode-template'));
     await screen.findByTestId('unimpl-question');
     await user.click(screen.getByTestId('unimpl-include-no'));
 
@@ -244,6 +248,7 @@ describe('T-532 — ExportTasksModal unimpl-question step', () => {
     );
 
     await user.click(screen.getByTestId('export-tasks-dir-crit-regression'));
+    await user.click(await screen.findByTestId('export-mode-template'));
     // Goes straight to preview
     expect(await screen.findByTestId('export-tasks-preview')).toBeInTheDocument();
     expect(screen.queryByTestId('unimpl-question')).not.toBeInTheDocument();
@@ -312,11 +317,15 @@ describe('Task 12 — step navigation and MD download', () => {
     );
 
     await user.click(screen.getByTestId('export-tasks-dir-smoke'));
+    await user.click(await screen.findByTestId('export-mode-template'));
     await screen.findByTestId('export-tasks-preview');
     await user.click(screen.getByTestId('gen-back-2'));
 
-    expect(screen.getByTestId('export-tasks-dir-smoke')).toBeInTheDocument();
+    // Развилка: preview возвращает на шаг «Способ», оттуда «Назад» — к направлениям.
+    expect(await screen.findByTestId('gen-mode')).toBeInTheDocument();
     expect(screen.queryByTestId('export-tasks-preview')).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('gen-back-1'));
+    expect(screen.getByTestId('export-tasks-dir-smoke')).toBeInTheDocument();
   });
 
   it('«Назад» from the unimpl-question returns to the direction choice', async () => {
@@ -326,11 +335,15 @@ describe('Task 12 — step navigation and MD download', () => {
     );
 
     await user.click(screen.getByTestId('export-tasks-dir-crit-regression'));
+    await user.click(await screen.findByTestId('export-mode-template'));
     await screen.findByTestId('unimpl-question');
     await user.click(screen.getByTestId('gen-back-1'));
 
-    expect(screen.getByTestId('export-tasks-dir-crit-regression')).toBeInTheDocument();
+    // Развилка: вопрос возвращает на шаг «Способ»; ещё раз «Назад» — к направлениям.
+    expect(await screen.findByTestId('gen-mode')).toBeInTheDocument();
     expect(screen.queryByTestId('unimpl-question')).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('gen-back-1'));
+    expect(screen.getByTestId('export-tasks-dir-crit-regression')).toBeInTheDocument();
   });
 
   it('T4 (§2.15.1): «Назад» из preview возвращает на ПРЕДЫДУЩИЙ шаг — вопрос о нереализованных', async () => {
@@ -340,6 +353,7 @@ describe('Task 12 — step navigation and MD download', () => {
     );
 
     await user.click(screen.getByTestId('export-tasks-dir-crit-regression'));
+    await user.click(await screen.findByTestId('export-mode-template'));
     await screen.findByTestId('unimpl-question');
     await user.click(screen.getByTestId('unimpl-include-yes'));
     await screen.findByTestId('export-tasks-preview');
@@ -377,6 +391,7 @@ describe('Task 12 — step navigation and MD download', () => {
     expect(screen.getByTestId('gen-step-3')).toHaveAttribute('data-state', 'todo');
 
     await user.click(screen.getByTestId('export-tasks-dir-smoke'));
+    await user.click(await screen.findByTestId('export-mode-template'));
     await screen.findByTestId('export-tasks-preview');
     expect(screen.getByTestId('gen-step-1')).toHaveAttribute('data-state', 'done');
     expect(screen.getByTestId('gen-step-2')).toHaveAttribute('data-state', 'done');
@@ -397,6 +412,7 @@ describe('Task 12 — step navigation and MD download', () => {
         <ExportTasksModal projectId="proj-1" requirements={[ftA, ftB]} onClose={vi.fn()} />,
       );
       await user.click(screen.getByTestId('export-tasks-dir-smoke'));
+      await user.click(await screen.findByTestId('export-mode-template'));
       await screen.findByTestId('export-tasks-preview');
 
       await user.click(screen.getByTestId('export-tasks-download'));
@@ -515,23 +531,25 @@ describe('ExportTasksModal — smoke', () => {
     expect(screen.getByTestId('export-tasks-dir-full')).toBeInTheDocument();
   });
 
-  it('clicking smoke generates preview immediately', async () => {
+  it('smoke: направление → способ «Шаблон» → предпросмотр', async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <ExportTasksModal projectId="proj-1" requirements={[ftA, ftB]} onClose={vi.fn()} />,
     );
 
     await user.click(screen.getByTestId('export-tasks-dir-smoke'));
+    await user.click(await screen.findByTestId('export-mode-template'));
     expect(await screen.findByTestId('export-tasks-preview')).toBeInTheDocument();
   });
 
-  it('clicking full generates preview immediately', async () => {
+  it('full: направление → способ «Шаблон» → предпросмотр', async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <ExportTasksModal projectId="proj-1" requirements={[ftA, ftB]} onClose={vi.fn()} />,
     );
 
     await user.click(screen.getByTestId('export-tasks-dir-full'));
+    await user.click(await screen.findByTestId('export-mode-template'));
     expect(await screen.findByTestId('export-tasks-preview')).toBeInTheDocument();
   });
 });

@@ -1132,3 +1132,66 @@ export const aiPoAssignmentSchema = z.object({
   node: z.string().max(20).nullable(),
 });
 export type AiPoAssignment = z.infer<typeof aiPoAssignmentSchema>;
+
+/*
+ * ── AI-генерация тестовых моделей (смок / крит-регресс / полная) ───────────
+ * Развилка «Генерации артефактов»: вместо детерминированного шаблона md-файл
+ * тест-кейсов пишет модель-«QA» по описаниям требований. Оркестрация — на
+ * клиенте (батчи выбранных требований → синхронный POST /api/ai/generate-tests
+ * на батч → живой лог в модалке); сервер на каждый батч делает ОДИН вызов хаба
+ * и детерминированно проверяет ответ на галлюцинации: кейс обязан ссылаться на
+ * slug требования ИЗ ЭТОГО батча — чужие/выдуманные и невалидные отбрасываются,
+ * требования без кейса возвращаются списком `missing` (клиент достраивает их
+ * детерминированным шаблоном, чтобы покрытие не терялось).
+ */
+
+/** Виды тестовых моделей «Генерации артефактов» (совпадают с направлениями UI). */
+export const TEST_MODEL_KINDS = ['smoke', 'crit-regression', 'full'] as const;
+export type TestModelKind = (typeof TEST_MODEL_KINDS)[number];
+
+/** Требований в одном AI-вызове тест-генерации (клиент режет выбор на батчи). */
+export const AI_TESTGEN_BATCH = 10;
+/** Верхний предел размера батча, который принимает сервер (защита контракта). */
+export const AI_TESTGEN_MAX_SLUGS = 30;
+/** Sampling temperature тест-генерации: ниже чата — кейсы должны быть фактичными. */
+export const AI_TESTGEN_TEMPERATURE = 0.3;
+/** Бюджет ответа одного вызова (клампится пресетом модели, как чат/генерация). */
+export const AI_TESTGEN_MAX_TOKENS = 3000;
+
+/**
+ * Один тест-кейс из ответа модели. `slug` — якорь анти-галлюцинационной
+ * проверки: обязан совпадать со slug'ом требования из батча запроса.
+ */
+export const aiTestCaseSchema = z.object({
+  slug: z.string().min(1).max(200),
+  title: z.string().trim().min(1).max(200),
+  goal: z.string().trim().min(1).max(500),
+  precondition: z.string().trim().min(1).max(500),
+  steps: z.array(z.string().trim().min(1).max(500)).min(1).max(15),
+  expected: z.string().trim().min(1).max(1000),
+  /** Негативный сценарий: для смок — только по чекбоксу, для крит/полной всегда. */
+  negativeSteps: z.array(z.string().trim().min(1).max(500)).max(15).optional(),
+  negativeExpected: z.string().trim().max(1000).optional(),
+});
+export type AiTestCase = z.infer<typeof aiTestCaseSchema>;
+
+/** Тело POST /api/ai/generate-tests — один батч выбранных требований. */
+export const aiGenerateTestsRequestSchema = z.object({
+  projectId: z.string().min(1),
+  kind: z.enum(TEST_MODEL_KINDS),
+  slugs: z.array(z.string().min(1)).min(1).max(AI_TESTGEN_MAX_SLUGS),
+  model: z.string().min(1).optional(),
+  /** Смок-чекбокс «добавлять негативные сценарии» (крит/полная — всегда true). */
+  negatives: z.boolean().optional(),
+});
+export type AiGenerateTestsRequest = z.infer<typeof aiGenerateTestsRequestSchema>;
+
+/** Ответ на батч: валидные кейсы + счётчики анти-галлюцинационной проверки. */
+export const aiGenerateTestsResponseSchema = z.object({
+  cases: z.array(aiTestCaseSchema),
+  /** Отброшено ответов: чужой/выдуманный slug, повтор по slug, невалидная форма. */
+  dropped: z.number().int().min(0),
+  /** Slug'и батча, для которых модель не вернула кейс (клиент достроит шаблоном). */
+  missing: z.array(z.string()),
+});
+export type AiGenerateTestsResponse = z.infer<typeof aiGenerateTestsResponseSchema>;

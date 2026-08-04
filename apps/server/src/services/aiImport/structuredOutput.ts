@@ -197,6 +197,58 @@ export function buildPoAssignResponseFormat(): Record<string, unknown> {
   };
 }
 
+/**
+ * Test-generation answer schema (развилка «Генерации артефактов»). Mirrors the
+ * strict parser contract `aiTestCaseSchema`: root object `{"cases":[…]}`,
+ * optionality выражена nullable-типами (strict json_schema требует все ключи
+ * в required). `slug` — якорь анти-галлюцинационной проверки.
+ */
+export function buildTestGenResponseFormat(): Record<string, unknown> {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'test_cases',
+      strict: true,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['cases'],
+        properties: {
+          cases: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: [
+                'slug',
+                'title',
+                'goal',
+                'precondition',
+                'steps',
+                'expected',
+                'negativeSteps',
+                'negativeExpected',
+              ],
+              properties: {
+                slug: { type: 'string' },
+                title: { type: 'string' },
+                goal: { type: 'string' },
+                precondition: { type: 'string' },
+                steps: { type: 'array', items: { type: 'string' } },
+                expected: { type: 'string' },
+                negativeSteps: {
+                  anyOf: [{ type: 'array', items: { type: 'string' } }, { type: 'null' }],
+                },
+                negativeExpected: { type: ['string', 'null'] },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
 /** Builds the `response_format` payload for the `json_schema` mode. */
 export type ResponseFormatBuilder = () => Record<string, unknown>;
 
