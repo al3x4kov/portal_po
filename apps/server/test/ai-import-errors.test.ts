@@ -120,6 +120,8 @@ describe('ARC-T2 · AiImportService error branches (populate/link/unpack)', () =
       skippedExisting: 0,
       links: 0,
       relatesLinks: 0,
+      extractedFunctions: 1,
+      extractedNfrs: 0,
     });
     const warn = view.log.find(
       (l) => l.level === 'warn' && l.message.includes('не соответствующих схеме'),
@@ -154,6 +156,8 @@ describe('ARC-T2 · AiImportService error branches (populate/link/unpack)', () =
       skippedExisting: 0,
       links: 1,
       relatesLinks: 0,
+      extractedFunctions: 2,
+      extractedNfrs: 0,
     });
     expect(
       view.log.some(

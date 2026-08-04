@@ -93,6 +93,21 @@ import { createServer, type Server } from 'node:http';
  * next `n` relate replies a NON-JSON sentence — with n ≥ retry attempts the
  * step degrades to «пропущен из-за ошибки AI» without failing the import.
  *
+ * todo_23 (M1, батчинг мелких файлов): small files of ONE source class are
+ * packed into a single extraction call (buildBatchExtractionMessages) — the
+ * user message starts with «Пакет из N файлов одного класса (фрагмент i из
+ * n).» and carries every file's text behind a «=== Файл: path ===» separator
+ * line. The stub detects the batch form, parses the separator paths
+ * (`batchExtractionFilesOf`) and answers with the CONCATENATION of
+ * `extractionItemsByFile[path]` over the batch, preserving file order — so
+ * provenance-per-file scenarios stay deterministic. Single-file calls keep
+ * the historical «Файл: … (фрагмент i из n)» matching. Fault knobs for the
+ * todo_23 scenarios: `failNextExtraction429(n)` answers HTTP 429 to the next
+ * `n` extraction calls (parallelism-degradation → recovery log lines, M4);
+ * `failExtractionAfterCalls(okCalls)` lets the first `okCalls` extraction
+ * calls succeed and 500s every later one until reset with `null` (mid-run
+ * failure → «сохранены в контрольной точке» → resume, M3).
+ *
  * todo_22 (T-307, backlog import): backlog MATCH calls are detected by their
  * distinct system prompt («продуктовый аналитик портала управления
  * требованиями», buildBacklogMatchMessages) and captured in
@@ -202,6 +217,13 @@ export interface AiStub {
   setStructureDelay(ms: number): void;
   /** Task 13 A3: the next `n` extraction replies are NON-JSON text (HTTP 200). */
   failNextExtractionJson(n: number): void;
+  /** todo_23 M4: the next `n` extraction replies are HTTP 429 (rate limit). */
+  failNextExtraction429(n: number): void;
+  /**
+   * todo_23 M3: the first `okCalls` extraction calls succeed, every later one
+   * answers HTTP 500 until reset with `null` (mid-run failure → resume).
+   */
+  failExtractionAfterCalls(okCalls: number | null): void;
   /** Task 13 B2: the next `n` structure replies are NON-JSON text (HTTP 200). */
   failNextStructureJson(n: number): void;
   /** todo_16 B2: only the relate-prompt `/chat/completions` bodies. */
@@ -269,6 +291,28 @@ function extractionFileName(body: AiChatCompletionCapture | undefined): string |
     if (match) return match[1] ?? null;
   }
   return null;
+}
+
+/**
+ * todo_23 M1: pull the file paths of a BATCHED extraction call out of the
+ * «=== Файл: path ===» separator lines. Returns `[]` for single-file calls —
+ * only user messages of the strict batch form («Пакет из N файлов одного
+ * класса (фрагмент i из n).» first line) are parsed, so few-shot examples and
+ * archive-map lines never produce false positives.
+ */
+export function batchExtractionFilesOf(body: AiChatCompletionCapture | undefined): string[] {
+  for (const m of body?.messages ?? []) {
+    if (m.role !== 'user') continue;
+    const content = m.content ?? '';
+    if (!/^Пакет из \d+ файлов одного класса \(фрагмент \d+ из \d+\)\./.test(content)) continue;
+    const files: string[] = [];
+    for (const line of content.split('\n')) {
+      const match = /^=== Файл: (.+) ===$/.exec(line);
+      if (match) files.push(match[1]!);
+    }
+    return files;
+  }
+  return [];
 }
 
 /** Section marker of the batch itself («Батч (N шт., …):», task 14 B4). */
@@ -428,6 +472,8 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
   let relatePairsByName: Record<string, string[]> = {};
   let relateRawPairs: Array<{ nfr: string; function: string }> = [];
   let nonJsonExtractionLeft = 0;
+  let rateLimit429ExtractionLeft = 0;
+  let extractionOkCallsLeft: number | null = null;
   let nonJsonStructureLeft = 0;
   let nonJsonRelateLeft = 0;
   let backlogAnswers: Record<string, BacklogMatchAnswerSpec> = opts.backlogAnswers ?? {};
@@ -482,6 +528,19 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
           nonJsonExtractionLeft -= 1;
           forceNonJson = true;
         }
+        // todo_23 M4: consume the 429 counter synchronously (parallel calls
+        // must never race the decrement).
+        let force429 = false;
+        if (isExtraction && rateLimit429ExtractionLeft > 0) {
+          rateLimit429ExtractionLeft -= 1;
+          force429 = true;
+        }
+        // todo_23 M3: spend the extraction ok-calls budget synchronously too.
+        let forceExtractionFail = false;
+        if (isExtraction && !force429 && extractionOkCallsLeft !== null) {
+          if (extractionOkCallsLeft > 0) extractionOkCallsLeft -= 1;
+          else forceExtractionFail = true;
+        }
         if (isStructure && nonJsonStructureLeft > 0) {
           nonJsonStructureLeft -= 1;
           forceNonJson = true;
@@ -499,7 +558,13 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
         }
 
         const respond = (): void => {
-          if (chatMode === 'error' || forceBacklogFail) {
+          if (force429) {
+            // todo_23 M4: rate limit — no Retry-After, the client backs off.
+            res.writeHead(429, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: { message: 'stub rate limit' } }));
+            return;
+          }
+          if (chatMode === 'error' || forceBacklogFail || forceExtractionFail) {
             res.writeHead(500, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ error: { message: 'stub upstream failure' } }));
             return;
@@ -508,7 +573,13 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
           if (forceNonJson) {
             content = NON_JSON_REPLY;
           } else if (isExtraction) {
-            content = JSON.stringify(extractionItems[extractionFileName(body) ?? ''] ?? []);
+            // todo_23 M1: a batched call answers the CONCATENATION of the
+            // per-file fixtures over the separator paths, in batch order.
+            const batchFiles = batchExtractionFilesOf(body);
+            content =
+              batchFiles.length > 0
+                ? JSON.stringify(batchFiles.flatMap((f) => extractionItems[f] ?? []))
+                : JSON.stringify(extractionItems[extractionFileName(body) ?? ''] ?? []);
           } else if (isStructure) {
             // Echo every BATCH item back (task 14: `TYPE\tимя\tисточник` lines
             // after the «Батч (…)» marker); parents come from the active map,
@@ -641,6 +712,12 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
     },
     failNextExtractionJson(n) {
       nonJsonExtractionLeft = n;
+    },
+    failNextExtraction429(n) {
+      rateLimit429ExtractionLeft = n;
+    },
+    failExtractionAfterCalls(okCalls) {
+      extractionOkCallsLeft = okCalls;
     },
     failNextStructureJson(n) {
       nonJsonStructureLeft = n;

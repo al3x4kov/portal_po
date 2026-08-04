@@ -22,6 +22,14 @@ export const AI_BACKOFF_BASE_MS = 1000;
 export const AI_BACKOFF_CAP_MS = 8000;
 /** Max jitter added to each backoff step, ms. */
 export const AI_BACKOFF_JITTER_MS = 250;
+/**
+ * todo_23 · M4: backoff window after a per-call timeout. A timed-out upstream
+ * is overloaded — retrying after ~1s almost always burns another full per-call
+ * timeout (пилотный лог: 19 повторов × 120с). The retry waits 15–30s instead;
+ * the per-call timeout itself is NOT changed.
+ */
+export const AI_TIMEOUT_BACKOFF_MIN_MS = 15_000;
+export const AI_TIMEOUT_BACKOFF_MAX_MS = 30_000;
 
 /** Failure classes of one AI call. */
 export type AiCallErrorClass =
@@ -135,6 +143,14 @@ export function backoffDelayMs(attempt: number, random: () => number = Math.rand
   return base + Math.round(random() * AI_BACKOFF_JITTER_MS);
 }
 
+/** todo_23 M4: backoff after a per-call timeout — random 15–30s (module doc). */
+export function timeoutBackoffMs(random: () => number = Math.random): number {
+  return (
+    AI_TIMEOUT_BACKOFF_MIN_MS +
+    Math.round(random() * (AI_TIMEOUT_BACKOFF_MAX_MS - AI_TIMEOUT_BACKOFF_MIN_MS))
+  );
+}
+
 /** Diagnostics of one retry decision (goes to the human-readable log). */
 export interface AiRetryDiagnostics {
   /** 1-based attempt that just failed. */
@@ -215,7 +231,11 @@ export async function callAiWithRetries<T>(opts: CallAiOptions<T>): Promise<Call
       if (opts.shouldStop?.()) {
         return { ok: false, errorClass: 'cancelled', error: lastError, attempts: attempt };
       }
-      const waitMs = retryAfterMs(err) ?? backoffDelayMs(attempt, random);
+      // todo_23 M4: a timeout waits 15–30s (give the upstream time to recover
+      // instead of instantly burning another full per-call timeout).
+      const waitMs =
+        retryAfterMs(err) ??
+        (lastClass === 'timeout' ? timeoutBackoffMs(random) : backoffDelayMs(attempt, random));
       opts.onRetry?.({
         attempt,
         maxAttempts,

@@ -606,6 +606,13 @@ export const aiImportResultSchema = z.object({
   links: z.number().int().min(0),
   /** RELATES_TO links created from an NFR to the functions it constrains (Task 15). */
   relatesLinks: z.number().int().min(0),
+  /*
+   * todo_23 · M3: «извлечено, но ещё не записано» — records the analyze stage
+   * pulled out of the docs that have not reached populate yet. Optional so
+   * every pre-todo_23 result/checkpoint stays valid.
+   */
+  extractedFunctions: z.number().int().min(0).optional(),
+  extractedNfrs: z.number().int().min(0).optional(),
 });
 export type AiImportResult = z.infer<typeof aiImportResultSchema>;
 
@@ -854,6 +861,13 @@ export const aiImportJobViewSchema = z.object({
   chunkTotal: z.number().int().min(0).optional(),
   /** Estimated remaining seconds; `null` = «оценивается…» (PO decision №6). */
   etaSeconds: z.number().min(0).nullable().optional(),
+  /*
+   * todo_23 · M3: live extracted-but-not-created counters, updated during the
+   * analyze stage (and restored from the checkpoint on resume). Optional —
+   * old views stay valid; the UI shows «извлечено (ждёт записи): N ФТ, M НФТ».
+   */
+  extractedFunctions: z.number().int().min(0).optional(),
+  extractedNfrs: z.number().int().min(0).optional(),
   usage: aiImportUsageViewSchema.optional(),
   inventory: aiImportInventoryViewSchema.optional(),
   estimate: aiImportEstimateViewSchema.optional(),

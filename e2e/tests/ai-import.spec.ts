@@ -419,12 +419,13 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await expect(log).toContainText(`Создано: «${REQ_LOGIN}» (FUNCTION).`);
     await attachShot(page, testInfo, 'success');
 
-    // The stub saw one extraction call per doc file, with the project model.
+    // todo_23 M1: both small files share one source class ('other'), so they
+    // are packed into a SINGLE batched extraction call (was: one per file).
     // todo_18 (58b7342): import calls now request the model's FULL generation
     // budget (`preset.maxOutputTokens`) instead of a per-call cap — 'Qwen-Coder-Next'
     // has no explicit preset, so it resolves to __default__ (maxOutputTokens 4000).
     const calls = stub.extractionRequests.slice(callsBefore);
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(1);
     for (const call of calls) {
       expect(call.model).toBe('Qwen-Coder-Next');
       expect(call['max_tokens']).toBe(4000);
@@ -451,9 +452,10 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     }
   });
 
-  /* Task 13: архив с древовидной структурой директорий — относительные пути
-     в «Файл:», «Директория текущего файла» и карта архива в каждом
-     extraction-вызове; не-doc файлы (png) в карту не попадают. */
+  /* Task 13 (+ todo_23 M1): архив с древовидной структурой директорий —
+     мелкие файлы одного класса упакованы в ОДИН батч-вызов, относительные
+     пути сохранены в разделителях «=== Файл: путь ===» и карте архива;
+     не-doc файлы (png) в карту не попадают. */
 
   test('архив с вложенными директориями: требования из вложенных файлов, карта архива и директория в запросах к модели', async ({
     page,
@@ -505,33 +507,23 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
       expect(byName.get(name)?.source ?? '', `source of «${name}» must stay empty`).toBe('');
     }
 
-    // The stub captured one extraction call per DOC file — the png caused none.
-    // todo_20 (T-206): few-shot example user messages precede the real payload,
-    // so the payload is the user message matching «Файл: … (фрагмент …)».
+    // todo_23 M1: all three docs are small files of ONE class ('other'), so
+    // the stub saw a SINGLE batched extraction call (was: one per file) — the
+    // png caused none. The batch prompt carries the archive map plus every
+    // file's text behind a «=== Файл: путь ===» separator with the FULL
+    // archive-relative path, so nested provenance survives batching.
     const calls = stub.extractionRequests.slice(callsBefore);
-    expect(calls).toHaveLength(3);
-    const payloadOf = (c: (typeof calls)[number]): string =>
-      c.messages?.find(
-        (m) => m.role === 'user' && /^Файл: .+ \(фрагмент \d+ из \d+\)/.test(m.content ?? ''),
+    expect(calls).toHaveLength(1);
+    const batchMsg =
+      calls[0]!.messages?.find(
+        (m) => m.role === 'user' && /^Пакет из \d+ файлов одного класса/.test(m.content ?? ''),
       )?.content ?? '';
-    const userOf = (relPath: string): string => {
-      const call = calls.find((c) => payloadOf(c).startsWith(`Файл: ${relPath} (фрагмент`));
-      expect(call, `extraction call for ${relPath}`).toBeDefined();
-      return call ? payloadOf(call) : '';
-    };
-
-    // Nested file: full relative path, its directory and the archive map.
-    const authMsg = userOf('docs/api/auth.md');
-    expect(authMsg).toContain('Директория текущего файла: docs/api');
-    expect(authMsg).toContain('Структура архива (файлы документации):');
+    expect(batchMsg).toContain('Пакет из 3 файлов одного класса (фрагмент 1 из 1).');
+    expect(batchMsg).toContain('Структура архива (файлы документации):');
     for (const rel of ['docs/api/auth.md', 'docs/nfr/perf.md', 'overview.md']) {
-      expect(authMsg).toContain(rel);
+      expect(batchMsg).toContain(rel);
+      expect(batchMsg).toContain(`=== Файл: ${rel} ===`);
     }
-
-    // Root-level file is labelled «корень архива».
-    const overviewMsg = userOf('overview.md');
-    expect(overviewMsg).toContain('Директория текущего файла: корень архива');
-    expect(overviewMsg).toContain('Структура архива (файлы документации):');
 
     // Non-doc file never reaches the archive map of ANY extraction call.
     for (const call of calls) {
@@ -597,13 +589,14 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await page.reload();
     await expect(page.getByTestId('main-page')).toBeVisible();
 
-    // 3 doc files × 2 s per extraction call → a comfortable running window.
+    // todo_23 M1: three small same-class files are ONE batched extraction
+    // call now — 8 s on that single call keep a comfortable running window.
     const zip = makeZip(testInfo, 'docs.zip', {
       'auth.md': DOCS['auth.md']!,
       'reports.md': DOCS['reports.md']!,
       'ops.md': DOCS['ops.md']!,
     });
-    stub.setExtractionDelay(2000);
+    stub.setExtractionDelay(8000);
     try {
       await openAiImport(page);
       await chooseFile(page, zip);
@@ -672,13 +665,14 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await page.reload();
     await expect(page.getByTestId('main-page')).toBeVisible();
 
-    // 3 files × 2 s per call ≈ 6 s of guaranteed running time.
+    // todo_23 M1: the three small files batch into ONE extraction call —
+    // 8 s on it guarantee the running window for both X-confirm rounds.
     const zip = makeZip(testInfo, 'docs.zip', {
       'auth.md': DOCS['auth.md']!,
       'reports.md': DOCS['reports.md']!,
       'ops.md': DOCS['ops.md']!,
     });
-    stub.setExtractionDelay(2000);
+    stub.setExtractionDelay(8000);
     try {
       await openAiImport(page);
       await chooseFile(page, zip);
@@ -1176,7 +1170,8 @@ test.describe('Task 14 · AI-импорт: валидность дерева', (
 
     const log = page.getByTestId('ai-import-log');
     // B9: стартовый лог объёма — модель проекта, число файлов и фрагментов.
-    await expect(log).toContainText('Модель: Qwen-Coder-Next. Файлов: 2, фрагментов: 2.');
+    // todo_23 M1: два мелких файла одного класса — один батч-фрагмент.
+    await expect(log).toContainText('Модель: Qwen-Coder-Next. Файлов: 2, фрагментов: 1.');
     // B6: точная сводка дерева в конце стадии structure.
     await expect(log).toContainText(
       'Дерево: ФТ — 1 корней, 1 с родителем; НФТ — 1 корней, 0 с родителем; максимальная глубина 2.',

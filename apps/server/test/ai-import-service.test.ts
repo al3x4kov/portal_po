@@ -144,9 +144,12 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
   });
 
   it('happy path: two md files → requirements created, source empty, implemented forced (Task 13 A1/A2)', async () => {
+    // todo_23 M1: два мелких файла одного класса идут ОДНИМ пакетным вызовом.
     const client = scriptedClient([
-      JSON.stringify([record()]),
-      JSON.stringify([record({ type: 'NFR', name: 'Время отклика', source: 'perf.md § SLA' })]),
+      JSON.stringify([
+        record(),
+        record({ type: 'NFR', name: 'Время отклика', source: 'perf.md § SLA' }),
+      ]),
       structure([{ name: 'Вход по паролю' }, { type: 'NFR', name: 'Время отклика' }]),
     ]);
     const service = makeService(client);
@@ -166,6 +169,8 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       skippedExisting: 0,
       links: 0,
       relatesLinks: 0,
+      extractedFunctions: 1,
+      extractedNfrs: 1,
     });
 
     const { requirements } = await createRequirementService(ctx, PROJECT).list();
@@ -194,7 +199,9 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       '[]',
       structure([{ name: 'Аутентификация' }]),
     ]);
-    const service = makeService(client);
+    // todo_23 M1: маленький chunkChars оставляет каждому файлу отдельный вызов
+    // (тест проверяет per-file поля промпта — карту, директорию, путь).
+    const service = makeService(client, { chunkChars: 50 });
     const archive = await writeZip({
       'docs/api/auth.md': '# Вход\nПользователь входит по email и паролю.',
       'docs/nfr/perf.md': '# SLA\nОтклик до 200 мс.',
@@ -286,9 +293,10 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       record(),
       record({ type: 'NFR', name: 'Время отклика', source: 'perf.md § SLA' }),
     ];
+    // todo_23 M1: оба мелких файла идут одним пакетным вызовом — дубли
+    // приходят в одном ответе и всё так же сливаются дедупликацией.
     const client = scriptedClient([
-      JSON.stringify(records),
-      JSON.stringify(records),
+      JSON.stringify([...records, ...records]),
       structure([{ name: 'Вход по паролю' }, { type: 'NFR', name: 'Время отклика' }]),
     ]);
     const service = makeService(client);
@@ -303,6 +311,8 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       skippedExisting: 0,
       links: 0,
       relatesLinks: 0,
+      extractedFunctions: 2,
+      extractedNfrs: 2,
     });
     // todo_20 T-207: exact duplicates are now merged by the dedupe stage
     // (normalized names) BEFORE aggregation — the warn moved there.
@@ -339,6 +349,8 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       skippedExisting: 1,
       links: 0,
       relatesLinks: 0,
+      extractedFunctions: 1,
+      extractedNfrs: 0,
     });
     expect(view.log.some((l) => l.level === 'warn' && l.message.includes('пропущено'))).toBe(true);
     expect(await fs.readFile(file, 'utf8')).toBe(before);
@@ -592,6 +604,8 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       skippedExisting: 0,
       links: 0,
       relatesLinks: 0,
+      extractedFunctions: 0,
+      extractedNfrs: 0,
     });
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
     expect(create).toHaveBeenCalledTimes(1);
@@ -646,7 +660,9 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       JSON.stringify([record()]),
       structure([{ name: 'Вход по паролю' }]),
     ]);
-    const service = makeService(mixed);
+    // todo_23 M1: маленький chunkChars отключает батчинг — тесту нужны два
+    // отдельных фрагмента (пропущенный и распознанный).
+    const service = makeService(mixed, { chunkChars: 20 });
     const archive = await writeZip({ 'a.md': 'Вход.', 'b.md': 'Ещё вход.' });
     const jobId = await runToEnd(service, archive);
     const view = service.getView(jobId);
@@ -853,6 +869,8 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       skippedExisting: 0,
       links: 1,
       relatesLinks: 0,
+      extractedFunctions: 2,
+      extractedNfrs: 0,
     });
     expect(
       view.log.some(
@@ -1069,11 +1087,12 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       view.log.some(
         (l) =>
           l.level === 'info' &&
-          l.message.includes('Модель: Qwen-Coder-Next. Файлов: 2, фрагментов: 2.'),
+          // todo_23 M1: два мелких файла одного класса — один пакетный фрагмент.
+          l.message.includes('Модель: Qwen-Coder-Next. Файлов: 2, фрагментов: 1.'),
       ),
     ).toBe(true);
     const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
-    expect(create).toHaveBeenCalledTimes(2); // one per chunk, no retries, no structure call
+    expect(create).toHaveBeenCalledTimes(1); // one batched chunk, no retries, no structure call
   });
 
   it('T14 B9: zero extracted requirements → structure stage skipped without hub calls', async () => {
@@ -1121,6 +1140,8 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       skippedExisting: 0,
       links: 0,
       relatesLinks: 1,
+      extractedFunctions: 1,
+      extractedNfrs: 1,
     });
     expect(
       view.log.some(
@@ -1225,6 +1246,8 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
   });
 
   it('T15: duplicates of one NFR union their relatedFunctions by case-insensitive name', async () => {
+    // todo_23 M1: оба мелких файла идут одним пакетным вызовом — дубли НФТ
+    // приходят в одном ответе и всё так же объединяют relatedFunctions.
     const client = scriptedClient([
       JSON.stringify([
         record({ name: 'Поиск', source: 'a.md § Поиск' }),
@@ -1234,8 +1257,6 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
           source: 'a.md § SLA',
           relatedFunctions: ['Поиск'],
         }),
-      ]),
-      JSON.stringify([
         record({ name: 'Экспорт', source: 'b.md § Экспорт' }),
         record({
           type: 'NFR',
@@ -1323,6 +1344,8 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       skippedExisting: 2,
       links: 0,
       relatesLinks: 0,
+      extractedFunctions: 1,
+      extractedNfrs: 1,
     });
     const { requirements } = await createRequirementService(ctx, PROJECT).list();
     const nfr = requirements.find((r) => r.type === 'NFR');
@@ -1512,7 +1535,9 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
       JSON.stringify([record({ type: 'NFR', name: 'Время отклика', source: 'perf.md § SLA' })]),
       structure([{ name: 'Вход по паролю' }, { type: 'NFR', name: 'Время отклика' }]),
     ]);
-    const service = makeService(client);
+    // todo_23 M1: маленький chunkChars оставляет каждому файлу свой вызов —
+    // тест проверяет per-file pre-call строки.
+    const service = makeService(client, { chunkChars: 50 });
     const archive = await writeZip({
       'auth.md': '# Вход\nПользователь входит по email и паролю.',
       'perf.md': '# SLA\nОтклик до 200 мс.',

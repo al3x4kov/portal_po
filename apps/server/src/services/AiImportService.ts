@@ -500,7 +500,32 @@ export class AiImportService {
   }
 
   private static zeroCounters(): AiImportResult {
-    return { createdFunctions: 0, createdNfrs: 0, skippedExisting: 0, links: 0, relatesLinks: 0 };
+    return {
+      createdFunctions: 0,
+      createdNfrs: 0,
+      skippedExisting: 0,
+      links: 0,
+      relatesLinks: 0,
+      // todo_23 M3: «извлечено, но ещё не записано» — заполняются в analyze.
+      extractedFunctions: 0,
+      extractedNfrs: 0,
+    };
+  }
+
+  /**
+   * todo_23 M3: extra sentence for the stop/fail message when the run has
+   * extracted more than it created — the paid work is NOT lost, it lives in
+   * the checkpoint. `null` when nothing is pending or checkpoints are off.
+   */
+  private extractedPendingLine(counters: AiImportResult): string | null {
+    if (!this.deps.checkpoints) return null;
+    const fn = counters.extractedFunctions ?? 0;
+    const nfr = counters.extractedNfrs ?? 0;
+    if (fn + nfr <= counters.createdFunctions + counters.createdNfrs) return null;
+    return (
+      `Извлечено ${fn + nfr} записей (ФТ ${fn}, НФТ ${nfr}) — они сохранены в контрольной точке; ` +
+      '„Продолжить“ доведёт до создания.'
+    );
   }
 
   private static isResumable(status: AiImportStatus, errorResumable?: boolean): boolean {
@@ -521,6 +546,13 @@ export class AiImportService {
       cancelRequested: false,
       // Partial «что уже создано» counters are always visible for history.
       result: cp.result ?? { ...cp.counters },
+      // todo_23 M3: live extracted counters survive restart/adopt.
+      ...(cp.counters.extractedFunctions !== undefined
+        ? { extractedFunctions: cp.counters.extractedFunctions }
+        : {}),
+      ...(cp.counters.extractedNfrs !== undefined
+        ? { extractedNfrs: cp.counters.extractedNfrs }
+        : {}),
       ...(cp.error ? { error: cp.error } : {}),
       ...(cp.usage ? { usage: cp.usage } : {}),
       ...(cp.inventory ? { inventory: cp.inventory } : {}),
@@ -566,12 +598,15 @@ export class AiImportService {
     if (!job.cancelRequested) return false;
     if (job.status !== 'running') return true; // already finished as cancelled
     job.result = { ...counters };
+    // todo_23 M3: extracted>created — прогон не потерян, скажем это явно.
+    const pending = this.extractedPendingLine(counters);
     this.logLine(
       job,
       'warn',
       `Автоматизация остановлена пользователем. Создано к моменту остановки: ` +
         `ФТ ${counters.createdFunctions}, НФТ ${counters.createdNfrs}, связей ${counters.links}, ` +
-        `связей НФТ→ФТ: ${counters.relatesLinks}.`,
+        `связей НФТ→ФТ: ${counters.relatesLinks}.` +
+        (pending ? ` ${pending}` : ''),
     );
     this.deps.jobs.finish(job, 'cancelled');
     return true;
@@ -732,6 +767,9 @@ export class AiImportService {
       failCode: (code: AiImportErrorCode, overrides?: { message?: string; hint?: string }) => {
         const error = aiImportErrorFromCode(code, overrides);
         this.logLine(job, 'error', `[${code}] ${error.message}`);
+        // todo_23 M3: extracted>created — платная работа не потеряна.
+        const pending = this.extractedPendingLine(counters);
+        if (pending) this.logLine(job, 'info', pending);
         job.error = error;
         // T-213: «что уже создано» is always visible on the fail screen.
         job.result = { ...counters };
@@ -1169,6 +1207,15 @@ export class AiImportService {
   private async run(job: AiImportJobState, ctx: RunContext): Promise<void> {
     const cp = ctx.resumed?.checkpoint;
     const counters: AiImportResult = cp ? { ...cp.counters } : AiImportService.zeroCounters();
+    // todo_23 M3: extracted-счётчики восстанавливаются из чекпоинта (даже
+    // старого, без полей в counters — пересчёт по сохранённым записям).
+    if (cp?.analyze) {
+      const fns = cp.analyze.extracted.filter((r) => r.type === 'FUNCTION').length;
+      counters.extractedFunctions = fns;
+      counters.extractedNfrs = cp.analyze.extracted.length - fns;
+      job.extractedFunctions = counters.extractedFunctions;
+      job.extractedNfrs = counters.extractedNfrs;
+    }
     // todo_20 T-208: one budget per run; a resumed run re-reads the limit from
     // the CURRENT preset (so «увеличьте бюджет и продолжите» works) while the
     // already-spent usage carries over.

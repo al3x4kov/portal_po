@@ -130,6 +130,41 @@ export function buildExtractionMessages(
   ];
 }
 
+/**
+ * todo_23 · M1: separator line marking one file's start inside a BATCHED
+ * fragment (several small files of one source class packed into one call).
+ */
+export function batchFileSeparator(file: string): string {
+  return `=== Файл: ${file} ===`;
+}
+
+/**
+ * todo_23 · M1: conversation for one batched fragment. The chunk holds several
+ * small files of ONE source class, delimited by {@link batchFileSeparator}
+ * lines; the model is told to take `source` from the nearest separator above a
+ * record, so provenance stays per-file.
+ */
+export function buildBatchExtractionMessages(
+  chunk: string,
+  files: string[],
+  chunkInfo: ChunkInfo,
+  archiveMap: string,
+): AiChatMessage[] {
+  const user = [
+    `Пакет из ${files.length} файлов одного класса (фрагмент ${chunkInfo.index} из ${chunkInfo.total}).`,
+    'Границы файлов отмечены строками вида «=== Файл: путь ===».',
+    'В поле source каждой записи указывай путь файла из ближайшего разделителя выше записи (и раздел, если он виден).',
+    'Структура архива (файлы документации):',
+    archiveMap,
+    '',
+    chunk,
+  ].join('\n');
+  return [
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: user },
+  ];
+}
+
 /** One requirement passed into the structure call: type + name + provenance. */
 export interface StructureItem {
   type: RequirementType;

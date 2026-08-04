@@ -186,6 +186,8 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
       skippedExisting: 2,
       links: 1,
       relatesLinks: 0,
+      extractedFunctions: 2,
+      extractedNfrs: 0,
     });
 
     const repaired = await assertProjectValid(root);
@@ -232,6 +234,8 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
       skippedExisting: 1,
       links: 1,
       relatesLinks: 0,
+      extractedFunctions: 2,
+      extractedNfrs: 0,
     });
 
     const requirements = await assertProjectValid(root);
@@ -251,6 +255,8 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
       skippedExisting: 2,
       links: 0,
       relatesLinks: 0,
+      extractedFunctions: 2,
+      extractedNfrs: 0,
     });
     const settled = await assertProjectValid(root);
     expect(settled).toHaveLength(2);
@@ -327,6 +333,8 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
       skippedExisting: 2,
       links: 1,
       relatesLinks: 0,
+      extractedFunctions: 2,
+      extractedNfrs: 0,
     });
 
     const requirements = await assertProjectValid(root);

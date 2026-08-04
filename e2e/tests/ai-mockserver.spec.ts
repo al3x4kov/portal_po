@@ -258,9 +258,13 @@ test.describe('AI против реального MockServer', () => {
     const id = await projectWithAi(page, 'MS-Imp');
 
     // 2 небольших md; уникальные имена файлов скоупят журнал MockServer.
+    // todo_23 M1: классы файлов РАЗНЫЕ (строка «POST /login» делает первый
+    // api-spec, второй остаётся other), иначе батчинг мелких файлов одного
+    // класса слил бы их в один extraction-вызов и сценарий дедупликации
+    // (один и тот же мок-ответ на каждый файл) перестал бы воспроизводиться.
     const runId = uniqueName('msimp');
     const files: Record<string, string> = {
-      [`login-${runId}.md`]: '# Вход\nПользователь входит по логину и паролю.\n',
+      [`login-${runId}.md`]: '# Вход\nPOST /login\nПользователь входит по логину и паролю.\n',
       [`perf-${runId}.md`]: '# Отклик\nИнтерфейс отвечает не дольше 1 секунды.\n',
     };
     const zip = new AdmZip();

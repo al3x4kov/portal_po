@@ -24,10 +24,16 @@ export class ParallelismGovernor {
     return this.current;
   }
 
+  /** The preset ceiling the pool recovers towards (todo_23 M4: for log lines). */
+  presetLimit(): number {
+    return this.max;
+  }
+
   /**
-   * A 429 was observed (even one that a retry later recovered). Collapses the
-   * pool to 1; returns true when this call actually changed the size (the
-   * caller logs the degradation exactly once, E3).
+   * The upstream signalled overload — a 429 or a per-call timeout (todo_23
+   * M4), even one that a retry later recovered. Collapses the pool to 1;
+   * returns true when this call actually changed the size (the caller logs
+   * the degradation exactly once, E3).
    */
   noteRateLimited(): boolean {
     this.successStreak = 0;
@@ -36,13 +42,20 @@ export class ParallelismGovernor {
     return true;
   }
 
-  /** A chunk finished successfully — gradual recovery towards the preset. */
-  noteSuccess(): void {
-    if (this.current >= this.max) return;
+  /**
+   * A chunk finished successfully — gradual recovery towards the preset:
+   * +1 after every {@link AI_PARALLELISM_RECOVERY_SUCCESSES} successes in a
+   * row. Returns true when the effective K actually changed (todo_23 M4: the
+   * caller logs every change of the effective parallelism).
+   */
+  noteSuccess(): boolean {
+    if (this.current >= this.max) return false;
     this.successStreak += 1;
     if (this.successStreak >= AI_PARALLELISM_RECOVERY_SUCCESSES) {
       this.successStreak = 0;
       this.current = Math.min(this.max, this.current + 1);
+      return true;
     }
+    return false;
   }
 }

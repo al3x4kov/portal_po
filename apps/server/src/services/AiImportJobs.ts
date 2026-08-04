@@ -58,6 +58,9 @@ export interface AiImportJobState {
   chunkIndex?: number;
   chunkTotal?: number;
   etaSeconds?: number | null;
+  /* ── todo_23 M3: живые «извлечено, ещё не записано» счётчики (analyze) ── */
+  extractedFunctions?: number;
+  extractedNfrs?: number;
   usage?: AiImportUsageView;
   inventory?: AiImportInventoryView;
   estimate?: AiImportEstimateView;
@@ -189,6 +192,11 @@ export class AiImportJobs {
       ...(job.chunkIndex !== undefined ? { chunkIndex: job.chunkIndex } : {}),
       ...(job.chunkTotal !== undefined ? { chunkTotal: job.chunkTotal } : {}),
       ...(job.etaSeconds !== undefined ? { etaSeconds: job.etaSeconds } : {}),
+      // todo_23 M3: живые extracted-счётчики (optional — старые view валидны).
+      ...(job.extractedFunctions !== undefined
+        ? { extractedFunctions: job.extractedFunctions }
+        : {}),
+      ...(job.extractedNfrs !== undefined ? { extractedNfrs: job.extractedNfrs } : {}),
       ...(job.usage ? { usage: { ...job.usage } } : {}),
       ...(job.inventory ? { inventory: structuredClone(job.inventory) } : {}),
       ...(job.estimate ? { estimate: { ...job.estimate } } : {}),

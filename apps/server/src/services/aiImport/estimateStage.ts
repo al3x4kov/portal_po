@@ -27,14 +27,28 @@ export interface EstimateInput {
   thresholdTokens: number | null;
 }
 
-/** Pure computation — unit-testable without a runtime. */
+/**
+ * Pure computation — unit-testable without a runtime.
+ *
+ * todo_23 M1: the estimate mirrors the batched analyze stage — small files
+ * (< chunkChars) of one source class share fragments, so 200 мелких файлов
+ * cost десятки вызовов, not сотни; large files keep per-file chunking.
+ */
 export function computeEstimate(input: EstimateInput): AiImportEstimateView {
   let chunks = 0;
   let totalChars = 0;
+  const smallByClass = new Map<string, number>();
   for (const file of input.files) {
     if (file.size <= 0) continue;
-    chunks += Math.max(1, Math.ceil(file.size / input.chunkChars));
     totalChars += file.size;
+    if (file.size >= input.chunkChars) {
+      chunks += Math.ceil(file.size / input.chunkChars);
+    } else {
+      smallByClass.set(file.sourceClass, (smallByClass.get(file.sourceClass) ?? 0) + file.size);
+    }
+  }
+  for (const total of smallByClass.values()) {
+    chunks += Math.max(1, Math.ceil(total / input.chunkChars));
   }
   const calls = chunks;
   const tokens =

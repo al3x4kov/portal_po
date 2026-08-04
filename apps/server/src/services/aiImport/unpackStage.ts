@@ -42,6 +42,12 @@ export async function runUnpackStage(
   rt.job.progress = 2;
 
   let unpacked: UnpackedDocs;
+  // todo_23 M5: пульс не реже ~15с, пока идёт (долгая) распаковка.
+  const startedMs = Date.now();
+  const pulse = setInterval(() => {
+    rt.log('info', `Распаковка продолжается… (${Math.round((Date.now() - startedMs) / 1000)} с)`);
+  }, 15_000);
+  pulse.unref?.();
   try {
     // todo_20 Н1: the AI unpack uses its own (higher) bomb-guard bound —
     // project archives keep the stricter DEFAULT_ARCHIVE_LIMITS.
@@ -61,6 +67,8 @@ export async function runUnpackStage(
       hint: AI_IMPORT_HINT_ARCHIVE,
     });
     return { ok: false };
+  } finally {
+    clearInterval(pulse);
   }
   const docsDir = unpacked.dir;
   if (unpacked.unsafeEntries > 0) {

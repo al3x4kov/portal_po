@@ -37,6 +37,10 @@ export const AI_INVENTORY_LLM_MIN_CHARS = 400;
 export const AI_INVENTORY_LLM_BATCH = 30;
 /** First lines of a file handed to the LLM classifier. */
 export const AI_INVENTORY_LLM_HEAD_LINES = 30;
+/** todo_23 M5: progress pulse every N scanned files (плюс не реже ~15с). */
+export const AI_INVENTORY_PROGRESS_EVERY_FILES = 50;
+/** todo_23 M5: time-based pulse bound of the inventory scan, ms. */
+export const AI_INVENTORY_PROGRESS_EVERY_MS = 15_000;
 
 /** Processing priority per class (lower = earlier; A3). */
 const CLASS_PRIORITY: Record<AiImportSourceClass, number> = {
@@ -169,8 +173,20 @@ export async function runInventoryStage(
   const excludedBinary: AiImportExcludedEntry[] = [];
   const unresolved: string[] = [];
 
+  // todo_23 M5: пульс — на больших архивах (254 файла в пилоте) между
+  // «Распаковка…» и сметой были минуты тишины.
+  let scanned = 0;
+  let lastPulseMs = Date.now();
   for (const rel of input.files) {
     if (rt.cancelled()) return { ok: false };
+    scanned += 1;
+    if (
+      scanned % AI_INVENTORY_PROGRESS_EVERY_FILES === 0 ||
+      Date.now() - lastPulseMs >= AI_INVENTORY_PROGRESS_EVERY_MS
+    ) {
+      lastPulseMs = Date.now();
+      rt.log('info', `Опись: просмотрено файлов ${scanned} из ${input.files.length}…`);
+    }
     const abs = path.join(input.docsDir, rel);
     const stat = await fs.stat(abs);
     const head = await readHead(abs);
@@ -200,10 +216,16 @@ export async function runInventoryStage(
   if (candidates.length > 0) {
     const client = input.makeAiClient(input.apiKey, input.baseURL);
     const byPath = new Map(entries.map((e) => [e.path, e]));
+    const totalBatches = Math.ceil(candidates.length / AI_INVENTORY_LLM_BATCH);
     for (let i = 0; i < candidates.length; i += AI_INVENTORY_LLM_BATCH) {
       const batch = candidates
         .slice(i, i + AI_INVENTORY_LLM_BATCH)
         .map((rel) => ({ path: rel, head: heads.get(rel) ?? '' }));
+      // todo_23 M5: пульс перед каждым (долгим) LLM-вызовом классификации.
+      rt.log(
+        'info',
+        `Классификация содержимого: батч ${Math.floor(i / AI_INVENTORY_LLM_BATCH) + 1} из ${totalBatches} (файлов ${batch.length})…`,
+      );
       const outcome = await rt.chat<Array<{ path: string; class: AiImportSourceClass }>>({
         client,
         model: input.model,

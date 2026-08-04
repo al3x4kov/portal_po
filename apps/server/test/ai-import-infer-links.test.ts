@@ -203,6 +203,8 @@ describe('todo_16 B2: optional inferLinks step (relate ФТ↔НФТ, mock AI cl
     expect(view.relate).toEqual({ status: 'done', created: 1 });
     // The step never creates/changes requirements; existing counters untouched.
     expect(view.result).toEqual({
+      extractedFunctions: 1,
+      extractedNfrs: 1,
       createdFunctions: 1,
       createdNfrs: 1,
       skippedExisting: 0,

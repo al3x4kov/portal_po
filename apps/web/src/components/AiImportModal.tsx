@@ -338,6 +338,22 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   const resumable = Boolean(jobError?.resumable) && !jobLost;
   const logUrl = jobId && !jobLost ? aiImportApi.logUrl(jobId) : null;
 
+  /*
+   * todo_23 · M3: «извлечено, но ещё не записано» — records the analyze stage
+   * pulled out of the docs that have not reached populate yet. The live
+   * top-level view fields win (updated during running, incl. resume); the
+   * result snapshot is the fallback for finished/stopped jobs. All fields are
+   * optional — pre-todo_23 jobs have none and render nothing (no regressions).
+   */
+  const extractedFunctions = job?.extractedFunctions ?? result?.extractedFunctions;
+  const extractedNfrs = job?.extractedNfrs ?? result?.extractedNfrs;
+  const extractedTotal = (extractedFunctions ?? 0) + (extractedNfrs ?? 0);
+  const hasExtracted =
+    (extractedFunctions !== undefined || extractedNfrs !== undefined) && extractedTotal > 0;
+  // Stop/error states: extraction outran creation → the checkpoint note.
+  const createdTotal = (result?.createdFunctions ?? 0) + (result?.createdNfrs ?? 0);
+  const extractedPending = hasExtracted && extractedTotal > createdTotal;
+
   const footer =
     phase === 'setup' ? (
       <>
@@ -500,7 +516,10 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
         </button>
       </>
     ) : (
-      /* cancelled: honest panel + a retry that is available right away. */
+      /* cancelled: honest panel + a retry that is available right away.
+         todo_23 M3: the server resumes cancelled jobs from the checkpoint, so
+         when extraction outran creation the promised «Продолжить» (primary,
+         same testid as the failed-phase resume) actually exists here too. */
       <>
         <button
           type="button"
@@ -511,14 +530,36 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
           <RefreshCw size={16} aria-hidden="true" />
           Повторить анализ
         </button>
-        <button
-          type="button"
-          className="btn btn-primary text-sm"
-          data-testid="ai-import-done"
-          onClick={onClose}
-        >
-          Готово
-        </button>
+        {extractedPending ? (
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary text-sm"
+              data-testid="ai-import-done"
+              onClick={onClose}
+            >
+              Готово
+            </button>
+            <BusyButton
+              className="btn btn-primary text-sm"
+              busy={resumeMut.isPending}
+              busyLabel="Продолжаем…"
+              data-testid="ai-import-resume"
+              onClick={() => resumeJob()}
+            >
+              Продолжить
+            </BusyButton>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-primary text-sm"
+            data-testid="ai-import-done"
+            onClick={onClose}
+          >
+            Готово
+          </button>
+        )}
       </>
     );
 
@@ -1106,6 +1147,20 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                 </section>
               ) : null}
 
+              {/* todo_23 M3: extraction outran creation — the checkpoint keeps
+                  the records; «Продолжить» (already above, when resumable)
+                  turns them into requirements. */}
+              {extractedPending ? (
+                <p
+                  className="rounded-lg border px-3 py-2 text-sm"
+                  style={{ borderColor: 'var(--color-border)' }}
+                  data-testid="ai-import-extracted"
+                >
+                  Извлечено <b>{extractedFunctions ?? 0} ФТ</b> и <b>{extractedNfrs ?? 0} НФТ</b> —
+                  сохранены в контрольной точке, «Продолжить» доведёт до создания.
+                </p>
+              ) : null}
+
               {smallerHintOpen ? (
                 <div
                   className="rounded-lg p-3 text-sm"
@@ -1183,6 +1238,14 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                     </b>{' '}
                     — они уже сохранены в проекте.
                   </p>
+                  {/* todo_23 M3: extraction outran creation — nothing is lost. */}
+                  {extractedPending ? (
+                    <p className="mt-1 text-sm" data-testid="ai-import-extracted">
+                      Извлечено <b>{extractedFunctions ?? 0} ФТ</b> и{' '}
+                      <b>{extractedNfrs ?? 0} НФТ</b> — сохранены в контрольной точке, «Продолжить»
+                      доведёт до создания.
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <p className="hint mt-3">
@@ -1321,6 +1384,21 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
                 </div>
               </div>
             </section>
+          ) : null}
+
+          {/* todo_23 M3: extracted-but-not-yet-created records — honest live
+              counter next to «создано …», so an analyze-heavy run never looks
+              like «создано 0» while the checkpoint already holds records. */}
+          {phase === 'running' && hasExtracted ? (
+            <div
+              className="rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--color-border)' }}
+              data-testid="ai-import-extracted"
+            >
+              извлечено (ждёт записи):{' '}
+              <b data-testid="ai-import-extracted-functions">{extractedFunctions ?? 0}</b> ФТ,{' '}
+              <b data-testid="ai-import-extracted-nfrs">{extractedNfrs ?? 0}</b> НФТ
+            </div>
           ) : null}
 
           {/* todo_20 E4 (mockup 05): the quality report — present (partial) also

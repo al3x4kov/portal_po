@@ -3,6 +3,8 @@ import path from 'node:path';
 import type { AiExtractedRequirement, AiImportSourceClass, AiModelPreset } from '@po/core';
 import type { AiClient, AiClientFactory } from '../AiHubService.js';
 import {
+  batchFileSeparator,
+  buildBatchExtractionMessages,
   buildExtractionMessages,
   parseExtractionResponse,
   type ParsedExtraction,
@@ -85,6 +87,61 @@ function upstreamCodeOf(
   }
 }
 
+export { batchFileSeparator };
+
+/** One row handed to the batching planner (todo_23 M1). */
+export interface BatchPlanDoc {
+  file: string;
+  /** Length of the NORMALIZED text, chars. */
+  length: number;
+  cls?: AiImportSourceClass;
+}
+
+/**
+ * todo_23 · M1: plan the work units of the analyze stage. Consecutive SMALL
+ * files (each fitting into `chunkChars` with its separator) of ONE source
+ * class are packed into a batched unit — one extraction call instead of one
+ * call per file. Large/empty files and a partially-resumed first file keep
+ * the historical one-file-per-unit behaviour. Returns contiguous index groups
+ * over `docs` (позиция по описи — the checkpoint cursor stays file-based).
+ */
+export function planWorkUnits(
+  docs: BatchPlanDoc[],
+  startIndex: number,
+  startOffset: number,
+  chunkChars: number,
+): number[][] {
+  // Piece size inside a batch: separator line + newline + text + join newline.
+  const pieceLen = (doc: BatchPlanDoc): number =>
+    batchFileSeparator(doc.file).length + 1 + doc.length + 1;
+  const units: number[][] = [];
+  let i = startIndex;
+  while (i < docs.length) {
+    const doc = docs[i]!;
+    const partialResume = i === startIndex && startOffset > 0;
+    if (partialResume || doc.length === 0 || pieceLen(doc) >= chunkChars) {
+      units.push([i]);
+      i += 1;
+      continue;
+    }
+    const unit = [i];
+    let size = pieceLen(doc);
+    let j = i + 1;
+    while (j < docs.length) {
+      const next = docs[j]!;
+      if (next.cls !== doc.cls || next.length === 0) break;
+      const nextLen = pieceLen(next);
+      if (nextLen >= chunkChars || size + nextLen > chunkChars) break;
+      unit.push(j);
+      size += nextLen;
+      j += 1;
+    }
+    units.push(unit);
+    i = j;
+  }
+  return units;
+}
+
 /** Outcome of one (possibly recursively split) chunk. */
 type ChunkOutcome =
   | { kind: 'items'; items: AiExtractedRequirement[]; skipped: boolean }
@@ -141,10 +198,26 @@ export async function runAnalyzeStage(
     docs.push({ file, text: normalized.text, expectedRecords: normalized.expectedRecords });
   }
 
+  // todo_23 M1: consecutive small files of ONE class are packed into batched
+  // units (one extraction call each); large files keep per-file chunking. The
+  // checkpoint cursor stays file-based, so units re-derive deterministically
+  // on resume (позиция по описи).
+  const units = planWorkUnits(
+    docs.map((d) => ({ file: d.file, length: d.text.length, cls: input.classes?.get(d.file) })),
+    startFileIndex,
+    startOffset,
+    input.chunkChars,
+  );
+  const unitTextOf = (unit: number[]): string =>
+    unit.length === 1
+      ? docs[unit[0]!]!.text
+      : unit.map((idx) => `${batchFileSeparator(docs[idx]!.file)}\n${docs[idx]!.text}`).join('\n');
+
   // Remaining work only: a resumed run counts what is left, not what was paid.
   let totalChunks = 0;
-  for (let i = startFileIndex; i < docs.length; i++) {
-    const remainder = docs[i]!.text.slice(i === startFileIndex ? startOffset : 0);
+  for (const unit of units) {
+    const offset = unit.length === 1 && unit[0] === startFileIndex ? startOffset : 0;
+    const remainder = unitTextOf(unit).slice(offset);
     if (remainder.length > 0) totalChunks += chunker.split(remainder).length;
   }
   if (totalChunks === 0 && input.resume === undefined) {
@@ -179,14 +252,23 @@ export async function runAnalyzeStage(
     index: number;
     total: number;
     label: () => string;
+    /** todo_23 M1: file paths of a batched unit (batch prompt + provenance). */
+    batchFiles?: string[];
     extra?: AiChatMessage;
   }): Promise<ChunkOutcome> => {
-    const base = buildExtractionMessages(
-      ctx.chunk,
-      ctx.file,
-      { index: ctx.index, total: ctx.total },
-      input.archiveMap,
-    );
+    const base = ctx.batchFiles
+      ? buildBatchExtractionMessages(
+          ctx.chunk,
+          ctx.batchFiles,
+          { index: ctx.index, total: ctx.total },
+          input.archiveMap,
+        )
+      : buildExtractionMessages(
+          ctx.chunk,
+          ctx.file,
+          { index: ctx.index, total: ctx.total },
+          input.archiveMap,
+        );
     let messages =
       ctx.fewShot.length > 0 ? [base[0]!, ...ctx.fewShot, ...base.slice(1)] : [...base];
     if (ctx.extra) messages = [...messages, ctx.extra];
@@ -197,11 +279,18 @@ export async function runAnalyzeStage(
       messages,
       negotiator: input.negotiator,
       // T-210: the FIRST 429 (even a recovered one) collapses the pool.
+      // todo_23 M4: a per-call timeout is the same overload signal — collapse
+      // too, so a struggling upstream is not hammered with K parallel calls.
       onUpstreamRetry: (errorClass) => {
-        if (errorClass === 'rate-limit' && governor.noteRateLimited()) {
+        if (
+          (errorClass === 'rate-limit' || errorClass === 'timeout') &&
+          governor.noteRateLimited()
+        ) {
           rt.log(
             'warn',
-            'Получен ответ 429 — параллелизм снижен до 1; после серии успешных фрагментов вернусь к настройке.',
+            errorClass === 'rate-limit'
+              ? 'Получен ответ 429 — параллелизм снижен до 1; после серии успешных фрагментов вернусь к настройке.'
+              : 'Тайм-аут вызова — параллелизм снижен до 1; после серии успешных фрагментов вернусь к настройке.',
           );
         }
       },
@@ -308,7 +397,13 @@ export async function runAnalyzeStage(
 
     const parsed = outcome.value;
     chunker.noteSuccess();
-    governor.noteSuccess();
+    // todo_23 M4: every change of the effective K is visible in the log.
+    if (governor.noteSuccess()) {
+      rt.log(
+        'info',
+        `Параллелизм восстановлен до ${governor.limit()} из ${governor.presetLimit()} после серии успешных фрагментов.`,
+      );
+    }
     if (parsed.droppedNoSource > 0) {
       rt.log(
         'warn',
@@ -335,10 +430,18 @@ export async function runAnalyzeStage(
     cls: AiImportSourceClass | undefined;
     fewShot: AiChatMessage[];
     chunks: string[];
+    /** todo_23 M1: file count of a batched unit (labels «фрагмент X из Y (N файлов)»). */
+    fileCount?: number;
+    /** todo_23 M1: file paths of a batched unit (batch prompt + provenance). */
+    batchFiles?: string[];
     extra?: AiChatMessage;
     onCommit: (chunkIndex: number, chunkText: string, items: AiExtractedRequirement[]) => void;
   }): Promise<PoolStop | null> => {
     const { chunks } = ctx;
+    const chunkLabel = (index: number): string =>
+      ctx.fileCount !== undefined
+        ? `фрагмент ${index + 1} из ${chunks.length} (${ctx.fileCount} файлов)`
+        : `фрагмент ${index + 1}/${chunks.length}`;
     return new Promise((resolve) => {
       const results: (ChunkOutcome | undefined)[] = new Array<ChunkOutcome | undefined>(
         chunks.length,
@@ -362,12 +465,18 @@ export async function runAnalyzeStage(
           job.currentClass = ctx.cls;
           job.chunkIndex = index + 1;
           job.chunkTotal = chunks.length;
+          const fn = ready.items.filter((r) => r.type === 'FUNCTION').length;
+          const nfr = ready.items.length - fn;
+          // todo_23 M3: честные счётчики — «извлечено, но ещё не записано»
+          // копятся по ходу analyze и видны в прогрессе/результате.
+          rt.counters.extractedFunctions = (rt.counters.extractedFunctions ?? 0) + fn;
+          rt.counters.extractedNfrs = (rt.counters.extractedNfrs ?? 0) + nfr;
+          job.extractedFunctions = rt.counters.extractedFunctions;
+          job.extractedNfrs = rt.counters.extractedNfrs;
           if (ready.items.length > 0 || !ready.skipped) {
-            const fn = ready.items.filter((r) => r.type === 'FUNCTION').length;
-            const nfr = ready.items.length - fn;
             rt.log(
               'info',
-              `Файл ${ctx.file} (фрагмент ${index + 1}/${chunks.length}): извлечено ${fn} ФТ, ${nfr} НФТ.`,
+              `Файл ${ctx.file} (${chunkLabel(index)}): извлечено ${fn} ФТ, ${nfr} НФТ.`,
             );
             if (ctx.cls) input.report?.noteExtracted(ctx.cls, fn, nfr);
           }
@@ -389,10 +498,7 @@ export async function runAnalyzeStage(
           active += 1;
           eta.start(nowMs());
           // todo_16 Ф3: a pre-call line BEFORE the (long) AI request.
-          rt.log(
-            'info',
-            `Файл ${ctx.file} (фрагмент ${index + 1}/${chunks.length}): запрос к модели…`,
-          );
+          rt.log('info', `Файл ${ctx.file} (${chunkLabel(index)}): запрос к модели…`);
           job.currentFile = ctx.file;
           job.currentClass = ctx.cls;
           job.chunkIndex = index + 1;
@@ -404,7 +510,8 @@ export async function runAnalyzeStage(
             chunk: chunks[index]!,
             index: index + 1,
             total: chunks.length,
-            label: () => `фрагмент ${index + 1}/${chunks.length}`,
+            label: () => chunkLabel(index),
+            batchFiles: ctx.batchFiles,
             extra: ctx.extra,
           });
           const onInternal = (err: unknown): void => {
@@ -452,37 +559,53 @@ export async function runAnalyzeStage(
     });
   };
 
-  for (let fi = startFileIndex; fi < docs.length; fi++) {
+  for (const unit of units) {
     if (rt.cancelled()) return { ok: false };
-    const { file, text: fullText, expectedRecords } = docs[fi]!;
-    const offset = fi === startFileIndex ? Math.min(startOffset, fullText.length) : 0;
+    const fi = unit[0]!;
+    const lastFi = unit[unit.length - 1]!;
+    const isBatch = unit.length > 1;
+    const { file, expectedRecords } = docs[fi]!;
+    const fullText = unitTextOf(unit);
+    const offset = !isBatch && fi === startFileIndex ? Math.min(startOffset, fullText.length) : 0;
     const cls = input.classes?.get(file);
     const fewShot = cls ? fewShotForClass(cls) : [];
+    const displayFile = isBatch ? `${file} (+ещё ${unit.length - 1})` : file;
+    const batchFiles = isBatch ? unit.map((idx) => docs[idx]!.file) : undefined;
+    const fileCount = isBatch ? unit.length : undefined;
     let consumed = 0;
-    const fileItems: AiExtractedRequirement[] = [];
+    let unitCommitted = 0;
+    const unitItems: AiExtractedRequirement[] = [];
 
     const remainder = fullText.slice(offset);
     if (remainder.length > 0) {
       const chunks = chunker.split(remainder);
       const stop = await runFilePool({
-        file,
+        file: displayFile,
         cls,
         fewShot,
         chunks,
+        fileCount,
+        batchFiles,
         onCommit: (_index, chunkText, items) => {
           extracted.push(...items);
-          fileItems.push(...items);
+          unitItems.push(...items);
           consumed += chunkText.length;
-          rt.checkpoint((state) => {
-            state.chunker = chunker.toJSON();
-            if (state.analyze) {
-              state.analyze.fileIndex = fi;
-              state.analyze.charOffset = offset + consumed;
-              state.analyze.processedChunks += 1;
-              state.analyze.totalChunks = totalChunks;
-              state.analyze.extracted = [...extracted];
-            }
-          });
+          unitCommitted += 1;
+          // todo_23 M1: a mid-batch position cannot be expressed by the
+          // file-based cursor — a batched unit checkpoints once, after the
+          // whole unit (usually a single call), instead of per chunk.
+          if (!isBatch) {
+            rt.checkpoint((state) => {
+              state.chunker = chunker.toJSON();
+              if (state.analyze) {
+                state.analyze.fileIndex = fi;
+                state.analyze.charOffset = offset + consumed;
+                state.analyze.processedChunks += 1;
+                state.analyze.totalChunks = totalChunks;
+                state.analyze.extracted = [...extracted];
+              }
+            });
+          }
         },
       });
       if (stop === 'cancelled') {
@@ -505,18 +628,23 @@ export async function runAnalyzeStage(
       }
     }
 
-    // T-207 B5: completeness control — one repeat pass for a file whose
-    // extraction found less than half of the visible records. Only meaningful
-    // when the WHOLE file was processed in this run (offset 0).
+    // T-207 B5 + todo_23 M2: completeness control — ONLY for release-notes
+    // («видимые записи» md-таблиц/JSON других классов ≠ требования), at most
+    // ONE repeat pass per unit and only when the WHOLE unit was processed in
+    // this run (offset 0).
+    const expectedSum = isBatch
+      ? unit.reduce((sum, idx) => sum + (docs[idx]!.expectedRecords ?? 0), 0) || null
+      : expectedRecords;
     if (
       offset === 0 &&
-      expectedRecords !== null &&
-      expectedRecords > 0 &&
-      fileItems.length < expectedRecords / 2
+      cls === 'release-notes' &&
+      expectedSum !== null &&
+      expectedSum > 0 &&
+      unitItems.length < expectedSum / 2
     ) {
       rt.log(
         'warn',
-        `Файл ${file}: извлечено ${fileItems.length} из ~${expectedRecords} видимых записей — повторный проход с требованием извлечь ВСЕ записи.`,
+        `Файл ${displayFile}: извлечено ${unitItems.length} из ~${expectedSum} видимых записей — повторный проход с требованием извлечь ВСЕ записи.`,
       );
       const repeatChunks = chunker.split(fullText);
       eta.addChunks(repeatChunks.length);
@@ -525,24 +653,29 @@ export async function runAnalyzeStage(
       const extra: AiChatMessage = {
         role: 'user',
         content:
-          `В этом документе видно примерно ${expectedRecords} записей, а в прошлый раз найдено ${fileItems.length}. ` +
+          `В этом документе видно примерно ${expectedSum} записей, а в прошлый раз найдено ${unitItems.length}. ` +
           'Извлеки ВСЕ записи фрагмента без пропусков — по одному требованию на запись.',
       };
       const stop = await runFilePool({
-        file,
+        file: displayFile,
         cls,
         fewShot,
         chunks: repeatChunks,
+        fileCount,
+        batchFiles,
         extra,
         onCommit: (_index, _chunkText, items) => {
           extracted.push(...items);
-          rt.checkpoint((state) => {
-            state.chunker = chunker.toJSON();
-            if (state.analyze) {
-              state.analyze.processedChunks += 1;
-              state.analyze.extracted = [...extracted];
-            }
-          });
+          unitCommitted += 1;
+          if (!isBatch) {
+            rt.checkpoint((state) => {
+              state.chunker = chunker.toJSON();
+              if (state.analyze) {
+                state.analyze.processedChunks += 1;
+                state.analyze.extracted = [...extracted];
+              }
+            });
+          }
         },
       });
       if (stop === 'cancelled') {
@@ -565,14 +698,21 @@ export async function runAnalyzeStage(
       }
     }
 
-    if (cls) input.report?.noteFileProcessed(cls);
+    for (const idx of unit) {
+      const fileCls = input.classes?.get(docs[idx]!.file);
+      if (fileCls) input.report?.noteFileProcessed(fileCls);
+    }
     if (input.report) job.report = input.report.view();
-    // The file is fully consumed — advance the cursor to the next one.
+    // The unit is fully consumed — advance the cursor past all its files.
     rt.checkpoint((state) => {
       state.chunker = chunker.toJSON();
       if (state.analyze) {
-        state.analyze.fileIndex = fi + 1;
+        state.analyze.fileIndex = lastFi + 1;
         state.analyze.charOffset = 0;
+        if (isBatch) {
+          state.analyze.processedChunks += unitCommitted;
+          state.analyze.totalChunks = totalChunks;
+        }
         state.analyze.extracted = [...extracted];
       }
     });
