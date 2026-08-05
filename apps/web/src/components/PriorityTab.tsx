@@ -27,7 +27,36 @@ import {
 import { SOURCE_TYPE_ICON, SOURCE_TYPE_LABEL, SOURCE_TYPES_ORDER } from '../lib/sourceTypes';
 import { PriorityBadge } from './PriorityBadge';
 import { ColorPalettePicker } from './ColorPalettePicker';
+import { HelpTip } from './HelpTip';
 import { SourceCombobox } from './SourceCombobox';
+
+/**
+ * Мини-инструкции по буквам RICE (запрос PO: не все знакомы с методикой).
+ * Формулировки согласованы со шкалами селектов (lib/sourceDraft.ts) и формулой
+ * ядра `score = R×I×C/E` (scoring/rice.ts). Экспорт — для компонентных тестов.
+ */
+export const RICE_HELP = {
+  reach: [
+    'R — Reach (охват).',
+    'Скольких пользователей или клиентов затронет требование за период.',
+    'Шкала 1–5: от единичных (1) до практически всех (5).',
+  ].join('\n'),
+  impact: [
+    'I — Impact (влияние).',
+    'Насколько сильно требование повлияет на каждого затронутого.',
+    '0.25 — минимальное, 0.5 — низкое, 1 — среднее, 2 — высокое, 3 — максимальное.',
+  ].join('\n'),
+  confidence: [
+    'C — Confidence (уверенность).',
+    'Насколько вы уверены в оценках охвата и влияния.',
+    '50% — гипотеза, 80% — есть данные, 100% — подтверждено исследованием.',
+  ].join('\n'),
+  effort: [
+    'E — Effort (трудоёмкость).',
+    'Сколько усилий команды потребует реализация (условные единицы 0.5–8).',
+    'Единственный делитель формулы RICE = R×I×C / E: чем больше усилий, тем ниже итог.',
+  ].join('\n'),
+} as const;
 
 interface PriorityTabProps {
   projectId: string;
@@ -393,11 +422,18 @@ export function PriorityTab({
                   </div>
                 </div>
 
-                {/* RICE — 4 selects with a live score (ФТ-B1) */}
+                {/* RICE — 4 selects with a live score (ФТ-B1). У каждой буквы —
+                    иконка-вопросик с мини-инструкцией (не все знакомы с RICE). */}
                 <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <div>
-                    <label className="label" htmlFor={`src-rice-reach-${i}`}>
+                    <label
+                      className="label inline-flex items-center gap-1"
+                      htmlFor={`src-rice-reach-${i}`}
+                    >
                       Reach
+                      <HelpTip label="Что такое Reach" testid={`rice-help-reach-${i}`}>
+                        {RICE_HELP.reach}
+                      </HelpTip>
                     </label>
                     <select
                       id={`src-rice-reach-${i}`}
@@ -419,8 +455,14 @@ export function PriorityTab({
                     </select>
                   </div>
                   <div>
-                    <label className="label" htmlFor={`src-rice-impact-${i}`}>
+                    <label
+                      className="label inline-flex items-center gap-1"
+                      htmlFor={`src-rice-impact-${i}`}
+                    >
                       Impact
+                      <HelpTip label="Что такое Impact" testid={`rice-help-impact-${i}`}>
+                        {RICE_HELP.impact}
+                      </HelpTip>
                     </label>
                     <select
                       id={`src-rice-impact-${i}`}
@@ -442,8 +484,14 @@ export function PriorityTab({
                     </select>
                   </div>
                   <div>
-                    <label className="label" htmlFor={`src-rice-confidence-${i}`}>
+                    <label
+                      className="label inline-flex items-center gap-1"
+                      htmlFor={`src-rice-confidence-${i}`}
+                    >
                       Confidence
+                      <HelpTip label="Что такое Confidence" testid={`rice-help-confidence-${i}`}>
+                        {RICE_HELP.confidence}
+                      </HelpTip>
                     </label>
                     <select
                       id={`src-rice-confidence-${i}`}
@@ -465,8 +513,14 @@ export function PriorityTab({
                     </select>
                   </div>
                   <div>
-                    <label className="label" htmlFor={`src-rice-effort-${i}`}>
+                    <label
+                      className="label inline-flex items-center gap-1"
+                      htmlFor={`src-rice-effort-${i}`}
+                    >
                       Effort
+                      <HelpTip label="Что такое Effort" testid={`rice-help-effort-${i}`}>
+                        {RICE_HELP.effort}
+                      </HelpTip>
                     </label>
                     <select
                       id={`src-rice-effort-${i}`}
