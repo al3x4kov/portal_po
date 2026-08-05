@@ -2,7 +2,7 @@
 <html lang="ru">
   <head>
     <meta charset="utf-8" />
-    <title>Макет П8 · Активен фильтр: перемещение заблокировано осознанно</title>
+    <title>Макет П8 · Активен фильтр: режим структуры недоступен</title>
     <link rel="stylesheet" href="../tokens.css" />
     <style>
       * { box-sizing: border-box; margin: 0; }
@@ -15,73 +15,111 @@
       .navdiv { width: 32px; border-top: 1px solid var(--color-border); margin: 10px 0 4px; }
       .navlbl { font-size: 9px; color: var(--color-text-3); margin-bottom: 2px; }
       .app { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-      .apphead { display: flex; align-items: center; gap: 16px; padding: 0 24px; height: 58px; background: var(--color-surface); border-bottom: 1px solid var(--color-border); flex: none; }
+      .apphead { display: flex; align-items: center; gap: 16px; padding: 0 20px; height: 56px; background: var(--color-surface); border-bottom: 1px solid var(--color-border); flex: none; }
       .back { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--color-text-2); }
       .htitle h1 { font-size: 17px; font-weight: 600; line-height: 1.2; }
       .hpath { font-family: ui-monospace, monospace; font-size: 11px; color: var(--color-text-3); }
-      .scrn { position: absolute; top: 13px; right: 16px; z-index: 6; background: #0f172a; color: #fff; border-radius: 999px; padding: 6px 14px; font-size: 12.5px; font-weight: 700; box-shadow: 0 4px 12px #0f172a44; }
-      .toolbar { display: flex; align-items: center; gap: 10px; padding: 12px 24px; border-bottom: 1px solid var(--color-border); background: var(--color-surface); flex: none; }
-      .search { width: 300px; border: 1px solid var(--color-border); border-radius: 8px; padding: 8px 12px; color: var(--color-text-3); font-size: 13px; background: var(--color-bg); }
-      .chip { border: 1px solid var(--color-border); border-radius: 8px; padding: 8px 12px; font-size: 12.5px; font-weight: 600; background: var(--color-bg); }
+      .scrn { position: absolute; top: 12px; right: 14px; z-index: 12; background: #0f172a; color: #fff; border-radius: 999px; padding: 6px 14px; font-size: 12.5px; font-weight: 700; box-shadow: 0 4px 12px #0f172a44; }
+
+      .toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--color-border); background: var(--color-surface); flex: none; }
+      .seg { display: flex; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 9px; padding: 2px; }
+      .seg span { font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 7px; color: var(--color-text-3); }
+      .seg span.on { background: var(--color-surface); color: var(--color-text); box-shadow: 0 1px 3px #0f172a1f; }
+      .search { width: 260px; border: 1px solid var(--color-border); border-radius: 8px; padding: 7px 12px; color: var(--color-text-3); font-size: 12.5px; background: var(--color-bg); }
+      .fgroup { display: flex; align-items: center; gap: 8px; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 4px 8px; }
+      .flbl { font-size: 11.5px; color: var(--color-text-3); }
+      .chip { border: 1px solid var(--color-border); border-radius: 8px; padding: 6px 11px; font-size: 12px; font-weight: 600; background: var(--color-surface); white-space: nowrap; }
       .chip.on { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
       .chip.warn { background: var(--color-warning-bg); border-color: var(--color-warning-fg); color: var(--color-warning-fg); }
+      .chip.off { opacity: 0.45; }
+      .shown { font-size: 12px; color: var(--color-text-3); white-space: nowrap; }
       .spacer { margin-left: auto; }
-      .body { flex: 1; display: flex; min-height: 0; }
-      .main { flex: 1; min-width: 0; padding: 16px 24px; overflow: hidden; display: flex; flex-direction: column; gap: 10px; }
-      .sectionhead { display: flex; align-items: center; justify-content: space-between; }
-      .sectionhead h2 { font-size: 15px; font-weight: 700; }
-      .tree { border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); overflow: hidden; }
-      .row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--color-border); font-size: 13.5px; }
+
+      .tabs { display: flex; gap: 6px; padding: 10px 20px 0; flex: none; }
+      .tabs span { font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 9px; color: var(--color-text-3); }
+      .tabs span.on { background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text); }
+
+      .main { flex: 1; min-height: 0; padding: 10px 20px 0; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+      .card { border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+      .cardhead { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; }
+      .cardhead h2 { font-size: 15px; font-weight: 700; }
+      .cardhead .add { background: var(--color-primary); color: #fff; border-radius: 8px; padding: 7px 13px; font-size: 12.5px; font-weight: 600; }
+
+      .thead, .row { display: flex; align-items: center; gap: 8px; padding: 0 14px; }
+      .thead { height: 38px; border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); background: var(--color-bg); font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em; color: var(--color-text-3); text-transform: uppercase; }
+      .row { min-height: 44px; padding-top: 7px; padding-bottom: 7px; border-bottom: 1px solid var(--color-border); font-size: 13px; }
       .row:last-child { border-bottom: none; }
       .row.sel { background: var(--color-primary-soft); box-shadow: inset 3px 0 0 var(--color-primary); }
-      .row.ghost { opacity: 0.45; }
+      .row.ghost { opacity: 0.42; }
       .row.drop { background: var(--color-success-bg); box-shadow: inset 3px 0 0 var(--color-success); }
       .row.deny { background: var(--color-danger-bg); box-shadow: inset 3px 0 0 var(--color-danger); }
-      .grip { width: 14px; color: var(--color-text-3); flex: none; cursor: grab; letter-spacing: -1px; }
-      .ind { width: 22px; flex: none; }
-      .chev { width: 12px; color: var(--color-text-3); flex: none; }
-      .type { font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 8px; flex: none; }
+      .row.moved { background: var(--color-success-bg); }
+      .insert { height: 3px; background: var(--color-success); margin: 0 14px; border-radius: 3px; position: relative; }
+      .insert::before { content: ''; position: absolute; left: 0; top: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--color-success); }
+
+      .c-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; }
+      .c-crit { width: 118px; flex: none; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+      .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+      .c-rice { width: 58px; flex: none; font-size: 12.5px; color: var(--color-text-2); }
+      .c-src { width: 176px; flex: none; font-size: 11.5px; color: var(--color-text-2); display: flex; flex-direction: column; gap: 4px; }
+      .c-due { width: 116px; flex: none; font-size: 12px; }
+      .c-links { width: 196px; flex: none; display: flex; flex-direction: column; gap: 4px; }
+      .c-desc { width: 208px; flex: none; font-size: 12.5px; color: var(--color-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .c-act { width: 132px; flex: none; display: flex; justify-content: flex-end; gap: 5px; }
+
+      .grip { width: 13px; flex: none; color: var(--color-text-3); letter-spacing: -1px; cursor: grab; }
+      .grip.hide { visibility: hidden; }
+      .ind { width: 20px; flex: none; }
+      .chev { width: 11px; flex: none; color: var(--color-text-3); font-size: 11px; }
+      .type { font-size: 10px; font-weight: 700; border-radius: 999px; padding: 2px 7px; flex: none; }
       .type.ft { background: var(--color-primary-soft); color: var(--color-primary); }
       .type.nft { background: var(--color-info-bg); color: var(--color-info-fg); }
-      .nm { flex: 1; min-width: 0; }
-      .crit { font-size: 11.5px; font-weight: 700; flex: none; width: 92px; }
-      .kids { font-size: 11.5px; color: var(--color-text-3); flex: none; width: 96px; }
-      .ops { display: flex; gap: 4px; flex: none; }
-      .op { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--color-border); background: var(--color-bg); display: grid; place-items: center; font-size: 12px; color: var(--color-text-2); }
-      .op.off { opacity: 0.35; }
+      .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .done { color: var(--color-success-fg); font-weight: 600; }
+      .mut { color: var(--color-text-3); }
+      .lchip { font-size: 10.5px; border-radius: 6px; padding: 3px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .lchip.rel { background: var(--color-primary-soft); color: var(--color-primary); }
+      .lchip.dep { background: var(--color-warning-bg); color: var(--color-warning-fg); }
+      .lchip.blk { background: var(--color-danger-bg); color: var(--color-danger-fg); }
+      .srcchip { background: var(--color-danger-bg); color: var(--color-danger-fg); border-radius: 6px; padding: 2px 7px; font-size: 10.5px; font-weight: 600; align-self: flex-start; }
+      .icn { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; color: var(--color-text-3); }
+      .icn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .op { width: 27px; height: 27px; border-radius: 7px; border: 1px solid var(--color-border); background: var(--color-bg); display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--color-text-2); }
+      .op.off { opacity: 0.32; }
       .op.hot { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
-      .aside { width: 400px; flex: none; border-left: 1px solid var(--color-border); background: var(--color-surface); padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
-      h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-3); }
-      .banner { border-radius: 10px; padding: 10px 13px; font-size: 12.5px; line-height: 1.5; }
+      .op.bad { background: var(--color-danger-bg); border-color: var(--color-danger-fg); color: var(--color-danger-fg); }
+
+      .bottom { flex: none; border-top: 1px solid var(--color-border); background: var(--color-surface); padding: 10px 20px; display: flex; flex-direction: column; gap: 8px; }
+      .brow { display: flex; align-items: center; gap: 12px; }
+      .bstat { display: flex; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; }
+      .bstat b { font-weight: 700; }
+      .arrow { color: var(--color-text-3); }
+      .pill { border-radius: 999px; padding: 4px 11px; font-size: 12px; font-weight: 600; background: var(--color-bg); border: 1px solid var(--color-border); }
+      .pill.ok { background: var(--color-success-bg); border-color: var(--color-success); color: var(--color-success-fg); }
+      .pill.bad { background: var(--color-danger-bg); border-color: var(--color-danger-fg); color: var(--color-danger-fg); }
+      .keys { display: flex; align-items: center; gap: 14px; font-size: 11.5px; color: var(--color-text-3); flex-wrap: wrap; }
+      .keys .k { display: flex; align-items: center; gap: 6px; }
+      .kbd { border: 1px solid var(--color-border); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; font-family: ui-monospace, monospace; font-size: 10.5px; background: var(--color-bg); color: var(--color-text-2); }
+      .btn { border-radius: 8px; padding: 8px 14px; font-size: 12.5px; font-weight: 600; border: 1px solid var(--color-border); background: var(--color-surface); white-space: nowrap; }
+      .btn.primary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+      .btn.ghost { background: var(--color-bg); }
+      .btn.link { border: none; background: none; color: var(--color-primary); }
+      .banner { border-radius: 10px; padding: 9px 13px; font-size: 12.5px; line-height: 1.5; }
       .banner.info { background: var(--color-info-bg); color: var(--color-info-fg); }
       .banner.warn { background: var(--color-warning-bg); color: var(--color-warning-fg); }
       .banner.err { background: var(--color-danger-bg); color: var(--color-danger-fg); }
       .banner.ok { background: var(--color-success-bg); color: var(--color-success-fg); }
       .banner b { font-weight: 700; }
-      .kv { border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg); padding: 12px; font-size: 13px; }
-      .kv .r { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
-      .kv .r span:last-child { font-weight: 600; text-align: right; }
-      .keys { display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; }
-      .keys .k { display: flex; align-items: center; gap: 10px; }
-      .kbd { border: 1px solid var(--color-border); border-bottom-width: 2px; border-radius: 6px; padding: 2px 7px; font-family: ui-monospace, monospace; font-size: 11px; background: var(--color-bg); flex: none; }
-      .kdesc { color: var(--color-text-2); }
-      .kdesc.off { color: var(--color-text-3); }
-      .hist { display: flex; flex-direction: column; gap: 7px; font-size: 12.5px; color: var(--color-text-2); }
-      .hist div { display: flex; gap: 8px; }
-      .hist .t { color: var(--color-text-3); font-family: ui-monospace, monospace; font-size: 11px; flex: none; }
-      .btn { border-radius: 8px; padding: 9px 14px; font-size: 13px; font-weight: 600; border: 1px solid var(--color-border); background: var(--color-surface); text-align: center; }
-      .btn.primary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
-      .btn.wide { display: block; width: 100%; }
-      .foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
-      .toast { position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; background: #0f172a; color: #fff; border-radius: 12px; padding: 12px 18px; font-size: 13px; box-shadow: 0 10px 30px #0f172a55; z-index: 7; }
+
+      .toast { position: absolute; bottom: 130px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; background: #0f172a; color: #fff; border-radius: 12px; padding: 11px 18px; font-size: 13px; box-shadow: 0 10px 30px #0f172a55; z-index: 7; }
       .toast .undo { font-weight: 700; color: #93c5fd; }
       .overlay { position: absolute; inset: 0; background: #0f172a66; z-index: 8; display: grid; place-items: center; }
-      .dialog { width: 470px; background: var(--color-surface); border-radius: 14px; box-shadow: 0 25px 60px #0f172a66; padding: 22px 24px; }
+      .dialog { width: 500px; background: var(--color-surface); border-radius: 14px; box-shadow: 0 25px 60px #0f172a66; padding: 22px 24px; }
       .dialog h3 { font-size: 16px; margin-bottom: 8px; }
       .dialog p { font-size: 13px; color: var(--color-text-2); line-height: 1.55; margin-bottom: 14px; }
       .dialog .row2 { display: flex; justify-content: flex-end; gap: 10px; }
-      .tip { position: absolute; background: #0f172a; color: #fff; border-radius: 8px; padding: 7px 11px; font-size: 12px; max-width: 300px; z-index: 7; box-shadow: 0 8px 20px #0f172a55; }
-      .note { position: absolute; background: #fff8dc; border: 1px solid #eab308; color: #713f12; border-radius: 10px; padding: 8px 12px; font-size: 12.5px; max-width: 320px; box-shadow: 0 6px 18px #0f172a33; z-index: 9; }
+      .tip { position: absolute; background: #0f172a; color: #fff; border-radius: 8px; padding: 7px 11px; font-size: 12px; max-width: 320px; z-index: 7; box-shadow: 0 8px 20px #0f172a55; }
+      .note { position: absolute; background: #fff8dc; border: 1px solid #eab308; color: #713f12; border-radius: 10px; padding: 8px 12px; font-size: 12.5px; max-width: 330px; box-shadow: 0 6px 18px #0f172a33; z-index: 9; }
       .note b { color: #854d0e; }
     </style>
   </head>
@@ -103,51 +141,59 @@
         <span class="back">← Проекты</span>
         <span class="htitle">
           <h1>Twitter</h1>
-          <div class="hpath">/Users/po/Projects/Twitter</div>
+          <div class="hpath">/Users/po/Projects/Twitter · копируется по клику</div>
         </span>
       </div>
       <div class="toolbar">
-        <div class="search">Поиск по имени…</div>
-        <div class="chip">Критичность</div>
-        <div class="chip warn">Реализация: Запланировано ✕</div>
-        <div class="chip">Источник</div>
-        <div class="spacer"></div><div class="chip">⠿ Режим структуры</div>
+        <span class="seg"><span class="on">☰ Дерево</span><span>⌁ Граф</span></span>
+        <span class="search">Поиск по имени…</span>
+        <span class="fgroup">
+          <span class="flbl">Фильтры</span>
+          <span class="chip">Критичность</span>
+          <span class="chip warn">Реализация: Запланировано ✕</span>
+          <span class="chip">Источник</span>
+          <span class="chip">✨ Непроверенные</span>
+        </span>
+        <span class="icn"><svg viewBox="0 0 24 24"><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></svg></span>
+        <span class="icn"><svg viewBox="0 0 24 24"><path d="M4 14h6v6" /><path d="M20 10h-6V4" /><path d="M14 10l7-7" /><path d="M3 21l7-7" /></svg></span>
+        <span class="shown">Показано 5 из 43</span>
+        <span class="spacer"></span>
+        <span class="chip">⠿ Режим структуры</span>
       </div>
-      <div class="body">
-        <div class="main">
-          <div class="sectionhead"><h2>Функциональные требования (показано 4 из 34)</h2><span class="chip">+ Функция</span></div>
-          <div class="tree">
-          <div class="row"><span class="grip">⠿</span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Алгоритмическая лента «Для вас»</span><span class="crit" style="color: var(--crit-high)">Высокая</span><span class="kids"></span></div>
-          <div class="row"><span class="grip">⠿</span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Групповые чаты</span><span class="crit" style="color: var(--crit-medium)">Средняя</span><span class="kids"></span></div>
-          <div class="row"><span class="grip">⠿</span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Скрытие ответов</span><span class="crit" style="color: var(--crit-low)">Низкая</span><span class="kids"></span></div>
-          <div class="row"><span class="grip">⠿</span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Треды (цепочки твитов)</span><span class="crit" style="color: var(--crit-medium)">Средняя</span><span class="kids"></span></div>
-          </div>
+      <div class="tabs"><span class="on">Дерево</span><span>По источникам</span></div>
+      <div class="main">
+        <div class="card">
+          <div class="cardhead"><h2>Функциональные требования (показано 5 из 43)</h2><span class="add">+ Функция</span></div>
+            <div class="thead"><span class="c-name">Требование</span><span class="c-crit">Критичность</span><span class="c-rice">RICE ⇅</span><span class="c-src">Источники · приоритет</span><span class="c-due">Срок реализации</span><span class="c-links">Связи</span><span class="c-desc">Описание</span><span class="c-act">Действия</span></div>
+            <div class="row"><span class="c-name"><span class="grip hide">⠿</span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Алгоритмическая лента «Для вас»</span></span><span class="c-crit" style="color: var(--crit-high)"><span class="dot" style="background: var(--crit-high)"></span>Высокая</span><span class="c-rice">2.4</span><span class="c-src"><span>👤 CPO</span><span class="srcchip">● Стратегическая ставка</span></span><span class="c-due"><span>Q1 2027</span></span><span class="c-links"><span class="lchip rel">связано с «Лента откры…»</span></span><span class="c-desc">Ранжирование твитов по …</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row"><span class="c-name"><span class="grip hide">⠿</span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Групповые чаты</span></span><span class="c-crit" style="color: var(--crit-medium)"><span class="dot" style="background: var(--crit-medium)"></span>Средняя</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span>Q4 2026</span></span><span class="c-links"><span class="lchip dep">зависит от «Диалоги 1-…»</span></span><span class="c-desc">Беседы до 50 участников…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row"><span class="c-name"><span class="grip hide">⠿</span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Скрытие ответов</span></span><span class="c-crit" style="color: var(--crit-low)"><span class="dot" style="background: var(--crit-low)"></span>Низкая</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span>Q4 2026</span></span><span class="c-links"><span class="mut">—</span></span><span class="c-desc">Автор твита может скры…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row"><span class="c-name"><span class="grip hide">⠿</span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Треды (цепочки твитов)</span></span><span class="c-crit" style="color: var(--crit-medium)"><span class="dot" style="background: var(--crit-medium)"></span>Средняя</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span>Q4 2026</span></span><span class="c-links"><span class="mut">—</span></span><span class="c-desc">Автор связывает твиты в…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row"><span class="c-name"><span class="grip hide">⠿</span><span class="chev"></span><span class="type nft">НФТ</span><span class="nm">Доступность 99.95%</span></span><span class="c-crit" style="color: var(--crit-critical)"><span class="dot" style="background: var(--crit-critical)"></span>Критическая</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span>Q2 2027</span></span><span class="c-links"><span class="mut">—</span></span><span class="c-desc">Простой не более 22 мин…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
         </div>
-        <div class="aside">
-          <h4>Перемещение выключено</h4>
+      </div>
+      <div class="bottom">
           <div class="banner warn">
-            <b>Показаны не все строки.</b> Фильтр «Реализация: Запланировано» скрыл 30 требований, и
-            дерево на экране — не всё дерево. Перемещение вслепую поставило бы строку не туда, куда
-            вы видите.
+            <b>Показаны не все строки.</b> Фильтр «Реализация: Запланировано» скрыл 38 требований,
+            и дерево на экране — не всё дерево. Перемещение вслепую поставило бы строку не туда,
+            куда вы видите: у соседей на экране разные родители.
           </div>
-          <div class="kv">
-            <div class="r"><span>Показано</span><span>4 из 34</span></div>
-            <div class="r"><span>Скрыто фильтром</span><span>30</span></div>
+          <div class="brow">
+            <span class="bstat">
+              <span class="pill">Показано 5 из 43</span>
+              <span class="pill">Скрыто фильтром 38</span>
+              <span class="mut">Поиск по имени ведёт себя так же — это единственное состояние, где режим структуры недоступен целиком</span>
+            </span>
+            <span class="spacer"></span>
+            <span class="btn primary">Сбросить фильтры и перемещать</span>
           </div>
-          <div class="foot">
-            <span class="btn wide primary">Сбросить фильтры и перемещать</span>
-          </div>
-          <div class="banner info">
-            Поиск по имени ведёт себя так же. Это единственное состояние, где режим структуры
-            недоступен целиком — во всех остальных он работает.
-          </div>
-        </div>
       </div>
     </div>
     <span class="scrn">П8 · фильтр активен</span>
 
 
-    <div class="note" style="top: 150px; left: 700px"><b>П8</b> Тумблер режима погашен, ручки ⠿ у строк не появляются: при неполном дереве «выше/ниже» не имеет смысла.</div>
-    <div class="note" style="top: 700px; right: 430px"><b>П8</b> Выход из тупика в один клик — сбросить фильтры и сразу перемещать.</div>
+    <div class="note" style="top: 96px; right: 30px"><b>П8</b> Тумблер режима погашен — при неполном дереве «выше/ниже» не имеет смысла.</div>
+    <div class="note" style="top: 520px; left: 100px"><b>П8</b> Ручки ⠿ у строк не появляются, зона действий остаётся обычной: граф · проверено · связь · удалить.</div>
+    <div class="note" style="top: 520px; left: 1030px"><b>П8</b> Выход из тупика в один клик — сбросить фильтры и сразу перемещать.</div>
   </body>
 </html>
