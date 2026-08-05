@@ -58,6 +58,14 @@ const screens = [
   ['screens/flow-g10-template-result.html','Генерация · результат по шаблону','Г10 · детерминированная сборка'],
   ['screens/flow-g11-close-confirm.html','Генерация · прерывание','Г11 · подтверждение ухода во время прогона'],
   ['screens/flow-g12-empty-coverage.html','Генерация · нулевой охват','Г12 · негатив: «Далее» заблокировано, что делать'],
+  ['screens/move-p1-structure-mode.html','Перемещение · режим структуры','П1 · тумблер, ручки и панель «что изменится»'],
+  ['screens/move-p2-drag.html','Перемещение · перетаскивание','П2 · «было → станет», цели броска'],
+  ['screens/move-p3-keyboard.html','Перемещение · клавиатура','П3 · Alt+↑/↓, Tab, Space + причины недоступности'],
+  ['screens/move-p4-forbidden.html','Перемещение · запреты','П4 · негатив: цикл, сам в себя, чужой тип, второй родитель'],
+  ['screens/move-p5-subtree.html','Перемещение · поддерево','П5 · подтверждение переноса раздела с потомками'],
+  ['screens/move-p6-success-undo.html','Перемещение · успех и отмена','П6 · тост «Отменить», история перемещений'],
+  ['screens/move-p7-conflict.html','Перемещение · конфликт и обрыв','П7 · негатив: откат строки, «обновить и повторить»'],
+  ['screens/move-p8-filtered.html','Перемещение · активен фильтр','П8 · негатив: режим выключен, выход в один клик'],
 ];
 document.getElementById('grid').innerHTML = screens.map(([href,title,desc])=>`
   <a href="${href}" class="card overflow-hidden hover:shadow-md transition block">
