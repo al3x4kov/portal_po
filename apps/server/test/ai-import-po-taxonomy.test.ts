@@ -122,6 +122,31 @@ describe('poTaxonomy · mergeTaxonomyRound (слияние раундов про
     expect(names).toEqual(['Отчеты и выгрузки']);
     expect(tax.nodes.get(nameKey('FUNCTION', 'Отчеты и выгрузки'))!.parentKey).toBeNull();
   });
+
+  it('домены со строковым «null» в родителе остаются корневыми (журнал: было 1 корень)', () => {
+    // Ровно сценарий из testik12t.md: модель прислала parentName строкой
+    // «null», из-за чего создавался домен «null» и ВСЕ домены становились его
+    // детьми — дерево схлопывалось в один корень на тип.
+    const tax = emptyTaxonomy();
+    const domains = [
+      'Авторизация и аутентификация',
+      'Каталоги и шаблоны',
+      'Интеграции и API',
+      'Управление пользователями и ролями',
+      'Конфигурация и установка',
+      'Мониторинг и системный журнал',
+      'Управление проектами и компонентами',
+      'Отчеты и выгрузки',
+    ];
+    mergeTaxonomyRound(
+      tax,
+      domains.map((name) => node({ name, parentName: 'null' })),
+    );
+
+    const roots = [...tax.nodes.values()].filter((n) => n.parentKey === null);
+    expect(roots.map((n) => n.name)).toEqual(domains);
+    expect(tax.nodes.has(nameKey('FUNCTION', 'null'))).toBe(false);
+  });
 });
 
 describe('poTaxonomy · assignTaxonomyIds', () => {
