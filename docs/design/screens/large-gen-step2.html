@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>Макет М3 · Генерация — шаг «Способ и параметры» (объединённый)</title>
+<link rel="stylesheet" href="../tokens.css" />
+<style>
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,sans-serif; background:#0f172a80; height:1000px; width:1600px; overflow:hidden; color:var(--color-text); }
+  .backdrop { position:absolute; inset:0; background:linear-gradient(#f8fafc,#eef2f7); filter:brightness(.65); }
+  .modal { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:70vw; height:78vh;
+    background:var(--color-surface); border-radius:16px; box-shadow:0 25px 60px #0f172a55; display:flex; flex-direction:column; overflow:hidden; }
+  .mhead { display:flex; align-items:center; justify-content:space-between; padding:18px 24px; border-bottom:1px solid var(--color-border); }
+  .mhead h2 { font-size:18px; } .close { color:var(--color-text-3); font-size:18px; }
+  .body { flex:1; display:flex; min-height:0; }
+  .rail { width:220px; border-right:1px solid var(--color-border); background:var(--color-bg); padding:20px 16px; }
+  .step { display:flex; gap:10px; margin-bottom:22px; font-size:13px; color:var(--color-text-3); }
+  .dot { width:24px; height:24px; border-radius:50%; background:var(--color-surface-2); display:grid; place-items:center; font-size:12px; font-weight:700; flex:none; }
+  .step.done .dot { background:var(--color-success-bg); color:var(--color-success-fg); }
+  .step.active { color:var(--color-text); font-weight:600; } .step.active .dot { background:var(--color-primary); color:#fff; }
+  .sub { font-size:11px; color:var(--color-text-3); font-weight:400; margin-top:2px; }
+  .content { flex:1; display:flex; min-width:0; }
+  .modes { flex:1; padding:20px; display:flex; flex-direction:column; gap:12px; }
+  .mode { border:1px solid var(--color-border); border-radius:12px; padding:16px; display:flex; gap:12px; }
+  .mode.sel { border-color:var(--color-primary); box-shadow:0 0 0 1px var(--color-primary); background:var(--color-primary-soft); }
+  .radio { width:15px; height:15px; border-radius:50%; border:1.5px solid var(--color-border); margin-top:3px; flex:none; background:#fff; }
+  .mode.sel .radio { border:5px solid var(--color-primary); }
+  .mode h3 { font-size:14.5px; margin-bottom:4px; }
+  .mode p { font-size:12px; color:var(--color-text-3); line-height:1.5; }
+  .pl { margin-top:8px; font-size:11.5px; color:var(--color-text-2); line-height:1.6; }
+  .pl span { display:block; }
+  .aside { flex:1.1; border-left:1px solid var(--color-border); background:var(--color-bg); padding:20px; display:flex; flex-direction:column; gap:14px; }
+  .aside h4 { font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--color-text-3); }
+  .frow { display:flex; align-items:center; gap:10px; font-size:13px; }
+  .select { flex:1; border:1px solid var(--color-border); border-radius:8px; padding:8px 12px; background:var(--color-surface); }
+  .iconbtn { border:1px solid var(--color-border); border-radius:8px; padding:8px 10px; background:var(--color-surface); }
+  .check { display:flex; gap:10px; font-size:13px; align-items:flex-start; }
+  .cb { width:15px; height:15px; border-radius:4px; border:1.5px solid var(--color-border); margin-top:2px; flex:none; background:#fff; }
+  .cb.on { background:var(--color-primary); border-color:var(--color-primary); position:relative; }
+  .cb.on::after { content:"✓"; color:#fff; font-size:10px; position:absolute; top:-1px; left:2px; }
+  .hint { font-size:11.5px; color:var(--color-text-3); margin-top:2px; line-height:1.45; }
+  .est { border:1px solid var(--color-border); border-radius:10px; background:var(--color-surface); padding:12px; font-size:12.5px; }
+  .est .row { display:flex; justify-content:space-between; padding:2.5px 0; }
+  .go { margin-top:auto; }
+  .btn { border-radius:8px; padding:10px 16px; font-size:13.5px; font-weight:600; border:1px solid var(--color-border); background:var(--color-surface); }
+  .btn.primary { background:var(--color-primary); border-color:var(--color-primary); color:#fff; width:100%; text-align:center; display:block; }
+  .foot { display:flex; justify-content:space-between; padding:14px 24px; border-top:1px solid var(--color-border); }
+  .note { position:absolute; background:#fff8dc; border:1px solid #eab308; color:#713f12; border-radius:10px; padding:8px 12px; font-size:12.5px; max-width:300px; box-shadow:0 6px 18px #0f172a33; z-index:5; }
+  .note b { color:#854d0e; }
+</style>
+</head>
+<body>
+  <div class="backdrop"></div>
+  <div class="modal">
+    <div class="mhead"><h2>Генерация артефактов · Smoke-модель</h2><span class="close">✕</span></div>
+    <div class="body">
+      <div class="rail">
+        <div class="step done"><span class="dot">✓</span><span>Направление<div class="sub">Smoke-модель</div></span></div>
+        <div class="step active"><span class="dot">2</span><span>Способ и параметры</span></div>
+        <div class="step"><span class="dot">3</span><span>Результат</span></div>
+      </div>
+      <div class="content">
+        <div class="modes">
+          <div class="mode"><span class="radio"></span><span>
+            <h3>📄 Детерминированный шаблон</h3>
+            <p>Единая структура кейсов, шаги по общей формуле.</p>
+            <span class="pl"><span>✅ мгновенно, офлайн, воспроизводимо</span><span>➖ шаги общие, без специфики требования</span></span>
+          </span></div>
+          <div class="mode sel"><span class="radio"></span><span>
+            <h3>✨ AI-генерация по описаниям</h3>
+            <p>Модель-QA пишет конкретные шаги по описаниям требований. Каждый кейс проходит проверку на галлюцинации, пропуски достраиваются шаблоном.</p>
+            <span class="pl"><span>✅ конкретные шаги и негативные сценарии</span><span>➖ нужен настроенный AI, ~1–2 мин на модель</span></span>
+          </span></div>
+        </div>
+        <div class="aside">
+          <h4>Параметры AI-генерации</h4>
+          <div class="frow"><span>Модель:</span><span class="select">DeepSeek-V4-Flash ▾</span><span class="iconbtn">⟳</span></div>
+          <div class="check"><span class="cb"></span><span>Добавлять негативные сценарии (AI)<div class="hint">Смок обычно быстрый и позитивный; опция дописывает негатив к каждому кейсу.</div></span></div>
+          <div class="check"><span class="cb on"></span><span>Включить нереализованные ФТ (3)<div class="hint">Кейсы для запланированных функций помечаются «до реализации».</div></span></div>
+          <div class="est">
+            <div class="row"><span>Требований в модели</span><b>26 из 34 ФТ</b></div>
+            <div class="row"><span>Вызовов к модели</span><b>3 батча по ≤10</b></div>
+            <div class="row"><span>Ориентировочно</span><b>~1 мин</b></div>
+          </div>
+          <div class="go"><span class="btn primary">✨ Сгенерировать</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span class="btn">← Назад</span><span></span></div>
+  </div>
+
+  <div class="note" style="top:625px; left:640px"><b>⑦</b> Способы — бок о бок с честными «✅/➖»: выбор осознанный, а не по короткой подписи.</div>
+  <div class="note" style="top:560px; right:110px"><b>⑧</b> Настройки AI на ЭТОМ же шаге (сейчас — отдельный экран): модель, негативы и вопрос о нереализованных стали чекбоксом. Минус два перехода.</div>
+  <div class="note" style="top:700px; right:120px"><b>⑨</b> Мини-смета до запуска: сколько требований, батчей и времени — как у AI-импорта.</div>
+</body>
+</html>
