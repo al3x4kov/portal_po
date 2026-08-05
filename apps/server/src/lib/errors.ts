@@ -14,6 +14,25 @@ export class ConflictError extends DomainError {
   }
 }
 
+/**
+ * The requirement's parent on disk is not the one the client moved it from:
+ * someone else (or an AI import) re-parented it in the meantime. The move is
+ * refused rather than silently overwriting that change; `actualParentSlug`
+ * lets the client show what the tree looks like now.
+ */
+export class StaleParentError extends DomainError {
+  public readonly actualParentSlug: string | null;
+  constructor(slug: string, expected: string | null, actual: string | null) {
+    super(
+      'STALE_PARENT',
+      `Requirement "${slug}" now hangs under ${actual === null ? 'the root' : `"${actual}"`}, not ${
+        expected === null ? 'the root' : `"${expected}"`
+      }; refresh the tree and repeat the move.`,
+    );
+    this.actualParentSlug = actual;
+  }
+}
+
 /** A path resolved outside the allowed Projects/ root (path traversal / symlink escape). */
 export class PathSafetyError extends DomainError {
   constructor(message: string) {
@@ -78,6 +97,7 @@ export class InvariantError extends Error {
 export function domainErrorDetails(err: DomainError): unknown {
   if (err instanceof CycleError) return { path: err.path };
   if (err instanceof HasChildrenError) return { children: err.children };
+  if (err instanceof StaleParentError) return { actualParentSlug: err.actualParentSlug };
   if (err instanceof ArchiveError && err.details && err.details.length > 0) {
     return { violations: err.details };
   }
@@ -102,6 +122,7 @@ export function httpStatusForCode(code: string): number {
     case 'CYCLE':
     case 'MULTIPLE_PARENT':
     case 'HAS_CHILDREN':
+    case 'STALE_PARENT':
       return 409;
     case 'VALIDATION':
     case 'PARSE':

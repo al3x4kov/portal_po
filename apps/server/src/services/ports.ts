@@ -6,7 +6,7 @@ import type {
   ProjectSummary,
 } from '../repositories/types.js';
 import type { CheckNameResult, RequirementInput, RequirementUpdate } from './RequirementService.js';
-import type { LinkInput } from './LinkService.js';
+import type { LinkInput, MoveInput, MoveResult } from './LinkService.js';
 
 /**
  * Service facade contracts (ARCH-9). These interfaces are the STABLE public
@@ -44,6 +44,8 @@ export interface LinkServicePort {
   create(input: LinkInput): Promise<void>;
   /** Remove a link and its inverse (FR-8). */
   remove(input: LinkInput): Promise<void>;
+  /** Re-parent a requirement — the whole of «move a row in the tree» (FR-7). */
+  move(input: MoveInput): Promise<MoveResult>;
 }
 
 /** Project use-case surface consumed by REST and MCP. */

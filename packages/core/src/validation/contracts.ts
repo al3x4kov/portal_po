@@ -74,6 +74,24 @@ export const linkInputShape = {
 /** Object schema for link create/delete (REST body + OpenAPI component). */
 export const linkInputSchema = z.object(linkInputShape);
 
+/**
+ * Body of «move a row in the tree»: replace the single CHILD_OF link.
+ *
+ * `parentSlug: null` lifts the requirement to the root of its type.
+ * `expectedParentSlug` is the parent the client believed was current — the
+ * server rejects the move when the file on disk says otherwise (someone else,
+ * or an AI import, re-parented the requirement meanwhile) instead of silently
+ * overwriting that change. Omitting it skips the check.
+ */
+export const moveRequirementShape = {
+  parentSlug: z.string().min(1).nullable(),
+  expectedParentSlug: z.string().min(1).nullable().optional(),
+} as const;
+
+/** Object schema for the move endpoint (REST body + OpenAPI component). */
+export const moveRequirementSchema = z.object(moveRequirementShape);
+
 export type RequirementCreateInput = z.infer<typeof requirementCreateSchema>;
 export type RequirementUpdateInput = z.infer<typeof requirementUpdateSchema>;
 export type LinkInputContract = z.infer<typeof linkInputSchema>;
+export type MoveRequirementInput = z.infer<typeof moveRequirementSchema>;

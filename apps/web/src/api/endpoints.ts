@@ -27,6 +27,8 @@ import type {
   CheckNameResult,
   DeleteRequirementResult,
   LinkInput,
+  MoveRequirementInput,
+  MoveRequirementResult,
   ProjectSummary,
   RequirementCreateInput,
   RequirementListResult,
@@ -154,6 +156,20 @@ export const requirementsApi = {
       {
         method: 'DELETE',
       },
+    ),
+  /**
+   * Move a row in the tree: replace its single CHILD_OF link. This is the whole
+   * of «переместить строку» — sibling order is not stored, so the payload names
+   * a parent, never a position.
+   */
+  move: (
+    projectId: string,
+    slug: string,
+    input: MoveRequirementInput,
+  ): Promise<MoveRequirementResult> =>
+    apiRequest(
+      `/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(slug)}/parent`,
+      { method: 'PUT', body: input },
     ),
 };
 

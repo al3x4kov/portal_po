@@ -86,6 +86,17 @@ interface UiState {
   /** Clear every applied filter at once (UX-6 "Сбросить фильтры"). */
   resetFilters: () => void;
 
+  /**
+   * Режим структуры: строки дерева можно перемещать (перетаскиванием, стрелками
+   * или с клавиатуры). Выключен по умолчанию — в обычном режиме ручек нет и
+   * случайно перетащить требование нельзя.
+   */
+  structureMode: boolean;
+  setStructureMode: (on: boolean) => void;
+  /** Строка, выбранная для перемещения (slug); null — ничего не выбрано. */
+  moveSelection: string | null;
+  setMoveSelection: (slug: string | null) => void;
+
   modal: ModalState;
   openModal: (modal: NonNullable<ModalState>) => void;
   closeModal: () => void;
@@ -161,6 +172,14 @@ export const useUiStore = create<UiState>((set, get) => ({
       sourceFilter: new Set<string>(),
       aiPendingFilter: false,
     }),
+
+  structureMode: false,
+  // Выход из режима снимает выбор: панель перемещения не должна «висеть»
+  // с прошлой строкой, когда режим включат снова.
+  setStructureMode: (structureMode) =>
+    set(structureMode ? { structureMode } : { structureMode, moveSelection: null }),
+  moveSelection: null,
+  setMoveSelection: (moveSelection) => set({ moveSelection }),
 
   modal: null,
   openModal: (modal) => set({ modal }),

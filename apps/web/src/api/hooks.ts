@@ -35,6 +35,7 @@ import type {
   AddSourceInput,
   DeleteRequirementResult,
   LinkInput,
+  MoveRequirementResult,
   ProjectSummary,
   RequirementCreateInput,
   RequirementListResult,
@@ -170,6 +171,26 @@ export function useDeleteRequirement(projectId: string) {
       const deleted = result?.deleted ?? 1;
       toast.show(`Удалено ${requirementsLabel(deleted)}`);
     },
+  });
+}
+
+/**
+ * Move a row in the tree (structure mode): replace one CHILD_OF link.
+ *
+ * No toast here — the screen narrates the result itself (it also offers
+ * «Отменить»), and an error must reach the caller so the row can roll back to
+ * its previous parent instead of pretending the move landed.
+ */
+export function useMoveRequirement(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    MoveRequirementResult,
+    Error,
+    { slug: string; parentSlug: string | null; expectedParentSlug?: string | null }
+  >({
+    mutationFn: ({ slug, parentSlug, expectedParentSlug }) =>
+      requirementsApi.move(projectId, slug, { parentSlug, expectedParentSlug }),
+    onSettled: () => invalidateRequirements(qc, projectId),
   });
 }
 
