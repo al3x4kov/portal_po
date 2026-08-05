@@ -4,6 +4,8 @@ import {
   AI_IMPORT_PO_MAX_ROOTS,
   breakParentCycles,
   nameKey,
+  sanitizeAiName,
+  sanitizeAiParentName,
   type AiExtractedRequirement,
   type AiPoAssignment,
   type AiStructureNode,
@@ -56,12 +58,25 @@ export interface PoMergeStats {
   depthFlattened: number;
   /** Names truncated to {@link AI_IMPORT_PO_GROUP_NAME_MAX}. */
   namesTruncated: number;
+  /** Узлы, отброшенные из-за мусорного имени («null», хвост JSON). */
+  namesRejected: number;
 }
 
-/** Normalize one proposed group name; empty → null (the node is skipped). */
+/**
+ * Normalize one proposed group name; мусор → null (узел пропускается).
+ *
+ * Модель порой присылает вместо имени строку `"null"` или имя с приклеенным
+ * хвостом собственного ответа («Домен → null}, {»). Такие значения проходят
+ * Zod (непустая строка ≤ 200), поэтому чистим их здесь — иначе в дереве
+ * появляются группы с именем «null».
+ */
 function normalizeName(raw: string, stats: PoMergeStats): string | null {
-  let name = raw.replace(/\s+/g, ' ').trim();
-  if (name.length === 0) return null;
+  const cleaned = sanitizeAiName(raw);
+  if (cleaned === null) {
+    stats.namesRejected += 1;
+    return null;
+  }
+  let name = cleaned;
   if (name.length > AI_IMPORT_PO_GROUP_NAME_MAX) {
     name = `${name.slice(0, AI_IMPORT_PO_GROUP_NAME_MAX - 1).trimEnd()}…`;
     stats.namesTruncated += 1;
@@ -90,6 +105,7 @@ export function mergeTaxonomyRound(taxonomy: PoTaxonomy, answer: AiStructureNode
     childrenCapped: 0,
     depthFlattened: 0,
     namesTruncated: 0,
+    namesRejected: 0,
   };
   const { nodes } = taxonomy;
 
@@ -121,7 +137,10 @@ export function mergeTaxonomyRound(taxonomy: PoTaxonomy, answer: AiStructureNode
     const name = normalizeName(raw.name, stats);
     if (name === null) continue;
     const key = nameKey(raw.type, name);
-    const parentName = raw.parentName === null ? null : normalizeName(raw.parentName, stats);
+    // Строковый «null» в parentName означает «родителя нет» — иначе в дереве
+    // появлялся бы корневой домен с именем «null».
+    const rawParent = sanitizeAiParentName(raw.parentName);
+    const parentName = rawParent === null ? null : normalizeName(rawParent, stats);
     if (nodes.has(key)) continue; // first answer wins — never re-parented
 
     if (parentName === null || nameKey(raw.type, parentName) === key) {

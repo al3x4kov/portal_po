@@ -96,6 +96,32 @@ describe('poTaxonomy · mergeTaxonomyRound (слияние раундов про
       expect(n.name.length).toBeLessThanOrEqual(AI_IMPORT_PO_GROUP_NAME_MAX);
     }
   });
+
+  it('мусорные имена от модели не становятся узлами дерева (журнал testik12t)', () => {
+    const tax = emptyTaxonomy();
+    const stats = mergeTaxonomyRound(tax, [
+      // Строковый «null» вместо JSON-null — раньше давал корневой домен «null».
+      node({ name: 'null' }),
+      node({ type: 'NFR', name: 'NULL' }),
+      // Имя с приклеенным хвостом собственного ответа модели.
+      node({ type: 'NFR', name: 'Доступность и надежность → null}, {' }),
+      // Нормальный узел рядом с мусором обязан уцелеть.
+      node({ name: 'Каталоги и шаблоны' }),
+    ]);
+
+    const names = [...tax.nodes.values()].map((n) => n.name).sort();
+    expect(names).toEqual(['Доступность и надежность', 'Каталоги и шаблоны']);
+    expect(stats.namesRejected).toBe(2);
+  });
+
+  it('строковый «null» в parentName означает корень, а не домен с таким именем', () => {
+    const tax = emptyTaxonomy();
+    mergeTaxonomyRound(tax, [node({ name: 'Отчеты и выгрузки', parentName: 'null' })]);
+
+    const names = [...tax.nodes.values()].map((n) => n.name);
+    expect(names).toEqual(['Отчеты и выгрузки']);
+    expect(tax.nodes.get(nameKey('FUNCTION', 'Отчеты и выгрузки'))!.parentKey).toBeNull();
+  });
 });
 
 describe('poTaxonomy · assignTaxonomyIds', () => {

@@ -4,6 +4,8 @@ import {
   aiPoAssignmentSchema,
   aiRelatePairSchema,
   aiStructureNodeSchema,
+  sanitizeAiName,
+  sanitizeAiParentName,
   type AiExtractedRequirement,
   type AiPoAssignment,
   type AiRelatePair,
@@ -637,7 +639,20 @@ export function parseExtractionResponse(content: string): ParsedExtraction | nul
   for (const record of array) {
     const parsed = aiExtractedRequirementSchema.safeParse(record);
     if (parsed.success) {
-      result.items.push(parsed.data);
+      // Zod пропускает строковый «null» и имя с приклеенным хвостом ответа
+      // модели — это непустые строки. Чистим детерминированно; запись без
+      // осмысленного имени отбраковываем, а не создаём требование «null».
+      const name = sanitizeAiName(parsed.data.name);
+      if (name === null) {
+        result.droppedInvalid += 1;
+        continue;
+      }
+      const parentName = sanitizeAiParentName(parsed.data.parentName);
+      result.items.push({
+        ...parsed.data,
+        name,
+        ...(parentName === null ? { parentName: undefined } : { parentName }),
+      });
       continue;
     }
     const isObject = typeof record === 'object' && record !== null;

@@ -137,6 +137,13 @@ export async function runPoStructureStage(
             `глубже двух уровней перевешено под домен: ${stats.depthFlattened}.`,
         );
       }
+      if (stats.namesRejected > 0) {
+        rt.log(
+          'warn',
+          `${label}: отброшено узлов с мусорным именем: ${stats.namesRejected} ` +
+            `(например, «null» или хвост ответа модели).`,
+        );
+      }
     } else {
       if (outcome.kind === 'upstream') {
         rt.log(
