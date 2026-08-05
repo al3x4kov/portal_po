@@ -729,7 +729,7 @@ export function TreeToolbar({
       {!graphView ? (
         <button
           type="button"
-          className="tip-host btn btn-sm inline-flex flex-none items-center gap-1.5"
+          className="tip-host btn btn-secondary btn-sm inline-flex flex-none items-center gap-1.5"
           style={
             structureMode
               ? {
@@ -737,7 +737,9 @@ export function TreeToolbar({
                   color: '#fff',
                   borderColor: 'var(--color-primary)',
                 }
-              : undefined
+              : treeIncomplete
+                ? { opacity: 0.5 }
+                : undefined
           }
           aria-pressed={structureMode}
           aria-disabled={treeIncomplete}
