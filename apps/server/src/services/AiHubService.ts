@@ -3,10 +3,11 @@ import {
   AI_CHAT_TEMPERATURE,
   AI_GEN_MAX_TOKENS,
   AI_GEN_TEMPERATURE,
-  AI_TESTGEN_MAX_TOKENS,
   AI_TESTGEN_TEMPERATURE,
   aiTestCaseSchema,
   resolveModelPreset,
+  testGenFittingBatch,
+  testGenMaxTokens,
   type AiChatRequest,
   type AiGenerateTestsRequest,
   type AiGenerateTestsResponse,
@@ -26,6 +27,7 @@ import {
   type TestGenRequirementInfo,
 } from './aiPrompt.js';
 import { extractJsonArray } from './aiImportPrompt.js';
+import { callAiWithRetries } from './aiImport/aiCall.js';
 import {
   buildTestGenResponseFormat,
   isResponseFormatRejection,
@@ -236,15 +238,30 @@ export class AiHubService {
   }
 
   /**
-   * Тест-генерация (развилка «Генерации артефактов»): один вызов хаба на батч
-   * выбранных требований + детерминированная анти-галлюцинационная проверка.
+   * Тест-генерация (развилка «Генерации артефактов»): батч выбранных требований
+   * → тест-кейсы + детерминированная анти-галлюцинационная проверка.
+   *
+   * Надёжность построена по схеме AI-импорта документации, потому что прежняя
+   * («один вызов, фиксированный бюджет 3000 токенов, ноль повторов») роняла
+   * ПЕРВЫЙ же батч: ответ на 10 кейсов с негативом не помещался в лимит и
+   * обрывался на середине JSON. Теперь:
+   *
+   * 1. бюджет ответа считается от размера батча ({@link testGenMaxTokens}) и
+   *    клампится пресетом модели;
+   * 2. батч, который заведомо не помещается в бюджет модели, режется на части
+   *    ЕЩЁ ДО обращения к хабу ({@link testGenFittingBatch});
+   * 3. каждый вызов идёт через {@link callAiWithRetries}: 429/5xx/сеть/таймаут
+   *    повторяются с backoff под per-call таймаутом пресета;
+   * 4. часть, которая всё равно не далась (обрыв по контексту, нераспознанный
+   *    JSON), делится пополам и повторяется — вплоть до одного требования;
+   * 5. итог всегда частичный, а не «всё пропало»: удавшиеся кейсы возвращаются,
+   *    неудавшиеся требования уходят в `missing` и достраиваются шаблоном.
    *
    * Правила проверки (якорь — slug требования из ЭТОГО батча):
    * - кейс с чужим/выдуманным slug'ом отбрасывается;
    * - второй кейс на тот же slug отбрасывается (первый побеждает);
    * - невалидная форма кейса отбрасывается;
-   * - требования без кейса возвращаются списком `missing` — клиент достраивает
-   *   их детерминированным шаблоном, чтобы покрытие модели не терялось.
+   * - требования без кейса возвращаются списком `missing`.
    *
    * `requirements` — батч, уже загруженный роутом из проекта (источник истины);
    * `nameBySlug` — полный словарь имён проекта для контекста детей в промпте.
@@ -265,7 +282,9 @@ export class AiHubService {
     assertChatCapableModel(model);
 
     const negatives = input.kind === 'smoke' ? (input.negatives ?? false) : true;
-    const infos: TestGenRequirementInfo[] = requirements.map((r) => ({
+    const preset = resolveModelPreset(model, cfg.modelPresets?.[model]);
+    const client = this.makeClient(cfg.apiKey, cfg.baseURL);
+    const infoOf = (r: Requirement): TestGenRequirementInfo => ({
       slug: r.slug,
       type: r.type,
       criticality: r.criticality,
@@ -275,68 +294,99 @@ export class AiHubService {
         .filter((l) => l.type === 'PARENT_OF')
         .map((l) => nameBySlug.get(l.targetSlug))
         .filter((n): n is string => n !== undefined),
-    }));
-    const messages = buildTestCasesMessages(input.kind, infos, negatives);
-    const preset = resolveModelPreset(model, cfg.modelPresets?.[model]);
-    const params = {
-      model,
-      messages,
-      temperature: AI_TESTGEN_TEMPERATURE,
-      max_tokens: Math.min(AI_TESTGEN_MAX_TOKENS, preset.maxOutputTokens),
-      ...(preset.topP !== undefined ? { top_p: preset.topP } : {}),
+    });
+
+    const bySlug = new Map<string, (typeof aiTestCaseSchema)['_output']>();
+    let dropped = 0;
+    /** Первая непреодолимая ошибка — поднимается только если НИЧЕГО не вышло. */
+    let fatal: Error | null = null;
+
+    /**
+     * Обработать одну часть батча. Неуспех — не исключение, а `false`: часть
+     * делится пополам и повторяется, пока в ней больше одного требования.
+     */
+    const runPart = async (part: Requirement[]): Promise<boolean> => {
+      const allowed = new Set(part.map((r) => r.slug));
+      const params = {
+        model,
+        messages: buildTestCasesMessages(input.kind, part.map(infoOf), negatives),
+        temperature: AI_TESTGEN_TEMPERATURE,
+        max_tokens: Math.min(testGenMaxTokens(part.length, negatives), preset.maxOutputTokens),
+        ...(preset.topP !== undefined ? { top_p: preset.topP } : {}),
+      };
+
+      const ask = (withFormat: boolean) =>
+        callAiWithRetries({
+          call: () =>
+            client.chat.completions.create(
+              withFormat ? { ...params, response_format: buildTestGenResponseFormat() } : params,
+            ),
+          timeoutMs: preset.perCallTimeoutSec * 1000,
+        });
+
+      let result = await ask(true);
+      if (!result.ok && isResponseFormatRejection(result.error)) {
+        // Бэкенд без structured output (vLLM/Ollama/прокси) — повтор без схемы.
+        result = await ask(false);
+      }
+      if (!result.ok) {
+        // Причина сохраняется, чтобы поднять её, если НИ ОДНА часть не далась.
+        fatal ??= new AiUpstreamError(
+          sanitize(
+            `AI Hub test generation failed: ${describeError(result.error)}`,
+            cfg.apiKey ?? '',
+          ),
+        );
+        return false;
+      }
+
+      const content = result.value.choices?.[0]?.message?.content ?? null;
+      const array = extractJsonArray(this.cleanAnswer(content, preset));
+      if (array === null) return false; // обрыв ответа/не JSON — дробим часть
+
+      for (const raw of array) {
+        // strict json_schema выражает опциональность null'ами — нормализуем.
+        const candidate =
+          typeof raw === 'object' && raw !== null
+            ? Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== null))
+            : raw;
+        const parsed = aiTestCaseSchema.safeParse(candidate);
+        if (!parsed.success || !allowed.has(parsed.data.slug) || bySlug.has(parsed.data.slug)) {
+          dropped += 1;
+          continue;
+        }
+        bySlug.set(parsed.data.slug, parsed.data);
+      }
+      return true;
     };
 
-    const client = this.makeClient(cfg.apiKey, cfg.baseURL);
-    let content: string | null;
-    try {
-      const res = await client.chat.completions.create({
-        ...params,
-        response_format: buildTestGenResponseFormat(),
-      });
-      content = res.choices?.[0]?.message?.content ?? null;
-    } catch (err) {
-      // Бэкенд без structured output (vLLM/Ollama/прокси): один повтор без
-      // response_format — как фолбэк-негоциация AI-импорта, но в один шаг.
-      if (!isResponseFormatRejection(err)) {
-        throw new AiUpstreamError(
-          sanitize(`AI Hub test generation failed: ${describeError(err)}`, cfg.apiKey),
-        );
-      }
-      try {
-        const res = await client.chat.completions.create(params);
-        content = res.choices?.[0]?.message?.content ?? null;
-      } catch (err2) {
-        throw new AiUpstreamError(
-          sanitize(`AI Hub test generation failed: ${describeError(err2)}`, cfg.apiKey),
-        );
-      }
+    /** Пройти часть, при неуспехе — половинками, вплоть до одного требования. */
+    const runAdaptive = async (part: Requirement[]): Promise<void> => {
+      if (part.length === 0) return;
+      if (await runPart(part)) return;
+      if (part.length === 1) return; // одиночное требование — уйдёт в missing
+      const mid = Math.ceil(part.length / 2);
+      await runAdaptive(part.slice(0, mid));
+      await runAdaptive(part.slice(mid));
+    };
+
+    // Батч, заведомо не помещающийся в бюджет модели, режем ДО первого вызова.
+    const fitting = Math.min(
+      requirements.length,
+      testGenFittingBatch(preset.maxOutputTokens, negatives),
+    );
+    for (let i = 0; i < requirements.length; i += fitting) {
+      await runAdaptive(requirements.slice(i, i + fitting));
     }
 
-    const text = this.cleanAnswer(content, preset);
-    const array = extractJsonArray(text);
-    if (array === null) {
+    const missing = requirements.map((r) => r.slug).filter((s) => !bySlug.has(s));
+    // Полный провал батча — это ошибка вызова; частичный успех ошибкой не считаем.
+    if (bySlug.size === 0 && fatal !== null) throw fatal;
+    if (bySlug.size === 0 && requirements.length > 0) {
       throw new AiUpstreamError(
         'Ответ модели не распознан как JSON-массив тест-кейсов — повторите генерацию.',
       );
     }
-
-    const allowed = new Set(requirements.map((r) => r.slug));
-    const bySlug = new Map<string, (typeof aiTestCaseSchema)['_output']>();
-    let dropped = 0;
-    for (const raw of array) {
-      // strict json_schema выражает опциональность null'ами — нормализуем.
-      const candidate =
-        typeof raw === 'object' && raw !== null
-          ? Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== null))
-          : raw;
-      const parsed = aiTestCaseSchema.safeParse(candidate);
-      if (!parsed.success || !allowed.has(parsed.data.slug) || bySlug.has(parsed.data.slug)) {
-        dropped += 1;
-        continue;
-      }
-      bySlug.set(parsed.data.slug, parsed.data);
-    }
-    const missing = requirements.map((r) => r.slug).filter((s) => !bySlug.has(s));
     return { cases: [...bySlug.values()], dropped, missing };
   }
 

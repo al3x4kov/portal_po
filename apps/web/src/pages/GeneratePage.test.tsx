@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes } from 'react-router-dom';
-import type { AiGenerateTestsRequest } from '@po/core';
+import { AI_TESTGEN_BATCH, type AiGenerateTestsRequest } from '@po/core';
 import { GeneratePage } from './GeneratePage';
 import { renderWithProviders } from '../test/utils';
 import { makeReq } from '../test/fixtures';
@@ -228,7 +228,7 @@ describe('Г3/Г4 — способ и параметры', () => {
     await user.click(screen.getByTestId('export-mode-ai'));
     expect(await screen.findByTestId('gen-ai-model-select')).toHaveValue('DeepSeek-V4-Flash');
     expect(screen.getByTestId('gen-ai-negatives')).not.toBeChecked();
-    expect(screen.getByTestId('gen-estimate')).toHaveTextContent('1 батча по ≤10');
+    expect(screen.getByTestId('gen-estimate')).toHaveTextContent(`1 батча по ≤${AI_TESTGEN_BATCH}`);
   });
 
   it('Г4: чекбокс негативов есть только у смока', async () => {
@@ -394,9 +394,7 @@ describe('Г7 — остановка пользователем', () => {
 
     const banner = await screen.findByTestId('gen-stopped-banner');
     expect(banner).toHaveTextContent('Генерация остановлена');
-    expect(screen.getByTestId('gen-ai-resume')).toHaveTextContent(
-      'Продолжить генерацию (батч 3/3)',
-    );
+    expect(screen.getByTestId('gen-ai-resume')).toHaveTextContent('Продолжить генерацию (батч 3/');
     expect(screen.getByTestId('gen-ai-fill-template')).toHaveTextContent('шаблоном');
     expect(screen.getByTestId('export-tasks-download')).toHaveTextContent('Скачать частичный .md');
     expect(screen.getByTestId('gen-ai-log')).toHaveTextContent('Остановлено пользователем');
@@ -441,20 +439,24 @@ describe('Г7 — остановка пользователем', () => {
 // ── Г8 · негатив: ошибка батча ──────────────────────────────────────────────
 
 describe('Г8 — ошибка батча', () => {
-  it('показывает причину, сохраняет готовое и повторяет ровно упавший батч', async () => {
+  it('сбойный батч не останавливает очередь: остальные проходят, повтор — точечный', async () => {
     const user = userEvent.setup();
     const many = Array.from({ length: 15 }, (_, i) =>
       makeReq({ slug: `f${i}`, name: `ФТ ${i}`, criticality: 'HIGH', links: [] }),
     );
     listRequirements.mockResolvedValue({ requirements: many, broken: [] });
 
-    generateTests
-      .mockResolvedValueOnce({
-        cases: Array.from({ length: 10 }, (_, i) => ({ ...CASE_A, slug: `f${i}` })),
+    // Падает ТОЛЬКО второй батч; остальные обязаны отработать.
+    let call = 0;
+    generateTests.mockImplementation((req: AiGenerateTestsRequest) => {
+      call += 1;
+      if (call === 2) return Promise.reject(new Error('Тайм-аут модели (30 с)'));
+      return Promise.resolve({
+        cases: req.slugs.map((s) => ({ ...CASE_A, slug: s })),
         dropped: 0,
         missing: [],
-      })
-      .mockRejectedValueOnce(new Error('Тайм-аут модели (30 с)'));
+      });
+    });
 
     await gotoMode(user);
     await user.click(screen.getByTestId('export-mode-ai'));
@@ -462,25 +464,40 @@ describe('Г8 — ошибка батча', () => {
     await user.click(screen.getByTestId('gen-ai-start'));
 
     const banner = await screen.findByTestId('gen-error-banner');
-    expect(banner).toHaveTextContent('Батч 2/2 не удался');
+    expect(banner).toHaveTextContent('Не удалось батчей: 1');
+    // Очередь пройдена целиком — вызовов столько же, сколько батчей.
+    const totalBatches = Math.ceil(15 / AI_TESTGEN_BATCH);
+    await waitFor(() => expect(generateTests).toHaveBeenCalledTimes(totalBatches));
+    expect(screen.getByTestId('gen-ai-log')).toHaveTextContent('продолжаем со следующего');
     expect(screen.getByTestId('gen-ai-log')).toHaveTextContent('Тайм-аут модели');
-    expect(screen.getByTestId('gen-badge-ai')).toHaveTextContent('AI-кейсов: 10');
 
-    // Повтор — с упавшего батча, не с начала.
-    generateTests.mockResolvedValueOnce({
-      cases: [{ ...CASE_A, slug: 'f10' }],
-      dropped: 0,
-      missing: [],
-    });
+    // Повтор адресный: только сбойный батч, а не весь прогон заново.
     await user.click(screen.getByTestId('gen-ai-resume'));
-    await waitFor(() => expect(generateTests).toHaveBeenCalledTimes(3));
-    expect((generateTests.mock.calls[2]?.[0] as AiGenerateTestsRequest).slugs).toEqual([
-      'f10',
-      'f11',
-      'f12',
-      'f13',
-      'f14',
-    ]);
+    await waitFor(() => expect(generateTests).toHaveBeenCalledTimes(totalBatches + 1));
+    const retried = generateTests.mock.calls[totalBatches]![0] as AiGenerateTestsRequest;
+    const secondBatch = (generateTests.mock.calls[1]![0] as AiGenerateTestsRequest).slugs;
+    expect(retried.slugs).toEqual(secondBatch);
+  });
+
+  it('кнопка повтора называет число неудавшихся батчей', async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 15 }, (_, i) =>
+      makeReq({ slug: `f${i}`, name: `ФТ ${i}`, criticality: 'HIGH', links: [] }),
+    );
+    listRequirements.mockResolvedValue({ requirements: many, broken: [] });
+    generateTests.mockRejectedValue(new Error('AI Hub недоступен'));
+
+    await gotoMode(user);
+    await user.click(screen.getByTestId('export-mode-ai'));
+    await screen.findByTestId('gen-ai-model-select');
+    await user.click(screen.getByTestId('gen-ai-start'));
+
+    const totalBatches = Math.ceil(15 / AI_TESTGEN_BATCH);
+    expect(await screen.findByTestId('gen-ai-resume')).toHaveTextContent(
+      `Повторить неудавшиеся батчи (${totalBatches})`,
+    );
+    // Даже когда не далось ничего, покрытие спасается шаблоном.
+    expect(screen.getByTestId('gen-ai-fill-template')).toBeInTheDocument();
   });
 });
 

@@ -1150,13 +1150,51 @@ export const TEST_MODEL_KINDS = ['smoke', 'crit-regression', 'full'] as const;
 export type TestModelKind = (typeof TEST_MODEL_KINDS)[number];
 
 /** Требований в одном AI-вызове тест-генерации (клиент режет выбор на батчи). */
-export const AI_TESTGEN_BATCH = 10;
+export const AI_TESTGEN_BATCH = 6;
 /** Верхний предел размера батча, который принимает сервер (защита контракта). */
 export const AI_TESTGEN_MAX_SLUGS = 30;
 /** Sampling temperature тест-генерации: ниже чата — кейсы должны быть фактичными. */
 export const AI_TESTGEN_TEMPERATURE = 0.3;
-/** Бюджет ответа одного вызова (клампится пресетом модели, как чат/генерация). */
-export const AI_TESTGEN_MAX_TOKENS = 3000;
+
+/*
+ * ── Бюджет ответа ───────────────────────────────────────────────────────────
+ * Раньше бюджет был фиксированным (3000 токенов на батч любой величины), и на
+ * батче из 10 требований ответ обрывался на середине JSON: массив не парсился,
+ * и падал ПЕРВЫЙ же батч — особенно у крит- и полного регресса, где негативный
+ * сценарий обязателен и удваивает объём кейса. Теперь бюджет считается от
+ * размера батча, как смета токенов в AI-импорте документации.
+ */
+
+/** Оценка ответа на один кейс без негативного сценария, токенов. */
+export const AI_TESTGEN_TOKENS_PER_CASE = 380;
+/** То же с негативным сценарием (крит/полный регресс — всегда). */
+export const AI_TESTGEN_TOKENS_PER_CASE_NEGATIVE = 620;
+/** Постоянные расходы ответа: обрамление массива, разметка JSON. */
+export const AI_TESTGEN_TOKENS_OVERHEAD = 400;
+/** Нижняя граница бюджета: даже один кейс должен помещаться с запасом. */
+export const AI_TESTGEN_MIN_TOKENS = 1200;
+
+/**
+ * Бюджет ответа для батча из `count` требований. Клампится пресетом модели
+ * вызывающей стороной (`Math.min(..., preset.maxOutputTokens)`), поэтому здесь
+ * только нижняя граница — верхнюю знает пресет.
+ */
+export function testGenMaxTokens(count: number, negatives: boolean): number {
+  const perCase = negatives ? AI_TESTGEN_TOKENS_PER_CASE_NEGATIVE : AI_TESTGEN_TOKENS_PER_CASE;
+  const estimate = AI_TESTGEN_TOKENS_OVERHEAD + perCase * Math.max(1, count);
+  return Math.max(AI_TESTGEN_MIN_TOKENS, estimate);
+}
+
+/**
+ * Сколько требований влезает в один вызов при бюджете модели `maxOutputTokens`.
+ * Батч больше этого числа заведомо обрывается по лимиту ответа — сервер режет
+ * его на части ещё до обращения к модели.
+ */
+export function testGenFittingBatch(maxOutputTokens: number, negatives: boolean): number {
+  const perCase = negatives ? AI_TESTGEN_TOKENS_PER_CASE_NEGATIVE : AI_TESTGEN_TOKENS_PER_CASE;
+  const room = maxOutputTokens - AI_TESTGEN_TOKENS_OVERHEAD;
+  return Math.max(1, Math.floor(room / perCase));
+}
 
 /**
  * Один тест-кейс из ответа модели. `slug` — якорь анти-галлюцинационной

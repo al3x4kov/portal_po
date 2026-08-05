@@ -193,3 +193,146 @@ describe('AiHubService.generateTestCases (анти-галлюцинационн�
     expect(user).toContain('дети: Вход по паролю');
   });
 });
+
+describe('AiHubService.generateTestCases · надёжность батча', () => {
+  let root: string;
+  let repo: AiConfigRepo;
+
+  beforeEach(async () => {
+    root = await makeTmpRoot();
+    repo = new AiConfigRepo(root);
+    await repo.update({ apiKey: SECRET, projectId: 'Demo', model: 'Qwen-Coder-Next' });
+  });
+  afterEach(async () => {
+    await cleanup(root);
+  });
+
+  function service(client: AiClient): AiHubService {
+    return new AiHubService({ repo, makeClient: () => client });
+  }
+
+  const SIX = ['a', 'b', 'c', 'd', 'e', 'f'].map((s) => req(s, `Требование ${s}`));
+  const SIX_NAMES = new Map(SIX.map((r) => [r.slug, r.name]));
+  const sixInput: AiGenerateTestsRequest = {
+    projectId: 'Demo',
+    kind: 'smoke',
+    slugs: SIX.map((r) => r.slug),
+  };
+
+  it('бюджет ответа зависит от размера батча и вида модели', async () => {
+    const client = clientAnswering([JSON.stringify({ cases: SIX.map((r) => kase(r.slug)) })]);
+    await service(client).generateTestCases(sixInput, SIX, SIX_NAMES);
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    const small = (create.mock.calls[0]![0] as { max_tokens: number }).max_tokens;
+
+    const client2 = clientAnswering([JSON.stringify({ cases: [kase('vhod'), kase('vyhod')] })]);
+    await service(client2).generateTestCases(INPUT, BATCH, NAMES);
+    const create2 = client2.chat.completions.create as ReturnType<typeof vi.fn>;
+    const smaller = (create2.mock.calls[0]![0] as { max_tokens: number }).max_tokens;
+
+    // Шесть требований требуют больше бюджета, чем два — прежние 3000 были
+    // одинаковыми для любого батча и обрывали ответ.
+    expect(small).toBeGreaterThan(smaller);
+  });
+
+  it('крит-регресс закладывает больше токенов, чем смок: негатив обязателен', async () => {
+    const answer = JSON.stringify({ cases: SIX.map((r) => kase(r.slug)) });
+    const smoke = clientAnswering([answer]);
+    await service(smoke).generateTestCases(sixInput, SIX, SIX_NAMES);
+    const crit = clientAnswering([answer]);
+    await service(crit).generateTestCases({ ...sixInput, kind: 'crit-regression' }, SIX, SIX_NAMES);
+
+    const tokensOf = (c: AiClient): number =>
+      (
+        (c.chat.completions.create as ReturnType<typeof vi.fn>).mock.calls[0]![0] as {
+          max_tokens: number;
+        }
+      ).max_tokens;
+    expect(tokensOf(crit)).toBeGreaterThan(tokensOf(smoke));
+    // Именно этот случай раньше не помещался в фиксированные 3000 токенов.
+    expect(tokensOf(crit)).toBeGreaterThan(3000);
+  });
+
+  it('оборванный ответ не роняет батч: часть делится пополам и повторяется', async () => {
+    // Первый вызов — обрыв JSON на середине (ровно симптом из отчёта).
+    const truncated = '{"cases":[{"slug":"a","title":"Кейс a","goal":"Прове';
+    const half1 = JSON.stringify({ cases: [kase('a'), kase('b'), kase('c')] });
+    const half2 = JSON.stringify({ cases: [kase('d'), kase('e'), kase('f')] });
+    const client = clientAnswering([truncated, half1, half2]);
+
+    const res = await service(client).generateTestCases(sixInput, SIX, SIX_NAMES);
+    expect(res.cases.map((c) => c.slug).sort()).toEqual(['a', 'b', 'c', 'd', 'e', 'f']);
+    expect(res.missing).toEqual([]);
+    // Один провальный вызов + две половины.
+    expect((client.chat.completions.create as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(3);
+  });
+
+  it('дробление доходит до одного требования; неподдавшееся уходит в missing', async () => {
+    const two = SIX.slice(0, 2);
+    const twoNames = new Map(two.map((r) => [r.slug, r.name]));
+    // Батч не парсится, левая половина (одно требование) — тоже, правая даёт кейс.
+    const client = clientAnswering([
+      'мусор',
+      'снова мусор',
+      JSON.stringify({ cases: [kase('b')] }),
+    ]);
+
+    const res = await service(client).generateTestCases(
+      { ...sixInput, slugs: ['a', 'b'] },
+      two,
+      twoNames,
+    );
+    expect(res.cases.map((c) => c.slug)).toEqual(['b']);
+    expect(res.missing).toEqual(['a']); // достроится шаблоном на клиенте
+  });
+
+  it('частичный успех не считается ошибкой вызова', async () => {
+    const client = clientAnswering([
+      JSON.stringify({ cases: [kase('a'), kase('b'), kase('c')] }),
+      'не JSON',
+      'не JSON',
+      'не JSON',
+      'не JSON',
+      'не JSON',
+      'не JSON',
+      'не JSON',
+    ]);
+    const res = await service(client).generateTestCases(sixInput, SIX, SIX_NAMES);
+    expect(res.cases.length).toBeGreaterThan(0);
+    expect(res.missing.length).toBeGreaterThan(0);
+  });
+
+  it('когда не удалось совсем ничего — ошибка вызова (клиент покажет её и предложит повтор)', async () => {
+    const client = clientAnswering(['мусор', 'мусор', 'мусор']);
+    await expect(
+      service(client).generateTestCases({ ...sixInput, slugs: ['a'] }, [SIX[0]!], SIX_NAMES),
+    ).rejects.toThrow(/не распознан/);
+  });
+
+  it('обрыв соединения повторяется, а не роняет батч', async () => {
+    let calls = 0;
+    const client: AiClient = {
+      models: { list: vi.fn(async () => ({ data: [] })) },
+      chat: {
+        completions: {
+          create: vi.fn(async () => {
+            calls += 1;
+            if (calls === 1) {
+              const err = new Error('fetch failed') as Error & { code?: string };
+              err.code = 'ECONNRESET';
+              throw err;
+            }
+            return { choices: [{ message: { content: JSON.stringify({ cases: [kase('a')] }) } }] };
+          }),
+        },
+      },
+    };
+    const res = await service(client).generateTestCases(
+      { ...sixInput, slugs: ['a'] },
+      [SIX[0]!],
+      SIX_NAMES,
+    );
+    expect(res.cases.map((c) => c.slug)).toEqual(['a']);
+    expect(calls).toBeGreaterThan(1);
+  });
+});

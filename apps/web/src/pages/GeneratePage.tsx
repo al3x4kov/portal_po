@@ -281,6 +281,8 @@ export function GeneratePage(): React.ReactElement {
   const [doneBatches, setDoneBatches] = useState(0);
   const [aiCases, setAiCases] = useState<Map<string, AiTestCase>>(new Map());
   const [dropped, setDropped] = useState(0);
+  /** Индексы батчей, которые не дались: прогон идёт дальше, повтор — точечный. */
+  const [failedBatches, setFailedBatches] = useState<number[]>([]);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [log, setLog] = useState<AiLogEntry[]>([]);
   const cancelled = useRef(false);
@@ -418,14 +420,15 @@ export function GeneratePage(): React.ReactElement {
    * требования достраиваются детерминированным шаблоном при сборке файла.
    * `fromBatch > 0` — продолжение после остановки или ошибки батча.
    */
-  async function runAi(fromBatch = 0): Promise<void> {
-    const list = fromBatch > 0 && ordered.length > 0 ? ordered : selectForKind(kind, genReqs);
+  async function runAi(fromBatch = 0, only?: number[]): Promise<void> {
+    const resuming = fromBatch > 0 || only !== undefined;
+    const list = resuming && ordered.length > 0 ? ordered : selectForKind(kind, genReqs);
     if (list.length === 0) {
       logLine('warn', 'Под выбранную модель не попало ни одного ФТ — генерировать нечего.');
       return;
     }
     const chunks =
-      fromBatch > 0 && batches.length > 0
+      resuming && batches.length > 0
         ? batches
         : (() => {
             const out: string[][] = [];
@@ -441,29 +444,40 @@ export function GeneratePage(): React.ReactElement {
     setBatches(chunks);
     setRunStatus('running');
     setStep('result');
-    const cases = new Map(fromBatch > 0 ? aiCases : []);
-    let droppedTotal = fromBatch > 0 ? dropped : 0;
-    if (fromBatch === 0) {
+    const cases = new Map(resuming ? aiCases : []);
+    let droppedTotal = resuming ? dropped : 0;
+    /** Батчи текущего прохода, которые не дались (повторим точечно). */
+    const failed: number[] = [];
+    if (!resuming) {
       setLog([]);
       setAiCases(new Map());
       setDropped(0);
       setDoneBatches(0);
       setElapsedMs(0);
+      setFailedBatches([]);
     }
-    const startedAt = Date.now() - (fromBatch > 0 ? elapsedMs : 0);
+    const startedAt = Date.now() - (resuming ? elapsedMs : 0);
+    // Очередь прохода: продолжение с места остановки или точечный повтор
+    // только тех батчей, что не дались.
+    const queue =
+      only ?? Array.from({ length: chunks.length - fromBatch }, (_, i) => fromBatch + i);
     logLine(
       'info',
-      fromBatch > 0
-        ? `Продолжаем с батча ${fromBatch + 1}/${chunks.length}: уже готово кейсов ${cases.size}.`
-        : `AI-генерация «${KIND_TITLE[kind]}»: модель ${selectedModel}, требований ${list.length}, батчей ${chunks.length}.`,
+      only !== undefined
+        ? `Повтор батчей: ${only.map((i) => i + 1).join(', ')} из ${chunks.length}.`
+        : fromBatch > 0
+          ? `Продолжаем с батча ${fromBatch + 1}/${chunks.length}: уже готово кейсов ${cases.size}.`
+          : `AI-генерация «${KIND_TITLE[kind]}»: модель ${selectedModel}, требований ${list.length}, батчей ${chunks.length}.`,
     );
 
-    for (let b = fromBatch; b < chunks.length; b++) {
+    let processed = fromBatch;
+    for (const b of queue) {
       if (cancelled.current) {
         setElapsedMs(Date.now() - startedAt);
+        setFailedBatches(failed);
         logLine(
           'warn',
-          `Остановлено пользователем после батча ${b}/${chunks.length}. Готово кейсов ${cases.size} — прогресс сохранён.`,
+          `Остановлено пользователем после батча ${processed}/${chunks.length}. Готово кейсов ${cases.size} — прогресс сохранён.`,
         );
         setRunStatus('stopped');
         return;
@@ -497,28 +511,32 @@ export function GeneratePage(): React.ReactElement {
           `Батч ${b + 1}/${chunks.length}: кейсов принято ${res.cases.length}${extras.length ? ` · ${extras.join(' · ')}` : ''}.`,
         );
       } catch (err) {
-        setAiCases(new Map(cases));
-        setDropped(droppedTotal);
-        setDoneBatches(b);
-        setElapsedMs(Date.now() - startedAt);
+        // Сбойный батч НЕ останавливает прогон: помечаем его и идём дальше —
+        // иначе одна неудача обесценивала всю очередь (отчёт PO: «на первом же
+        // батче всегда сваливалось в неуспех»).
+        failed.push(b);
         logLine(
           'error',
-          `Батч ${b + 1}/${chunks.length}: ${err instanceof Error ? err.message : String(err)} — батч отложен, готовые ${cases.size} кейсов сохранены.`,
+          `Батч ${b + 1}/${chunks.length}: ${err instanceof Error ? err.message : String(err)} — батч отложен, продолжаем со следующего.`,
         );
-        setRunStatus('error');
-        return;
       }
+      processed = Math.max(processed, b + 1);
       setAiCases(new Map(cases));
       setDropped(droppedTotal);
-      setDoneBatches(b + 1);
+      setDoneBatches(processed);
     }
     setElapsedMs(Date.now() - startedAt);
+    setFailedBatches(failed);
     const missingTotal = list.length - cases.size;
     logLine(
-      'info',
-      `Готово: AI-кейсов ${cases.size}, достроено шаблоном ${missingTotal}, отброшено галлюцинаций ${droppedTotal}.`,
+      failed.length > 0 ? 'warn' : 'info',
+      `Готово: AI-кейсов ${cases.size}, достроено шаблоном ${missingTotal}, ` +
+        `отброшено галлюцинаций ${droppedTotal}` +
+        (failed.length > 0
+          ? `; батчей с ошибкой: ${failed.length} — можно повторить только их.`
+          : '.'),
     );
-    setRunStatus('done');
+    setRunStatus(failed.length > 0 ? 'error' : 'done');
   }
 
   /** Достроить остаток детерминированным шаблоном — выход из Г7/Г8 без тупика. */
@@ -1080,9 +1098,10 @@ export function GeneratePage(): React.ReactElement {
         {runStatus === 'error' ? (
           <Banner tone="danger" testid="gen-error-banner" role="alert">
             <strong>
-              Батч {doneBatches + 1}/{totalBatches} не удался.
+              Не удалось батчей: {failedBatches.length} из {totalBatches}.
             </strong>{' '}
-            Готовые {aiCases.size} кейсов сохранены — повторите батч или достройте остаток шаблоном.
+            Остальные прошли — готово {aiCases.size} кейсов. Повторите только неудавшиеся или
+            достройте остаток шаблоном.
           </Banner>
         ) : null}
 
@@ -1329,7 +1348,9 @@ export function GeneratePage(): React.ReactElement {
               type="button"
               className="btn btn-primary w-full justify-center"
               data-testid="gen-ai-resume"
-              onClick={() => void runAi(doneBatches)}
+              onClick={() =>
+                void (runStatus === 'error' ? runAi(0, failedBatches) : runAi(doneBatches))
+              }
             >
               {runStatus === 'error' ? (
                 <RotateCw className="icon-sm" aria-hidden="true" />
@@ -1337,7 +1358,7 @@ export function GeneratePage(): React.ReactElement {
                 <Play className="icon-sm" aria-hidden="true" />
               )}
               {runStatus === 'error'
-                ? `Повторить батч ${doneBatches + 1}/${totalBatches}`
+                ? `Повторить неудавшиеся батчи (${failedBatches.length})`
                 : `Продолжить генерацию (батч ${doneBatches + 1}/${totalBatches})`}
             </button>
             <button
