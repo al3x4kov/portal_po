@@ -1,27 +1,56 @@
+import { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { RequirementPickerModal } from './RequirementPickerModal';
+import type { Requirement } from '@po/core';
+import { RequirementPicker } from './RequirementPicker';
 import { renderWithProviders } from '../test/utils';
 import { makeReq } from '../test/fixtures';
+
+/**
+ * Панель контролируемая — выбор живёт у экрана-владельца. Обвязка повторяет
+ * то, что делают ExportPage и GeneratePage: хранит набор и показывает кнопку
+ * подтверждения с причиной, когда выбрать нечего.
+ */
+function Harness({
+  requirements,
+  initialSelected,
+  onConfirm = () => {},
+}: {
+  requirements: Requirement[];
+  initialSelected?: Set<string>;
+  onConfirm?: (selected: Set<string>) => void;
+}): React.ReactElement {
+  const [selected, setSelected] = useState<Set<string>>(
+    () => initialSelected ?? new Set(requirements.map((r) => r.slug)),
+  );
+  return (
+    <div>
+      <RequirementPicker requirements={requirements} selected={selected} onChange={setSelected} />
+      {selected.size === 0 ? (
+        <span data-testid="export-next-hint">Выберите хотя бы одно требование</span>
+      ) : null}
+      <button
+        type="button"
+        data-testid="export-next"
+        disabled={selected.size === 0}
+        onClick={() => onConfirm(selected)}
+      >
+        Далее ({selected.size})
+      </button>
+    </div>
+  );
+}
 
 const requirements = [
   makeReq({ slug: 'f1', name: 'Оплата', type: 'FUNCTION' }),
   makeReq({ slug: 'f2', name: 'Возвраты', type: 'FUNCTION' }),
 ];
 
-describe('RequirementPickerModal', () => {
+describe('RequirementPicker', () => {
   it('explains why the confirm button is disabled when nothing is selected', async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <RequirementPickerModal
-        title="Выбор требований"
-        requirements={requirements}
-        initialSelected={new Set()}
-        onClose={vi.fn()}
-        onConfirm={vi.fn()}
-      />,
-    );
+    renderWithProviders(<Harness requirements={requirements} initialSelected={new Set()} />);
 
     // 0 selected → confirm disabled with a visible reason.
     expect(screen.getByTestId('export-next')).toBeDisabled();
@@ -37,14 +66,11 @@ describe('RequirementPickerModal', () => {
 
   it('renders named filter groups', () => {
     renderWithProviders(
-      <RequirementPickerModal
-        title="Выбор требований"
+      <Harness
         requirements={[
           makeReq({ slug: 'f1', name: 'Оплата', type: 'FUNCTION', source: 'АС21' }),
           makeReq({ slug: 'f2', name: 'Возвраты', type: 'FUNCTION', source: 'Регламент' }),
         ]}
-        onClose={vi.fn()}
-        onConfirm={vi.fn()}
       />,
     );
 
@@ -62,14 +88,11 @@ describe('RequirementPickerModal', () => {
 
   it('does not show the «Источник» group when there is a single distinct source', () => {
     renderWithProviders(
-      <RequirementPickerModal
-        title="Выбор требований"
+      <Harness
         requirements={[
           makeReq({ slug: 'f1', name: 'Оплата', type: 'FUNCTION', source: 'АС21' }),
           makeReq({ slug: 'f2', name: 'Возвраты', type: 'FUNCTION', source: 'ас21' }),
         ]}
-        onClose={vi.fn()}
-        onConfirm={vi.fn()}
       />,
     );
     // Two rows but only one normalized source → group hidden.
@@ -79,15 +102,12 @@ describe('RequirementPickerModal', () => {
   it('treats sources differing only by case as one, and filters both', async () => {
     const user = userEvent.setup();
     renderWithProviders(
-      <RequirementPickerModal
-        title="Выбор требований"
+      <Harness
         requirements={[
           makeReq({ slug: 'f1', name: 'Оплата', type: 'FUNCTION', source: 'АС21' }),
           makeReq({ slug: 'f2', name: 'Возвраты', type: 'FUNCTION', source: 'ас21' }),
           makeReq({ slug: 'f3', name: 'Отчёты', type: 'FUNCTION', source: 'Регламент' }),
         ]}
-        onClose={vi.fn()}
-        onConfirm={vi.fn()}
       />,
     );
 
@@ -109,8 +129,7 @@ describe('RequirementPickerModal', () => {
   it('builds the «Источник» filter from sources[] (todo_19) and matches any name', async () => {
     const user = userEvent.setup();
     renderWithProviders(
-      <RequirementPickerModal
-        title="Выбор требований"
+      <Harness
         requirements={[
           makeReq({
             slug: 'f1',
@@ -124,8 +143,6 @@ describe('RequirementPickerModal', () => {
           // legacy scalar source keeps working alongside sources[].
           makeReq({ slug: 'f2', name: 'Возвраты', type: 'FUNCTION', source: 'Регламент' }),
         ]}
-        onClose={vi.fn()}
-        onConfirm={vi.fn()}
       />,
     );
 
@@ -169,10 +186,8 @@ describe('RequirementPickerModal', () => {
 
     function renderPicker(onConfirm = vi.fn()) {
       renderWithProviders(
-        <RequirementPickerModal
-          title="Выбор требований"
+        <Harness
           requirements={[plannedQ1, plannedQ2, done, plannedNoQuarter]}
-          onClose={vi.fn()}
           onConfirm={onConfirm}
         />,
       );
@@ -230,14 +245,7 @@ describe('RequirementPickerModal', () => {
 
     it('shows an explicit empty state when filters match nothing', async () => {
       const user = userEvent.setup();
-      renderWithProviders(
-        <RequirementPickerModal
-          title="Выбор требований"
-          requirements={[done]}
-          onClose={vi.fn()}
-          onConfirm={vi.fn()}
-        />,
-      );
+      renderWithProviders(<Harness requirements={[done]} />);
       await user.click(screen.getByTestId('export-filter-impl-planned'));
       expect(screen.getByText('Нет требований, подходящих под фильтры.')).toBeInTheDocument();
     });
@@ -252,14 +260,7 @@ describe('RequirementPickerModal', () => {
     it('selects everything by default (no initialSelected) and confirms with the full set', async () => {
       const onConfirm = vi.fn();
       const user = userEvent.setup();
-      renderWithProviders(
-        <RequirementPickerModal
-          title="Выбор требований"
-          requirements={requirements}
-          onClose={vi.fn()}
-          onConfirm={onConfirm}
-        />,
-      );
+      renderWithProviders(<Harness requirements={requirements} onConfirm={onConfirm} />);
       const confirm = screen.getByTestId('export-next');
       expect(confirm).toBeEnabled();
       expect(confirm).toHaveTextContent('(2)');
@@ -271,14 +272,7 @@ describe('RequirementPickerModal', () => {
     it('unchecking a row removes it from the confirmed set; re-checking restores it', async () => {
       const onConfirm = vi.fn();
       const user = userEvent.setup();
-      renderWithProviders(
-        <RequirementPickerModal
-          title="Выбор требований"
-          requirements={requirements}
-          onClose={vi.fn()}
-          onConfirm={onConfirm}
-        />,
-      );
+      renderWithProviders(<Harness requirements={requirements} onConfirm={onConfirm} />);
 
       const rowCheckbox = screen.getByTestId('export-item-f2').querySelector('input')!;
       await user.click(rowCheckbox);
@@ -292,14 +286,7 @@ describe('RequirementPickerModal', () => {
 
     it('T4: «Выбрать все» и «Снять выделение» — две отдельные кнопки (picker-modal mockup)', async () => {
       const user = userEvent.setup();
-      renderWithProviders(
-        <RequirementPickerModal
-          title="Выбор требований"
-          requirements={requirements}
-          onClose={vi.fn()}
-          onConfirm={vi.fn()}
-        />,
-      );
+      renderWithProviders(<Harness requirements={requirements} />);
       const selectAll = screen.getByTestId('export-toggle-all');
       const deselectAll = screen.getByTestId('export-untoggle-all');
       expect(selectAll).toHaveTextContent('Выбрать все');
@@ -318,14 +305,7 @@ describe('RequirementPickerModal', () => {
 
     it('T4: поиск по имени фильтрует список; счётчик показывает «(из них видно…)» и hint о невидимых выбранных', async () => {
       const user = userEvent.setup();
-      renderWithProviders(
-        <RequirementPickerModal
-          title="Выбор требований"
-          requirements={requirements}
-          onClose={vi.fn()}
-          onConfirm={vi.fn()}
-        />,
-      );
+      renderWithProviders(<Harness requirements={requirements} />);
 
       // Everything selected; the search hides «Возвраты» but keeps it selected.
       await user.type(screen.getByTestId('picker-search'), 'Оплата');
@@ -333,9 +313,11 @@ describe('RequirementPickerModal', () => {
       expect(screen.queryByTestId('export-item-f2')).not.toBeInTheDocument();
 
       // §2.12.1: two-part counter + warning that hidden rows stay selected.
-      expect(screen.getByTestId('picker-counter')).toHaveTextContent('Выбрано 2 (из них видно 1)');
+      expect(screen.getByTestId('picker-counter')).toHaveTextContent(
+        'Выбрано 2 из 2 (из них видно 1)',
+      );
       expect(screen.getByTestId('picker-hidden-hint')).toHaveTextContent(
-        'Невидимые из-за фильтра требования остаются выбранными — в экспорт попадут все 2.',
+        'Невидимые из-за фильтра требования остаются выбранными — в выгрузку попадут все 2.',
       );
       // Footer names how many rows the filters hid.
       expect(screen.getByTestId('picker-hidden-count')).toHaveTextContent(
@@ -351,13 +333,10 @@ describe('RequirementPickerModal', () => {
 
     it('T4: критичность в строках — русский бейдж, не сырой enum', () => {
       renderWithProviders(
-        <RequirementPickerModal
-          title="Выбор требований"
+        <Harness
           requirements={[
             makeReq({ slug: 'f1', name: 'Оплата', type: 'FUNCTION', criticality: 'CRITICAL' }),
           ]}
-          onClose={vi.fn()}
-          onConfirm={vi.fn()}
         />,
       );
       const row = screen.getByTestId('export-item-f1');
@@ -376,14 +355,7 @@ describe('RequirementPickerModal', () => {
         name: 'Оплата картой',
         links: [{ type: 'CHILD_OF', targetSlug: 'p1' }],
       });
-      renderWithProviders(
-        <RequirementPickerModal
-          title="Выбор требований"
-          requirements={[parent, child]}
-          onClose={vi.fn()}
-          onConfirm={vi.fn()}
-        />,
-      );
+      renderWithProviders(<Harness requirements={[parent, child]} />);
       expect(screen.getByTestId('export-item-p1')).toHaveTextContent('▾');
       expect(screen.getByTestId('export-item-c1')).toHaveTextContent('•');
     });
@@ -397,14 +369,7 @@ describe('RequirementPickerModal', () => {
         targetQuarter: 'Q3',
         targetYear: 2026,
       });
-      renderWithProviders(
-        <RequirementPickerModal
-          title="Выбор требований"
-          requirements={[...requirements, nfr]}
-          onClose={vi.fn()}
-          onConfirm={vi.fn()}
-        />,
-      );
+      renderWithProviders(<Harness requirements={[...requirements, nfr]} />);
       expect(screen.getByText(/Нефункциональные требования \(1\)/)).toBeInTheDocument();
       expect(screen.getByTestId('export-item-n1')).toHaveTextContent('Q3 2026');
     });
@@ -413,15 +378,12 @@ describe('RequirementPickerModal', () => {
   it('keeps existing criticality and select-all behaviour working', async () => {
     const user = userEvent.setup();
     renderWithProviders(
-      <RequirementPickerModal
-        title="Выбор требований"
+      <Harness
         requirements={[
           makeReq({ slug: 'f1', name: 'Оплата', type: 'FUNCTION', criticality: 'CRITICAL' }),
           makeReq({ slug: 'f2', name: 'Возвраты', type: 'FUNCTION', criticality: 'LOW' }),
         ]}
         initialSelected={new Set()}
-        onClose={vi.fn()}
-        onConfirm={vi.fn()}
       />,
     );
 

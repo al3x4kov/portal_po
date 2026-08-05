@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import type { PriorityColor, SourcePriority, SourceRef, SourceType } from '@po/core';
 import {
@@ -13,7 +13,6 @@ import {
   useUpdateSource,
 } from '../api/hooks';
 import { errorMessage } from '../api/client';
-import { useUiStore } from '../store/ui';
 import { Sidebar } from '../components/Sidebar';
 import { PathHeader } from '../components/PathHeader';
 import { PriorityBadge } from '../components/PriorityBadge';
@@ -461,17 +460,17 @@ function SourcesCard({ projectId }: { projectId: string }): React.ReactElement {
 
 export function Dictionaries(): React.ReactElement {
   const { id = '' } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const projectQuery = useProject(id);
   const dict = useDictionaries(id);
-  const openModal = useUiStore((s) => s.openModal);
 
   return (
     <>
       <Sidebar
         projectId={id}
         activePage="dictionaries"
-        onOpenExport={() => openModal({ kind: 'export' })}
-        onOpenTasks={() => openModal({ kind: 'export-tasks' })}
+        onOpenExport={() => navigate(`/p/${id}/export`)}
+        onOpenTasks={() => navigate(`/p/${id}/generate`)}
       />
       <div
         className="flex min-h-screen flex-col"

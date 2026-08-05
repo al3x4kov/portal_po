@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Check, Eye, EyeOff, Trash2, TriangleAlert } from 'lucide-react';
 import { AI_DEFAULT_BASE_URL, type AiConfigUpdate } from '@po/core';
 import {
@@ -25,8 +25,6 @@ import { PathHeader } from '../components/PathHeader';
 import { useUiStore } from '../store/ui';
 import { RequirementModal } from '../components/RequirementModal';
 import { AiModelPresetForm } from '../components/AiModelPresetForm';
-import { ExportModal } from '../components/ExportModal';
-import { ExportTasksModal } from '../components/ExportTasksModal';
 
 type Status = { kind: 'success'; text: string } | { kind: 'error'; text: string } | null;
 
@@ -60,6 +58,7 @@ function StepNum({ n }: { n: number }): React.ReactElement {
  */
 export function AiPage(): React.ReactElement {
   const { id = '' } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const projectQuery = useProject(id);
   const reqQuery = useRequirements(id);
   const configQuery = useAiConfig(id);
@@ -194,7 +193,6 @@ export function AiPage(): React.ReactElement {
   };
 
   const modal = useUiStore((s) => s.modal);
-  const openModal = useUiStore((s) => s.openModal);
   const closeModal = useUiStore((s) => s.closeModal);
   const requirements = reqQuery.data?.requirements ?? [];
   const nameBySlug = useMemo(() => {
@@ -208,8 +206,8 @@ export function AiPage(): React.ReactElement {
       <Sidebar
         projectId={id}
         activePage="ai"
-        onOpenExport={() => openModal({ kind: 'export' })}
-        onOpenTasks={() => openModal({ kind: 'export-tasks' })}
+        onOpenExport={() => navigate(`/p/${id}/export`)}
+        onOpenTasks={() => navigate(`/p/${id}/generate`)}
       />
       <div
         className="flex min-h-screen flex-col"
@@ -538,14 +536,6 @@ export function AiPage(): React.ReactElement {
             focusField={modal.focusField}
             onClose={closeModal}
           />
-        ) : null}
-
-        {modal?.kind === 'export' ? (
-          <ExportModal projectId={id} requirements={requirements} onClose={closeModal} />
-        ) : null}
-
-        {modal?.kind === 'export-tasks' ? (
-          <ExportTasksModal projectId={id} requirements={requirements} onClose={closeModal} />
         ) : null}
       </div>
     </>

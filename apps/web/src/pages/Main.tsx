@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { TriangleAlert } from 'lucide-react';
 import {
   countAiPendingReview,
@@ -30,14 +30,13 @@ import { DescPanel } from '../components/DescPanel';
 import { RequirementModal } from '../components/RequirementModal';
 import { LinkModal } from '../components/LinkModal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { ExportModal } from '../components/ExportModal';
-import { ExportTasksModal } from '../components/ExportTasksModal';
 import { GraphView } from '../components/GraphView/GraphView';
 import { AiImportModal } from '../components/AiImportModal';
 import { AiBacklogImportModal } from '../components/AiBacklogImportModal';
 
 export function Main(): React.ReactElement {
   const { id = '' } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const projectQuery = useProject(id);
   const reqQuery = useRequirements(id);
   const modal = useUiStore((s) => s.modal);
@@ -216,8 +215,8 @@ export function Main(): React.ReactElement {
       <Sidebar
         projectId={id}
         activePage="requirements"
-        onOpenExport={() => openModal({ kind: 'export' })}
-        onOpenTasks={() => openModal({ kind: 'export-tasks' })}
+        onOpenExport={() => navigate(`/p/${id}/export`)}
+        onOpenTasks={() => navigate(`/p/${id}/generate`)}
       />
       <div
         className="flex min-h-screen flex-col"
@@ -682,14 +681,6 @@ export function Main(): React.ReactElement {
               );
             })()
           : null}
-
-        {modal?.kind === 'export' ? (
-          <ExportModal projectId={id} requirements={requirements} onClose={closeModal} />
-        ) : null}
-
-        {modal?.kind === 'export-tasks' ? (
-          <ExportTasksModal projectId={id} requirements={requirements} onClose={closeModal} />
-        ) : null}
 
         {aiImportOpen ? (
           <AiImportModal projectId={id} onClose={() => setAiImportOpen(false)} />

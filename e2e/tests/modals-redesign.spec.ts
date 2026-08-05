@@ -15,8 +15,8 @@ import { addSourceCard, openPriorityTab, saveRequirementModal } from './helpers/
  * T4 (todo_17) · Редизайн модалок по new_design/screens/*:
  *   RequirementModal — постоянная зона «Основное» + табы, сохранение без confirm;
  *   LinkModal — радио-карточки типов, chip цели, «первые 25 из N»;
- *   RequirementPickerModal — «Выбрать все»/«Снять выделение», счётчик;
- *   ExportTasksModal — «Генерация артефактов», шаги 1→2→3, «Назад» на предыдущий шаг;
+ *   RequirementPicker — «Выбрать все»/«Снять выделение», счётчик;
+ *   GeneratePage — «Генерация артефактов», шаги 1→2→3, «Назад» на предыдущий шаг;
  *   ConfirmDialog — уровни трения (0 — toast, 1 — confirm), тексты среднего рода.
  *
  * Изоляция — как в остальном сьюте: свежий проект + уникальные имена на тест.
@@ -301,7 +301,7 @@ test.describe('T4 · LinkModal (link-modal.html)', () => {
   });
 });
 
-test.describe('T4 · RequirementPickerModal (picker-modal.html)', () => {
+test.describe('T4 · RequirementPicker (picker-modal.html)', () => {
   test('«Снять выделение», «Выбрать все» и счётчик «Выбрано N (из них видно M)» при фильтре', async ({
     page,
   }) => {
@@ -316,6 +316,7 @@ test.describe('T4 · RequirementPickerModal (picker-modal.html)', () => {
     // Пикер открывается из «Генерации артефактов» → направление tracker.
     await page.getByTestId('sidebar-open-tasks').click();
     await page.getByTestId('export-tasks-dir-tracker').click();
+    await page.getByTestId('gen-direction-next').click();
     const picker = page.getByTestId('tracker-select-modal');
     await expect(picker).toBeVisible();
 
@@ -344,11 +345,11 @@ test.describe('T4 · RequirementPickerModal (picker-modal.html)', () => {
     await expect(counter).not.toContainText('из них видно');
     await page.getByTestId('export-toggle-all').click();
     await expect(counter).toContainText('Выбрано 3');
-    await expect(page.getByTestId('export-next')).toContainText('(3)');
+    await expect(page.getByTestId('gen-select-confirm')).toContainText('(3)');
   });
 });
 
-test.describe('T4 · ExportTasksModal «Генерация артефактов» (export-tasks-modal.html)', () => {
+test.describe('T4 · GeneratePage «Генерация артефактов» (flow-g*.html)', () => {
   test('шаги 1→2→3, «Назад» из preview на ПРЕДЫДУЩИЙ шаг, имя файла в preview', async ({
     page,
   }) => {
@@ -364,26 +365,30 @@ test.describe('T4 · ExportTasksModal «Генерация артефактов�
     });
 
     await page.getByTestId('sidebar-open-tasks').click();
-    const modal = page.getByTestId('export-tasks-modal');
-    await expect(modal).toBeVisible();
-    await expect(modal.locator('h2')).toContainText('Генерация артефактов');
+    const screen = page.getByTestId('export-tasks-modal');
+    await expect(screen).toBeVisible();
+    await expect(page.getByTestId('workspace-title')).toContainText('Генерация артефактов');
 
     // Шаг 1 активен, остальные — todo.
     await expect(page.getByTestId('gen-step-1')).toHaveAttribute('data-state', 'active');
     await expect(page.getByTestId('gen-step-2')).toHaveAttribute('data-state', 'todo');
     await expect(page.getByTestId('gen-step-3')).toHaveAttribute('data-state', 'todo');
 
-    // Направление crit-regression → способ «Шаблон» → шаг 2 (вопрос о нереализованных ФТ).
+    // Направление crit-regression → шаг 2 «Способ и параметры» (шаблон + чекбоксы).
     await page.getByTestId('export-tasks-dir-crit-regression').click();
-    await page.getByTestId('export-mode-template').click();
-    await expect(page.getByTestId('unimpl-question')).toBeVisible();
+    await page.getByTestId('gen-direction-next').click();
+    await expect(page.getByTestId('gen-mode')).toBeVisible();
     await expect(page.getByTestId('gen-step-1')).toHaveAttribute('data-state', 'done');
     await expect(page.getByTestId('gen-step-2')).toHaveAttribute('data-state', 'active');
     await expect(page.getByTestId('gen-step-3')).toHaveAttribute('data-state', 'todo');
 
-    // Ответ «Да» → шаг 3 (preview) с именем файла и кнопкой «Скачать .md».
-    await page.getByTestId('unimpl-include-yes').click();
-    await expect(page.getByTestId('export-tasks-preview')).toBeVisible();
+    // Вопрос о нереализованных ФТ стал чекбоксом на этом же шаге (макет Г4).
+    await expect(page.getByTestId('gen-include-unimpl')).toBeChecked();
+
+    // «Шаблон» → шаг 3 (результат) с именем файла и кнопкой «Скачать .md».
+    await page.getByTestId('export-mode-template').click();
+    await page.getByTestId('gen-template-start').click();
+    await expect(page.getByTestId('gen-cases')).toBeVisible();
     await expect(page.getByTestId('gen-step-1')).toHaveAttribute('data-state', 'done');
     await expect(page.getByTestId('gen-step-2')).toHaveAttribute('data-state', 'done');
     await expect(page.getByTestId('gen-step-3')).toHaveAttribute('data-state', 'active');
@@ -392,14 +397,12 @@ test.describe('T4 · ExportTasksModal «Генерация артефактов�
     );
     await expect(page.getByTestId('export-tasks-download')).toContainText('Скачать .md');
 
-    // «Назад» из preview → на ПРЕДЫДУЩИЙ шаг (вопрос), а не на выбор направления.
+    // «Изменить параметры» → на ПРЕДЫДУЩИЙ шаг (способ), а не на выбор направления.
     await page.getByTestId('gen-back-2').click();
-    await expect(page.getByTestId('unimpl-question')).toBeVisible();
+    await expect(page.getByTestId('gen-mode')).toBeVisible();
     await expect(page.getByTestId('gen-step-2')).toHaveAttribute('data-state', 'active');
 
-    // «Назад» с шага 2: сперва на развилку «Способ», затем на выбор направления.
-    await page.getByTestId('gen-back-1').click();
-    await expect(page.getByTestId('gen-mode')).toBeVisible();
+    // «Назад» с шага 2 — на выбор направления.
     await page.getByTestId('gen-back-1').click();
     await expect(page.getByTestId('gen-step-1')).toHaveAttribute('data-state', 'active');
     await expect(page.getByTestId('export-tasks-dir-tracker')).toBeVisible();
@@ -411,16 +414,17 @@ test.describe('T4 · ExportTasksModal «Генерация артефактов�
 
     await page.getByTestId('sidebar-open-tasks').click();
     await page.getByTestId('export-tasks-dir-tracker').click();
+    await page.getByTestId('gen-direction-next').click();
     await expect(page.getByTestId('tracker-select-modal')).toBeVisible();
 
-    // Подтверждаем выбор → preview с именем файла tracker-*.md.
-    await page.getByTestId('export-next').click();
-    await expect(page.getByTestId('export-tasks-preview')).toBeVisible();
+    // Подтверждаем выбор → результат с именем файла tasks-*.md.
+    await page.getByTestId('gen-select-confirm').click();
+    await expect(page.getByTestId('gen-cases')).toBeVisible();
     await expect(page.getByTestId('export-tasks-filename')).toHaveText(
-      /^tracker-\d{4}-\d{2}-\d{2}\.md$/,
+      /^tasks-\d{4}-\d{2}-\d{2}\.md$/,
     );
 
-    // «Назад» из preview → предыдущий шаг: снова пикер, а не выбор направления.
+    // «Изменить выбор» из результата → предыдущий шаг: снова пикер.
     await page.getByTestId('gen-back-2').click();
     await expect(page.getByTestId('tracker-select-modal')).toBeVisible();
   });

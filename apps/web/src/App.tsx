@@ -12,6 +12,8 @@ import { Main } from './pages/Main';
 import { Dashboard } from './pages/Dashboard';
 import { Dictionaries } from './pages/Dictionaries';
 import { AiPage } from './pages/AiPage';
+import { ExportPage } from './pages/ExportPage';
+import { GeneratePage } from './pages/GeneratePage';
 
 export function createQueryClient(): QueryClient {
   return new QueryClient({
@@ -41,6 +43,9 @@ export function AppRoutes(): React.ReactElement {
       <Route path="/p/:id/dashboard" element={<Dashboard />} />
       <Route path="/p/:id/dictionaries" element={<Dictionaries />} />
       <Route path="/p/:id/ai" element={<AiPage />} />
+      {/* Экспорт и генерация — полноэкранные режимы, а не модалки (макеты flow-*). */}
+      <Route path="/p/:id/export" element={<ExportPage />} />
+      <Route path="/p/:id/generate" element={<GeneratePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

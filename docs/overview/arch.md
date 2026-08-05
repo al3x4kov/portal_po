@@ -73,8 +73,11 @@ project_po/
 │  │  └─ test/                 # unit + integration (temp dir)
 │  └─ web/                     # React SPA
 │     ├─ src/
-│     │  ├─ pages/             # Start, NewProject, Import, OpenExisting, Main
-│     │  ├─ components/        # Tree, RequirementModal, LinkModal, Confirm…
+│     │  ├─ pages/             # Start, NewProject, Import, OpenExisting, Main,
+│     │  │                     # Dashboard, Dictionaries, AiPage, ExportPage, GeneratePage
+│     │  ├─ components/        # Tree, RequirementModal, LinkModal, Confirm,
+│     │  │                     # WorkspaceScreen (каркас полноэкранных режимов),
+│     │  │                     # RequirementPicker (дерево с выбором ветками)
 │     │  ├─ api/               # типизированный клиент к серверу
 │     │  ├─ store/             # Zustand (UI), React Query (server state)
 │     │  └─ main.tsx

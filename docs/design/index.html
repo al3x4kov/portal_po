@@ -42,6 +42,22 @@ const screens = [
   ['screens/main-v3-link-delete.html','Удаление связи','T3 · корзина + инлайн-подтверждение'],
   ['screens/main-v3-nfr-from-ft.html','+ НФТ из строки ФТ','T4 · модалка НФТ с предустановленной связью BLOCKED_BY'],
   ['screens/main-v3-excel.html','Экспорт Excel «как в UI»','T5 · один лист, иерархия отступами, связи словами'],
+  ['screens/flow-e1-export-default.html','Экспорт · базовый путь','Э1 · дерево с выбором ветками + живой состав'],
+  ['screens/flow-e2-export-empty.html','Экспорт · пустой выбор','Э2 · негатив: кнопка заблокирована, подсказка'],
+  ['screens/flow-e3-export-xlsx.html','Экспорт · формат .xlsx','Э3 · развилка формата + предупреждение об ограничениях'],
+  ['screens/flow-e4-export-error.html','Экспорт · ошибка сервера','Э4 · негатив: выбор сохранён, повтор в один клик'],
+  ['screens/flow-g1-direction.html','Генерация · направление','Г1 · охват моделей + «Что вы получите»'],
+  ['screens/flow-g2-tasktracker-pick.html','Генерация · ветка TaskTracker','Г2 · ручной выбор требований'],
+  ['screens/flow-g3-mode-template.html','Генерация · способ «Шаблон»','Г3 · параметры шаблона, без AI'],
+  ['screens/flow-g4-mode-ai.html','Генерация · способ «AI»','Г4 · модель, чекбоксы, мини-смета'],
+  ['screens/flow-g5-ai-not-configured.html','Генерация · AI не настроен','Г5 · негатив: переход в настройку, путь через шаблон'],
+  ['screens/flow-g6-running.html','Генерация · прогон','Г6 · прогресс, живой журнал, «Остановить»'],
+  ['screens/flow-g7-stopped.html','Генерация · остановлено','Г7 · негатив: продолжить / достроить / частичный .md'],
+  ['screens/flow-g8-batch-error.html','Генерация · ошибка батча','Г8 · негатив: повтор упавшего батча, fallback'],
+  ['screens/flow-g9-ai-result.html','Генерация · результат AI','Г9 · карточки, счётчики проверки, журнал'],
+  ['screens/flow-g10-template-result.html','Генерация · результат по шаблону','Г10 · детерминированная сборка'],
+  ['screens/flow-g11-close-confirm.html','Генерация · прерывание','Г11 · подтверждение ухода во время прогона'],
+  ['screens/flow-g12-empty-coverage.html','Генерация · нулевой охват','Г12 · негатив: «Далее» заблокировано, что делать'],
 ];
 document.getElementById('grid').innerHTML = screens.map(([href,title,desc])=>`
   <a href="${href}" class="card overflow-hidden hover:shadow-md transition block">

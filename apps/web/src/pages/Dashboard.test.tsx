@@ -34,6 +34,9 @@ function renderDashboard(): void {
   renderWithProviders(
     <Routes>
       <Route path="/p/:id/dashboard" element={<Dashboard />} />
+      {/* Экспорт и генерация — отдельные полноэкранные маршруты. */}
+      <Route path="/p/:id/export" element={<div data-testid="export-screen" />} />
+      <Route path="/p/:id/generate" element={<div data-testid="generate-screen" />} />
     </Routes>,
     { route: '/p/proj-1/dashboard' },
   );
@@ -418,20 +421,20 @@ describe('Dashboard (T-513 / T-514)', () => {
       });
     });
 
-    it('sidebar «Экспорт проекта» opens the export modal (onOpenExport)', async () => {
+    it('sidebar «Экспорт проекта» ведёт на полноэкранный экспорт (onOpenExport)', async () => {
       listRequirements.mockResolvedValue({ requirements: [ftRoot2], broken: [] });
       renderDashboard();
 
       fireEvent.click(await screen.findByTestId('sidebar-open-export'));
-      expect(useUiStore.getState().modal).toEqual({ kind: 'export' });
+      expect(await screen.findByTestId('export-screen')).toBeInTheDocument();
     });
 
-    it('sidebar «Генерация задач» opens the export-tasks modal (onOpenTasks)', async () => {
+    it('sidebar «Генерация задач» ведёт на полноэкранный мастер (onOpenTasks)', async () => {
       listRequirements.mockResolvedValue({ requirements: [ftRoot2], broken: [] });
       renderDashboard();
 
       fireEvent.click(await screen.findByTestId('sidebar-open-tasks'));
-      expect(useUiStore.getState().modal).toEqual({ kind: 'export-tasks' });
+      expect(await screen.findByTestId('generate-screen')).toBeInTheDocument();
     });
 
     it('«ФТ без НФТ» list beyond the limit toggles show-all (setShowAllFnWithoutNfr)', async () => {

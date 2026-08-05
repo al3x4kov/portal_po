@@ -218,19 +218,20 @@ test('FR-22: Фильтры в TrackerSelectModal (Выбор ФТ/НФТ для
   await addRequirement(page, { kind: 'function', name: req1, criticality: 'HIGH' });
   await addRequirement(page, { kind: 'function', name: req2, criticality: 'LOW' });
 
-  // Open ExportTasksModal via sidebar
+  // Открыть полноэкранный мастер генерации через сайдбар
   await page.getByTestId('sidebar-open-tasks').click();
   await expect(page.getByTestId('export-tasks-modal')).toBeVisible();
 
   // Filter zone must NOT be visible on the choose step
   await expect(page.getByTestId('tasks-filter-zone')).not.toBeVisible();
 
-  // Navigate into the tracker direction → opens TrackerSelectModal
+  // Направление tracker → шаг выбора требований
   await page.getByTestId('export-tasks-dir-tracker').click();
+  await page.getByTestId('gen-direction-next').click();
   const selectModal = page.getByTestId('tracker-select-modal');
   await expect(selectModal).toBeVisible();
 
-  // FR-22: filter zone is present inside TrackerSelectModal (shared RequirementPickerModal)
+  // FR-22: filter zone is present in the tracker picker (shared RequirementPicker)
   await expect(selectModal.getByTestId('export-filter-zone')).toBeVisible();
 
   // Criticality chips present

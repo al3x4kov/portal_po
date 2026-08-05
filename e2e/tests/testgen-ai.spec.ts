@@ -72,11 +72,14 @@ test('шаблонный путь через шаг «Способ»: прежн
 
   await page.getByTestId('sidebar-open-tasks').click();
   await page.getByTestId('export-tasks-dir-smoke').click();
+  await page.getByTestId('gen-direction-next').click();
   // Развилка: оба способа на экране.
   await expect(page.getByTestId('export-mode-template')).toBeVisible();
   await expect(page.getByTestId('export-mode-ai')).toBeVisible();
   await page.getByTestId('export-mode-template').click();
+  await page.getByTestId('gen-template-start').click();
 
+  await page.getByTestId('gen-view-markdown').click();
   const preview = page.getByTestId('export-tasks-preview');
   await expect(preview).toBeVisible();
   await expect(preview).toContainText('# Smoke-модель тестирования');
@@ -90,14 +93,18 @@ test('AI-путь: модель проекта, журнал прогона, к�
 
   await page.getByTestId('sidebar-open-tasks').click();
   await page.getByTestId('export-tasks-dir-smoke').click();
+  await page.getByTestId('gen-direction-next').click();
   await page.getByTestId('export-mode-ai').click();
 
-  // Экран AI: модель проекта подставлена, чекбокс негативов (смок) есть.
+  // Шаг «Способ и параметры»: модель проекта подставлена, чекбокс негативов есть.
   await expect(page.getByTestId('gen-ai-model-select')).toHaveValue('GigaChat-2-Pro');
   await expect(page.getByTestId('gen-ai-negatives')).toBeVisible();
   await page.getByTestId('gen-ai-start').click();
 
-  // Предпросмотр: кейсы модели с пометкой source: ai и честной шапкой.
+  // Результат: кейсы модели с бейджем AI, сырой md — с пометкой source: ai.
+  await expect(page.getByTestId('gen-cases')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('gen-badge-ai')).toContainText('AI-кейсов: 2');
+  await page.getByTestId('gen-view-markdown').click();
   const preview = page.getByTestId('export-tasks-preview');
   await expect(preview).toBeVisible({ timeout: 15_000 });
   await expect(preview).toContainText('Сгенерировано AI (модель: GigaChat-2-Pro)');
@@ -105,8 +112,7 @@ test('AI-путь: модель проекта, журнал прогона, к�
   await expect(preview).toContainText('source: ai');
   await expect(preview).toContainText('Кейсов от модели: 2, достроено шаблоном: 0');
 
-  // Журнал прогона сохранён за «Назад» — виден итог и батч.
-  await page.getByTestId('gen-back-2').click();
+  // Журнал прогона виден рядом с результатом — не нужно уходить «Назад».
   const log = page.getByTestId('gen-ai-log');
   await expect(log).toBeVisible();
   await expect(log).toContainText('Батч 1/1');
@@ -136,9 +142,12 @@ test('анти-галлюцинации: чужой slug отброшен, пр�
 
     await page.getByTestId('sidebar-open-tasks').click();
     await page.getByTestId('export-tasks-dir-smoke').click();
+    await page.getByTestId('gen-direction-next').click();
     await page.getByTestId('export-mode-ai').click();
     await page.getByTestId('gen-ai-start').click();
 
+    await expect(page.getByTestId('gen-cases')).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId('gen-view-markdown').click();
     const preview = page.getByTestId('export-tasks-preview');
     await expect(preview).toBeVisible({ timeout: 15_000 });
     // Кейс f1 — от модели; f2 — шаблонный fallback; галлюцинация не попала в файл.
@@ -149,7 +158,6 @@ test('анти-галлюцинации: чужой slug отброшен, пр�
     await expect(preview).toContainText('достроено шаблоном: 1');
 
     // Журнал: warn о галлюцинации и пропуске с именем требования.
-    await page.getByTestId('gen-back-2').click();
     const log = page.getByTestId('gen-ai-log');
     await expect(log).toContainText('отброшено галлюцинаций: 1');
     await expect(log).toContainText('без кейса (достроим шаблоном)');
