@@ -410,8 +410,11 @@ describe('buildTree: логическое дерево «навык AI PO» — 
 
   it('тест-генерация: контракт запроса/ответа и константы', () => {
     expect(TEST_MODEL_KINDS).toEqual(['smoke', 'crit-regression', 'full']);
-    expect(AI_TESTGEN_BATCH).toBe(10);
+    // Батч уменьшен с 10 до 6: на десяти требованиях ответ не помещался в
+    // бюджет модели и обрывался на середине JSON (падал первый же батч).
+    expect(AI_TESTGEN_BATCH).toBe(6);
     expect(AI_TESTGEN_MAX_SLUGS).toBe(30);
+    expect(AI_TESTGEN_BATCH).toBeLessThanOrEqual(AI_TESTGEN_MAX_SLUGS);
     const req = aiGenerateTestsRequestSchema.parse({
       projectId: 'Demo',
       kind: 'smoke',
