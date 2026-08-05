@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>Макет Ф2 · Генерация артефактов — полноэкранный мастер, шаг «Направление»</title>
+    <link rel="stylesheet" href="../tokens.css" />
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+      body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--color-bg); height: 1000px; width: 1600px; overflow: hidden; color: var(--color-text); display: flex; flex-direction: column; }
+      .apphead { display: flex; align-items: center; gap: 16px; padding: 0 24px; height: 58px; background: var(--color-surface); border-bottom: 1px solid var(--color-border); flex: none; }
+      .back { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--color-text-2); }
+      .htitle h1 { font-size: 17px; font-weight: 600; line-height: 1.2; }
+      .hpath { font-family: ui-monospace, monospace; font-size: 11px; color: var(--color-text-3); }
+      .main { flex: 1; display: flex; min-height: 0; }
+      .rail { width: 260px; flex: none; border-right: 1px solid var(--color-border); background: var(--color-surface); padding: 26px 20px; }
+      .step { display: flex; gap: 12px; margin-bottom: 26px; font-size: 14px; color: var(--color-text-3); }
+      .dot { width: 26px; height: 26px; border-radius: 50%; background: var(--color-surface-2); display: grid; place-items: center; font-size: 12.5px; font-weight: 700; flex: none; }
+      .step.active { color: var(--color-text); font-weight: 600; }
+      .step.active .dot { background: var(--color-primary); color: #fff; }
+      .sub { font-size: 11.5px; color: var(--color-text-3); font-weight: 400; margin-top: 2px; }
+      .content { flex: 1; display: flex; min-width: 0; }
+      .cards { flex: 1.25; padding: 26px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-content: start; }
+      .card { border: 1px solid var(--color-border); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 10px; background: var(--color-surface); min-height: 160px; }
+      .card.sel { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); background: var(--color-primary-soft); }
+      .card h3 { font-size: 15.5px; display: flex; gap: 9px; align-items: center; }
+      .icn { width: 22px; height: 22px; border-radius: 6px; display: inline-block; }
+      .card p { font-size: 13px; color: var(--color-text-3); line-height: 1.5; }
+      .cov { margin-top: auto; font-size: 12px; font-weight: 700; color: var(--color-primary); background: #fff; border: 1px solid var(--color-border); border-radius: 999px; padding: 5px 12px; width: max-content; }
+      .aside { width: 480px; flex: none; border-left: 1px solid var(--color-border); background: var(--color-surface); padding: 26px; overflow: auto; }
+      .aside h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-3); margin-bottom: 10px; }
+      .rules { font-size: 13px; color: var(--color-text-2); line-height: 1.6; margin-bottom: 16px; }
+      pre { background: #0f172a; color: #cbd5e1; border-radius: 10px; padding: 16px; font-size: 11.5px; line-height: 1.55; overflow: hidden; }
+      pre .k { color: #7dd3fc; }
+      pre .h { color: #fbbf24; }
+      .foot { display: flex; justify-content: space-between; padding: 14px 24px; border-top: 1px solid var(--color-border); background: var(--color-surface); flex: none; }
+      .btn { border-radius: 8px; padding: 10px 18px; font-size: 13.5px; font-weight: 600; border: 1px solid var(--color-border); background: var(--color-surface); }
+      .btn.primary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+      .note { position: absolute; background: #fff8dc; border: 1px solid #eab308; color: #713f12; border-radius: 10px; padding: 8px 12px; font-size: 12.5px; max-width: 310px; box-shadow: 0 6px 18px #0f172a33; z-index: 5; }
+      .note b { color: #854d0e; }
+    </style>
+  </head>
+  <body>
+    <div class="apphead">
+      <span class="back">← Требования</span>
+      <span class="htitle">
+        <h1>Генерация артефактов · Twitter</h1>
+        <div class="hpath">/Users/po/Projects/Twitter</div>
+      </span>
+    </div>
+    <div class="main">
+      <div class="rail">
+        <div class="step active"><span class="dot">1</span><span>Направление<div class="sub">что генерируем</div></span></div>
+        <div class="step"><span class="dot">2</span><span>Способ и параметры<div class="sub">шаблон или AI</div></span></div>
+        <div class="step"><span class="dot">3</span><span>Результат<div class="sub">предпросмотр + журнал</div></span></div>
+      </div>
+      <div class="content">
+        <div class="cards">
+          <div class="card"><h3><span class="icn" style="background: var(--color-primary)"></span>Задачи в TaskTracker</h3><p>Выбранные требования как задачи в OpenSpec Markdown — для трекера или ИИ-агента.</p><span class="cov">выбор требований вручную</span></div>
+          <div class="card sel"><h3><span class="icn" style="background: var(--crit-high)"></span>Smoke-модель</h3><p>Быстрые проверки «функция жива»: ключевые и нереализованные функции, ≤ 2 минут на кейс.</p><span class="cov">охват: 26 из 34 ФТ</span></div>
+          <div class="card"><h3><span class="icn" style="background: var(--crit-critical)"></span>Критический регресс</h3><p>Блокер/критические и «широкие» ветки, позитив + обязательный негатив.</p><span class="cov">охват: 9 из 34 ФТ</span></div>
+          <div class="card"><h3><span class="icn" style="background: var(--color-accent)"></span>Полный регресс</h3><p>Все функции в порядке обхода дерева, сценарии P/N/B.</p><span class="cov">охват: 34 из 34 ФТ</span></div>
+        </div>
+        <div class="aside">
+          <h4>Что вы получите · Smoke-модель</h4>
+          <div class="rules">Правила отбора: критичность Блокер/Критическая/Высокая, корни дерева и нереализованные ФТ. Порядок — по критичности, корни раньше детей.</div>
+          <pre>---
+<span class="k">model:</span> smoke
+<span class="k">req-slug:</span> algoritmicheskaya-lenta
+<span class="k">tc-id:</span> SMK-001
+<span class="k">priority:</span> 1
+---
+<span class="h">### SMK-001 · Алгоритмическая лента</span>
+**Цель:** функция доступна и базово работает…
+**Шаги:** 1. Открыть раздел… 2. Убедиться…
+**Время выполнения:** ≤ 2 мин.</pre>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span class="btn">Закрыть</span><span class="btn primary">Далее: способ и параметры →</span></div>
+
+    <div class="note" style="top: 455px; left: 430px"><b>④</b> Мастер — полноэкранная страница с той же шапкой, что и дерево ФТ/НФТ. Слева вертикальный степпер: всегда видно, где вы и что дальше.</div>
+    <div class="note" style="top: 620px; left: 430px"><b>⑤</b> Просторные карточки направлений 2×2 с <b>живым бейджем охвата</b> («26 из 34 ФТ») — масштаб модели виден ДО генерации.</div>
+    <div class="note" style="top: 455px; right: 520px"><b>⑥</b> Панель «Что вы получите»: правила отбора и превью структуры файла для выделенной карточки — без сюрпризов на шаге 3.</div>
+  </body>
+</html>
