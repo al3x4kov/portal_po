@@ -317,7 +317,10 @@ function Row({
           : undefined
       }
     >
-      <td className="py-2.5 pr-3 align-middle">
+      {/* pl-4 — тот же отступ, что у заголовка «Требование» (th px-4). Без него
+          корневой узел (нулевой отступ дерева) вставал вплотную к краю карточки
+          и не совпадал с собственной шапкой колонки. */}
+      <td className="py-2.5 pr-3 pl-4 align-middle">
         <div className="flex min-w-0 items-center gap-1.5">
           {/* Ручка перемещения: встаёт ПЕРЕД отступом дерева, не отнимая колонку. */}
           {structureMode ? (
