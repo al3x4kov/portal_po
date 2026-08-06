@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { collectDescendants, parentSlugOf, type Requirement } from '@po/core';
 import { ApiError, errorMessage } from '../api/client';
 import { useMoveRequirement } from '../api/hooks';
@@ -103,6 +103,8 @@ export function useStructureMove(
     slug: string;
     parentSlug: string | null;
   } | null>(null);
+  /** Идёт ли запись прямо сейчас. Ref, а не состояние: проверка синхронная. */
+  const inFlight = useRef(false);
 
   const bySlug = useMemo(() => new Map(requirements.map((r) => [r.slug, r])), [requirements]);
   const selected = selectedSlug ? (bySlug.get(selectedSlug) ?? null) : null;
@@ -129,7 +131,17 @@ export function useStructureMove(
   );
 
   const perform = useCallback(
-    async (slug: string, parentSlug: string | null, expectedParentSlug: string | null) => {
+    async (
+      slug: string,
+      parentSlug: string | null,
+      expectedParentSlug: string | null,
+      opts: { undo?: boolean } = {},
+    ) => {
+      // Один переезд за раз. Второе нажатие, пришедшее раньше ответа сервера,
+      // считалось бы по устаревшему дереву и получало бы 409 на ровном месте —
+      // пользователь видел бы «строку уже перевесили» из-за собственной руки.
+      if (inFlight.current) return;
+      inFlight.current = true;
       const req = bySlug.get(slug);
       const fromName = nameOf(expectedParentSlug);
       const toName = nameOf(parentSlug);
@@ -138,7 +150,9 @@ export function useStructureMove(
       try {
         const result = await moveMut.mutateAsync({ slug, parentSlug, expectedParentSlug });
         if (!result.changed) return;
-        setLastMove({ slug, back: result.oldParentSlug });
+        // Отмена не перевзводит себя обратным ходом: иначе привычное «нажать
+        // Ctrl+Z ещё раз» возвращало бы строку на новое место (качели).
+        setLastMove(opts.undo ? null : { slug, back: result.oldParentSlug });
         setRetryTarget(null);
         setHistory((h) =>
           [{ time: timeLabel(), name: req?.name ?? slug, from: fromName, to: toName }, ...h].slice(
@@ -153,12 +167,20 @@ export function useStructureMove(
         setFailedSlug(slug);
         setRetryTarget({ slug, parentSlug });
         const conflict = err instanceof ApiError && err.code === 'STALE_PARENT';
+        // Сообщение сервера — техническое и английское, со слагами вместо имён.
+        // В интерфейсе рассказываем то же самое именами, которые видит человек.
+        const actualParent = conflict
+          ? ((err.details as { actualParentSlug?: string | null } | undefined)?.actualParentSlug ??
+            null)
+          : null;
         setError({
           message: conflict
-            ? `«${req?.name ?? slug}» уже перевесили, пока вы двигали строку: ${errorMessage(err)} Перемещение не сохранено.`
+            ? `«${req?.name ?? slug}» уже перевесили, пока вы двигали строку: теперь она в «${nameOf(actualParent)}». Перемещение не сохранено.`
             : `Перемещение не сохранено: ${errorMessage(err)}`,
           canRetry: true,
         });
+      } finally {
+        inFlight.current = false;
       }
     },
     [bySlug, moveMut, nameOf, toast],
@@ -232,7 +254,9 @@ export function useStructureMove(
   const undo = useCallback(() => {
     if (!lastMove) return;
     const current = bySlug.get(lastMove.slug);
-    void perform(lastMove.slug, lastMove.back, current ? (parentSlugOf(current) ?? null) : null);
+    void perform(lastMove.slug, lastMove.back, current ? (parentSlugOf(current) ?? null) : null, {
+      undo: true,
+    });
     setLastMove(null);
   }, [bySlug, lastMove, perform]);
 
@@ -240,7 +264,9 @@ export function useStructureMove(
   useEffect(() => {
     if (!active) return;
     const onKey = (e: KeyboardEvent): void => {
-      const target = e.target as HTMLElement | null;
+      // Цель события — сфокусированный элемент; при программной отправке в
+      // document это сам document, у которого нет closest.
+      const target = e.target instanceof Element ? (e.target as HTMLElement) : null;
       if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -260,6 +286,12 @@ export function useStructureMove(
         e.preventDefault();
         applyOp('down');
       } else if (e.key === 'Tab') {
+        // Tab работает как «вложить/поднять» ТОЛЬКО когда фокус в самом дереве
+        // (ручка ⠿ или другой элемент строки). Везде else — на кнопках панели,
+        // в тулбаре — это по-прежнему обычный переход по фокусу: иначе выбранная
+        // строка молча переезжает от нажатия навигационной клавиши, а уйти
+        // клавиатурой из режима становится невозможно.
+        if (!target?.closest('[data-testid^="tree-row-"]')) return;
         e.preventDefault();
         applyOp(e.shiftKey ? 'outdent' : 'indent');
       }

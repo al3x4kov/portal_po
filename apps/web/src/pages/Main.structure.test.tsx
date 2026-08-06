@@ -330,9 +330,12 @@ describe('Режим структуры · П3 клавиатура и стре�
     const user = userEvent.setup();
     renderMain();
     await enableStructureMode(user);
-    await user.click(within(screen.getByTestId('tree-row-infinite')).getByTestId('move-grip'));
+    const grip = within(screen.getByTestId('tree-row-infinite')).getByTestId('move-grip');
+    await user.click(grip);
 
-    fireEvent.keyDown(document, { key: 'Tab' });
+    // Событие приходит на сфокусированную ручку — так же, как в браузере: Tab
+    // работает как «вложить» только внутри дерева, а не на кнопках панели.
+    fireEvent.keyDown(grip, { key: 'Tab' });
 
     await waitFor(() =>
       expect(moveRequirement).toHaveBeenCalledWith('proj-1', 'infinite', {
@@ -346,9 +349,10 @@ describe('Режим структуры · П3 клавиатура и стре�
     const user = userEvent.setup();
     renderMain();
     await enableStructureMode(user);
-    await user.click(within(screen.getByTestId('tree-row-infinite')).getByTestId('move-grip'));
+    const grip = within(screen.getByTestId('tree-row-infinite')).getByTestId('move-grip');
+    await user.click(grip);
 
-    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    fireEvent.keyDown(grip, { key: 'Tab', shiftKey: true });
 
     await waitFor(() =>
       expect(moveRequirement).toHaveBeenCalledWith('proj-1', 'infinite', {

@@ -162,6 +162,11 @@ export function StructureBar({
               <span className="mono">{MOVE_OP_HOTKEY[o.op]}</span> недоступно: {o.disabledReason}
             </span>
           ))}
+          {/* Esc — единственный способ снять выбор, а с ним и перехват Tab
+              внутри дерева. Без подписи его не найти. */}
+          <span data-testid="structure-hotkey-esc">
+            <span className="mono">Esc</span> снять выбор строки
+          </span>
           <span>Порядок внутри родителя алфавитный — «вверх/вниз» переносит в соседний раздел</span>
         </div>
       ) : null}
