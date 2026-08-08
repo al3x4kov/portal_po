@@ -86,4 +86,20 @@ describe('T-901 buildChatMessages', () => {
     expect(msgs).toHaveLength(input.messages.length + 1);
     expect(msgs.slice(1)).toEqual(input.messages);
   });
+
+  it('projectContext уезжает в system-сообщение вместе с инструкцией (клиент system не шлёт)', () => {
+    const block = 'Требования проекта: всего 1 (ФТ 1, НФТ 0).\n- [ФТ] «Оплата картой»';
+    const msgs = buildChatMessages(input, block);
+    // Ровно одно system-сообщение — контекст не добавляет новых ролей.
+    expect(msgs.filter((m) => m.role === 'system')).toHaveLength(1);
+    const [system] = msgs;
+    expect(system.content).toContain('С УЧЁТОМ этих требований');
+    expect(system.content).toContain('ЧАСТИЧНЫЙ');
+    expect(system.content).toContain('«Оплата картой»');
+    // История клиента не тронута.
+    expect(msgs.slice(1)).toEqual(input.messages);
+    // Без контекста system остаётся байт-в-байт прежним.
+    expect(buildChatMessages(input)[0]).toEqual(buildChatMessages(input)[0]);
+    expect(buildChatMessages(input)[0].content).not.toContain('Оплата картой');
+  });
 });

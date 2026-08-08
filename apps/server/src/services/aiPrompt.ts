@@ -113,12 +113,31 @@ const CHAT_SYSTEM_PROMPT = [
 ].join('\n');
 
 /**
+ * Инструкция к контекстному блоку требований (переключатель «Учитывать
+ * требования проекта»). Блок может быть полным или частичным (большой проект)
+ * — модель предупреждена об обоих режимах и не должна выдумывать требования,
+ * не попавшие в частичную выборку.
+ */
+const CHAT_PROJECT_CONTEXT_INSTRUCTIONS = [
+  'Ниже — зафиксированные требования (ФТ/НФТ) текущего проекта.',
+  'Отвечай С УЧЁТОМ этих требований: ссылайся на них по именам в «кавычках».',
+  'Если блок помечен как ЧАСТИЧНЫЙ, в нём показаны только релевантные вопросу',
+  'требования с деталями и обзор дерева именами; про требования, видимые лишь',
+  'именем, не выдумывай деталей — предложи уточнить вопрос.',
+].join('\n');
+
+/**
  * Build the chat-completion messages for the widget: the server-side system
  * prompt followed by the client-provided history (already length-limited by
- * {@link AiChatRequest}'s schema).
+ * {@link AiChatRequest}'s schema). `projectContext` — готовый блок требований
+ * проекта (см. chatContext.ts); добавляется В SYSTEM-сообщение, чтобы клиент
+ * по-прежнему не мог прислать системную роль сам.
  */
-export function buildChatMessages(input: AiChatRequest): AiChatMessage[] {
-  return [{ role: 'system', content: CHAT_SYSTEM_PROMPT }, ...input.messages];
+export function buildChatMessages(input: AiChatRequest, projectContext?: string): AiChatMessage[] {
+  const system = projectContext
+    ? [CHAT_SYSTEM_PROMPT, CHAT_PROJECT_CONTEXT_INSTRUCTIONS, projectContext].join('\n\n')
+    : CHAT_SYSTEM_PROMPT;
+  return [{ role: 'system', content: system }, ...input.messages];
 }
 
 /*

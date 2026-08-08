@@ -239,6 +239,17 @@ describe('T-901 aiChatRequestSchema', () => {
     expect(aiChatRequestSchema.safeParse({ model: '', messages: [msg] }).success).toBe(false);
   });
 
+  it('useProjectContext: опционален (старые клиенты валидны), принимает только boolean', () => {
+    expect(aiChatRequestSchema.parse({ messages: [msg] }).useProjectContext).toBeUndefined();
+    expect(
+      aiChatRequestSchema.parse({ projectId: 'Demo', useProjectContext: true, messages: [msg] })
+        .useProjectContext,
+    ).toBe(true);
+    expect(
+      aiChatRequestSchema.safeParse({ useProjectContext: 'да', messages: [msg] }).success,
+    ).toBe(false);
+  });
+
   it('rejects an empty messages array', () => {
     expect(aiChatRequestSchema.safeParse({ messages: [] }).success).toBe(false);
   });

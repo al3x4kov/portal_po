@@ -22,6 +22,13 @@ interface ChatState {
   widgetPos: ChatPosition | null;
   /** Model chosen in the widget dropdown; overrides the project model (§6.3). */
   modelOverride: string | null;
+  /**
+   * Переключатель «Учитывать требования проекта»: диалог с моделью получает
+   * ФТ/НФТ текущего проекта (сервер укладывает их в бюджет — целиком для
+   * малых проектов, релевантной выборкой для 1000–2000 требований).
+   * Выключен по умолчанию; переживает сворачивание виджета, как и черновик.
+   */
+  projectContext: boolean;
   /** Full visible conversation (requests send only the trailing N). */
   messages: AiChatMessage[];
   /** Human-readable send error shown in the feed; history is kept. */
@@ -37,6 +44,7 @@ interface ChatState {
   newChat: () => void;
   appendMessage: (message: AiChatMessage) => void;
   setModelOverride: (model: string | null) => void;
+  setProjectContext: (on: boolean) => void;
   setFabPos: (pos: ChatPosition) => void;
   setWidgetPos: (pos: ChatPosition) => void;
   setError: (error: string | null) => void;
@@ -48,6 +56,7 @@ export const useChatStore = create<ChatState>((set) => ({
   fabPos: null,
   widgetPos: null,
   modelOverride: null,
+  projectContext: false,
   messages: [],
   error: null,
   draft: '',
@@ -57,6 +66,7 @@ export const useChatStore = create<ChatState>((set) => ({
   newChat: () => set({ messages: [], error: null }),
   appendMessage: (message) => set((s) => ({ messages: [...s.messages, message] })),
   setModelOverride: (modelOverride) => set({ modelOverride }),
+  setProjectContext: (projectContext) => set({ projectContext }),
   setFabPos: (fabPos) => set({ fabPos }),
   setWidgetPos: (widgetPos) => set({ widgetPos }),
   setError: (error) => set({ error }),

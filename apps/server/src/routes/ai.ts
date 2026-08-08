@@ -62,7 +62,14 @@ export async function aiRoutes(app: FastifyInstance, deps: AppDeps): Promise<voi
 
   app.post('/api/ai/chat', async (req): Promise<AiChatResponse> => {
     const input = parseInput(aiChatRequestSchema, req.body);
-    const content = await service.chat(input);
+    // Переключатель «Учитывать требования проекта»: ФТ/НФТ грузятся из
+    // проекта (источник истины) и уезжают в system-контекст под символьный
+    // бюджет — и для 10–15, и для 1000–2000 требований (см. chatContext.ts).
+    const projectRequirements =
+      input.useProjectContext && input.projectId
+        ? (await createRequirementService(ctx, input.projectId).list()).requirements
+        : undefined;
+    const content = await service.chat(input, projectRequirements);
     return { message: { role: 'assistant', content } };
   });
 

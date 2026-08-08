@@ -189,6 +189,59 @@ describe('T-802 AI routes (integration, mock client)', () => {
     );
   });
 
+  it('POST /api/ai/chat с useProjectContext=true подмешивает ФТ/НФТ проекта в system-подсказку', async () => {
+    const client = okClient();
+    await boot(client);
+    // Реальный проект с требованием — источник истины контекста.
+    await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Demo' } });
+    await app.inject({
+      method: 'POST',
+      url: '/api/projects/Demo/requirements',
+      payload: {
+        type: 'FUNCTION',
+        name: 'Оплата картой',
+        criticality: 'HIGH',
+        implemented: true,
+        description: 'Оплата банковской картой через шлюз.',
+      },
+    });
+    await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { apiKey: SECRET, projectId: 'Demo', model: 'GigaChat-2-Pro' },
+    });
+
+    const on = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: {
+        projectId: 'Demo',
+        useProjectContext: true,
+        messages: [{ role: 'user', content: 'Что у нас с оплатой?' }],
+      },
+    });
+    expect(on.statusCode).toBe(200);
+    const createMock = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    const onSystem = (
+      createMock.mock.calls.at(-1)![0] as { messages: Array<{ role: string; content: string }> }
+    ).messages[0]!;
+    expect(onSystem.role).toBe('system');
+    expect(onSystem.content).toContain('«Оплата картой»');
+    expect(onSystem.content).toContain('Оплата банковской картой через шлюз.');
+
+    // Без флага (старые клиенты) system-подсказка остаётся прежней.
+    const off = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: { projectId: 'Demo', messages: [{ role: 'user', content: 'Что у нас с оплатой?' }] },
+    });
+    expect(off.statusCode).toBe(200);
+    const offSystem = (
+      createMock.mock.calls.at(-1)![0] as { messages: Array<{ role: string; content: string }> }
+    ).messages[0]!;
+    expect(offSystem.content).not.toContain('Оплата картой');
+  });
+
   it('POST /api/ai/chat prefers the model override from the body', async () => {
     const client = okClient();
     await boot(client);

@@ -309,15 +309,34 @@ export const aiChatMessageSchema = z.object({
 });
 export type AiChatMessage = z.infer<typeof aiChatMessageSchema>;
 
+/*
+ * ── Чат с учётом требований проекта (переключатель в виджете) ──────────────
+ * При `useProjectContext=true` сервер добавляет в system-подсказку блок с
+ * ФТ/НФТ проекта. Проект может держать и 10–15, и 1000–2000 требований,
+ * поэтому блок строится детерминированно под символьный бюджет: маленький
+ * проект уезжает целиком (режим full), большой — как релевантная вопросу
+ * выборка с полными деталями + обзор дерева имён (режим partial). Без
+ * дополнительных AI-вызовов и эмбеддингов.
+ */
+
+/** Символьный бюджет контекстного блока требований (≈6–8 тыс. токенов). */
+export const AI_CHAT_CONTEXT_CHAR_BUDGET = 24_000;
+/** Сколько релевантных требований уходит с полными деталями в режиме partial. */
+export const AI_CHAT_CONTEXT_TOP_K = 12;
+/** Лимит описания одного требования в контекстном блоке. */
+export const AI_CHAT_CONTEXT_DESC_CHARS = 600;
+
 /**
  * Body of `POST /api/ai/chat`. `model` is the widget override and wins over the
  * per-project model resolved via optional `projectId`; without either the
- * server answers 400.
+ * server answers 400. `useProjectContext` включает учёт ФТ/НФТ проекта
+ * (осмыслен только вместе с `projectId`; старые клиенты без поля валидны).
  */
 export const aiChatRequestSchema = z.object({
   projectId: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
   messages: z.array(aiChatMessageSchema).min(1).max(AI_CHAT_HISTORY_LIMIT),
+  useProjectContext: z.boolean().optional(),
 });
 export type AiChatRequest = z.infer<typeof aiChatRequestSchema>;
 

@@ -26,6 +26,7 @@ import {
   type AiChatMessage,
   type TestGenRequirementInfo,
 } from './aiPrompt.js';
+import { buildChatProjectContext } from './chatContext.js';
 import { extractJsonArray } from './aiImportPrompt.js';
 import { callAiWithRetries } from './aiImport/aiCall.js';
 import {
@@ -197,8 +198,14 @@ export class AiHubService {
    * Answer one chat-widget turn (Task 9). Requires a stored key; the model is
    * the request override, else the per-project model of `input.projectId`,
    * else 400. Returns the trimmed assistant reply.
+   *
+   * `projectRequirements` — ФТ/НФТ проекта для переключателя «Учитывать
+   * требования проекта» (роут грузит их при `useProjectContext=true`).
+   * Контекстный блок строится под символьный бюджет: маленький проект уходит
+   * целиком, большой — релевантной вопросу выборкой + обзором дерева
+   * (см. chatContext.ts) — без дополнительных AI-вызовов.
    */
-  async chat(input: AiChatRequest): Promise<string> {
+  async chat(input: AiChatRequest, projectRequirements?: Requirement[]): Promise<string> {
     const cfg = await this.repo.read();
     if (!cfg.apiKey) {
       throw new BadRequestError('AI Hub API key is not configured.');
@@ -213,7 +220,18 @@ export class AiHubService {
     assertChatCapableModel(model); // embedding-модель не умеет chat completions → 400
 
     const client = this.makeClient(cfg.apiKey, cfg.baseURL);
-    const messages = buildChatMessages(input);
+    // Релевантность считается по всем user-репликам диалога: последний вопрос
+    // может быть коротким уточнением («а подробнее?») без ключевых слов.
+    const projectContext = projectRequirements
+      ? buildChatProjectContext(
+          projectRequirements,
+          input.messages
+            .filter((m) => m.role === 'user')
+            .map((m) => m.content)
+            .join('\n'),
+        )
+      : undefined;
+    const messages = buildChatMessages(input, projectContext?.text);
     const preset = resolveModelPreset(model, cfg.modelPresets?.[model]);
 
     let content: string | null;
