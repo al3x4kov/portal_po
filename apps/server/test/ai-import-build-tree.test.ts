@@ -18,6 +18,7 @@ import {
   type ServiceContext,
 } from '../src/factory.js';
 import { cleanup, fixedNow, makeTmpRoot } from './helpers.js';
+import { approveDocsReview } from './aiImportKit.js';
 
 const SECRET = 'sk-build-tree-secret';
 const PROJECT = 'Demo';
@@ -137,6 +138,8 @@ describe('buildTree: сквозной прогон импорта с логич�
     const archive = await writeZip({ 'docs.md': '# Вход\nВход.\n# Выход\nВыход.\n# SLA\n200мс.' });
     const { jobId } = await service.start(PROJECT, archive, undefined, false, true);
     await service.waitForCompletion(jobId);
+    // Двухзонная выверка: группы таксономии — тоже записи выверки; одобряем всё.
+    await approveDocsReview(service, jobId);
     const view = service.getView(jobId);
     expect(view.status).toBe('succeeded');
 
@@ -178,9 +181,11 @@ describe('buildTree: сквозной прогон импорта с логич�
     const archive1 = await writeZip({ 'docs.md': 'Документация.' });
     const first = await service.start(PROJECT, archive1, undefined, false, true);
     await service.waitForCompletion(first.jobId);
+    await approveDocsReview(service, first.jobId);
     const archive2 = await writeZip({ 'docs.md': 'Документация.' });
     const second = await service.start(PROJECT, archive2, undefined, false, true);
     await service.waitForCompletion(second.jobId);
+    await approveDocsReview(service, second.jobId);
     expect(service.getView(second.jobId).status).toBe('succeeded');
 
     const reqs = await listRequirements();
@@ -197,6 +202,7 @@ describe('buildTree: сквозной прогон импорта с логич�
     const archive = await writeZip({ 'docs.md': 'Документация.' });
     const { jobId } = await service.start(PROJECT, archive);
     await service.waitForCompletion(jobId);
+    await approveDocsReview(service, jobId);
     expect(service.getView(jobId).status).toBe('succeeded');
     expect(calls.some((c) => c.user.includes('Раунд проектирования'))).toBe(false);
     const reqs = await listRequirements();

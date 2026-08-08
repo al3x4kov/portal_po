@@ -16,6 +16,7 @@ import {
   type ServiceContext,
 } from '../src/factory.js';
 import { cleanup, fixedNow, makeTmpRoot } from './helpers.js';
+import { approveDocsReview } from './aiImportKit.js';
 
 const SECRET = 'sk-import-secret';
 const PROJECT = 'Demo';
@@ -75,6 +76,9 @@ describe('ARC-T2 · AiImportService error branches (populate/link/unpack)', () =
   async function runToEnd(service: AiImportService, archive: string): Promise<string> {
     const { jobId } = await service.start(PROJECT, archive);
     await service.waitForCompletion(jobId);
+    // Двухзонная выверка: approve both review gates keeping every item (no-op
+    // when the job failed before the gate) — reproduces the pre-review outcome.
+    await approveDocsReview(service, jobId);
     return jobId;
   }
 

@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   aiBacklogApplyBodySchema,
+  aiDocsApplyBodySchema,
   aiImportConfirmBodySchema,
   aiImportBuildTreeFieldSchema,
   aiImportInferLinksFieldSchema,
@@ -199,9 +200,16 @@ export async function aiImportRoutes(app: FastifyInstance, deps: AppDeps): Promi
 
   // todo_22: apply the reviewed backlog mapping — the ONLY step that writes.
   // task25: plus optional per-row edits made on the review step.
+  // Двухзонная выверка docs-импорта: the SAME endpoint applies a docs review
+  // zone — a `{phase, ids}` body targets a docs job, `{rowIds}` a backlog one.
   app.post('/api/ai-import/:jobId/apply', async (req): Promise<AiImportJobView> => {
     const { jobId } = parseInput(jobParams, req.params);
-    const body = parseInput(applyBody, req.body);
+    const raw = req.body;
+    if (raw !== null && typeof raw === 'object' && 'phase' in raw) {
+      const body = parseInput(aiDocsApplyBodySchema, raw);
+      return service.applyDocsReview(jobId, body.phase, body.ids);
+    }
+    const body = parseInput(applyBody, raw);
     return service.apply(jobId, body.rowIds, body.overrides);
   });
 

@@ -9,6 +9,7 @@ import type { AiJobCheckpoint } from '../src/services/aiImport/checkpoint.js';
 import { cleanup, fixedNow, makeTmpRoot } from './helpers.js';
 import {
   KIT_PROJECT,
+  approveDocsReview,
   httpError,
   makeImportHarness,
   scriptedClient,
@@ -139,6 +140,9 @@ describe('T-211 · интеграция с сервисом + экспорт/и�
       await zip({ 'auth.md': '# Что нового\nВход.' }),
     );
     await service.waitForCompletion(jobId);
+    // Двухзонная выверка: подтверждаем оба гейта — только после этого populate
+    // пишет в проект и джоба завершается.
+    await approveDocsReview(service, jobId);
     expect(service.getView(jobId).status).toBe('succeeded');
 
     const state = await h.checkpoints.load(KIT_PROJECT, jobId);

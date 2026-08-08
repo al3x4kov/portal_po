@@ -6,6 +6,7 @@ import type {
   AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
+  AiDocsReviewPhase,
   AiImportConfirmBody,
   AiImportJobList,
   AiImportJobView,
@@ -488,6 +489,24 @@ export function useApplyAiBacklogImport() {
     // present only when at least one row really differs from the AI proposal.
     mutationFn: ({ jobId, rowIds, overrides }) =>
       aiImportApi.apply(jobId, overrides ? { rowIds, overrides } : { rowIds }),
+    onSuccess: (job) => qc.setQueryData(queryKeys.aiImportJob(job.jobId), job),
+  });
+}
+
+/**
+ * Двухзонная выверка docs-импорта: apply one review zone
+ * (`POST /api/ai-import/:jobId/apply` with `{phase, ids}`). Zone 1 re-opens the
+ * gate as zone 2 (no writes); zone 2 launches populate — the fresh view lands
+ * in the cache, re-arming {@link useAiImportJob} polling.
+ */
+export function useApplyAiDocsImport() {
+  const qc = useQueryClient();
+  return useMutation<
+    AiImportJobView,
+    Error,
+    { jobId: string; phase: AiDocsReviewPhase; ids: string[] }
+  >({
+    mutationFn: ({ jobId, phase, ids }) => aiImportApi.applyDocs(jobId, { phase, ids }),
     onSuccess: (job) => qc.setQueryData(queryKeys.aiImportJob(job.jobId), job),
   });
 }

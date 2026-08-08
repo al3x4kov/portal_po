@@ -9,6 +9,7 @@ import {
   aiBacklogPreviewSchema,
   aiBacklogReportSchema,
   aiBacklogReviewSchema,
+  aiDocsReviewSchema,
   aiExtractedRequirementSchema,
   aiImportEstimateViewSchema,
   aiImportInventoryViewSchema,
@@ -139,6 +140,13 @@ export const aiJobCheckpointSchema = z.object({
   relate: aiImportRelateViewSchema.optional(),
   chunker: chunkerStateSchema.optional(),
   analyze: analyzeCursorSchema.optional(),
+  /**
+   * Двухзонная выверка docs-импорта: the review payload persisted with the
+   * `awaiting-review` pause, so the gate survives a server restart (same
+   * REST-gate contract as the backlog review). Absent on backlog jobs and in
+   * pre-review checkpoints.
+   */
+  docsReview: aiDocsReviewSchema.optional(),
 });
 export type AiJobCheckpoint = z.infer<typeof aiJobCheckpointSchema>;
 
@@ -184,6 +192,8 @@ export class CheckpointRecorder {
       s.backlog.review = job.backlogReview ? structuredClone(job.backlogReview) : undefined;
       s.backlog.report = job.backlogReport ? structuredClone(job.backlogReport) : undefined;
     }
+    // Двухзонная выверка docs-импорта: the gate payload must survive a restart.
+    s.docsReview = job.docsReview ? structuredClone(job.docsReview) : undefined;
     if (job.status !== 'running' && job.status !== 'awaiting-confirmation') {
       s.finishedAt = s.finishedAt ?? this.now();
     }

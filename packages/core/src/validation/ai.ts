@@ -954,6 +954,99 @@ export const aiBacklogMatchAnswerSchema = z.object({
 });
 export type AiBacklogMatchAnswer = z.infer<typeof aiBacklogMatchAnswerSchema>;
 
+/**
+ * One requirement extracted by the model from a documentation chunk. `source`
+ * (file + section provenance) is MANDATORY — a record without it is dropped
+ * (golden rule of the extraction skill: no provenance → no requirement).
+ * `targetYear` reuses the EXACT validator of the creation contract
+ * ({@link requirementCreateShape}), so a record the contract would reject
+ * (e.g. year 2019) is dropped at parsing time and never reaches populate.
+ */
+export const aiExtractedRequirementSchema = z.object({
+  type: z.enum(REQUIREMENT_TYPES),
+  name: z.string().min(1).max(200),
+  description: z.string().min(1).max(5000),
+  source: z.string().min(1).max(300),
+  criticality: z.enum(CRITICALITIES).optional(),
+  implemented: z.boolean().optional(),
+  targetQuarter: z.enum(TARGET_QUARTERS).optional(),
+  targetYear: requirementCreateShape.targetYear,
+  parentName: z.string().optional(),
+  /**
+   * Task 15: names of the FUNCTION requirements this NFR explicitly constrains
+   * (extraction-stage evidence only — the model sees the chunk text). Meaningful
+   * for `type='NFR'` only; the server ignores it on FUNCTION records with a warn
+   * instead of failing validation. Resolved case-insensitively into RELATES_TO
+   * links at populate time.
+   */
+  relatedFunctions: z.array(z.string().min(1).max(200)).max(20).optional(),
+});
+export type AiExtractedRequirement = z.infer<typeof aiExtractedRequirementSchema>;
+
+/*
+ * ── Двухзонная ручная выверка дублей docs-импорта ──────────────────────────
+ * Жалоба PO: AI-анализ документации приносит много смысловых дублей, а запись
+ * в проект была автоматической. Теперь docs-прогон останавливается на REST-гейте
+ * `awaiting-review` (тот же контракт, что у backlog) ДВАЖДЫ:
+ *   Зона 1 (`phase: 'self'`) — дубли сгенерированных требований МЕЖДУ СОБОЙ:
+ *   спорные пары больше не сливаются молча — они собраны в группы `groupId`,
+ *   каждая запись показана с предполагаемым местом в дереве (`parentName`) и
+ *   связями (`relatedFunctions`), пользователь выбирает что оставить.
+ *   Зона 2 (`phase: 'existing'`) — после апрува зоны 1: дубли выбранного
+ *   набора с УЖЕ существующими в проекте требованиями (`duplicateOf`), тоже
+ *   ручной разбор. Только после апрува зоны 2 начинается запись (populate).
+ */
+
+/** Review phases of a docs import: gen-vs-gen first, gen-vs-project second. */
+export const AI_DOCS_REVIEW_PHASES = ['self', 'existing'] as const;
+export type AiDocsReviewPhase = (typeof AI_DOCS_REVIEW_PHASES)[number];
+
+/**
+ * One reviewable generated requirement. Carries the FULL extracted record so
+ * the checkpoint alone is enough to resume the apply after a restart; the
+ * resolved `parentName` (aggregate output, null = root) shows the proposed
+ * tree placement to the reviewer.
+ */
+export const aiDocsReviewItemSchema = z.object({
+  /** Stable item id within the job (`d1`, `d2`, …). */
+  id: z.string().min(1),
+  record: aiExtractedRequirementSchema,
+  /** Resolved proposed parent (aggregate stage); null = root. */
+  parentName: z.string().nullable(),
+  /** Zone 1: id of the semantic-duplicate group this item belongs to. */
+  groupId: z.string().optional(),
+  /** Zone 2: name of the EXISTING project requirement this item duplicates. */
+  duplicateOf: z.string().optional(),
+  /** Zone 2: name similarity to `duplicateOf` in [0..1] (1 = exact match). */
+  duplicateSimilarity: z.number().min(0).max(1).optional(),
+});
+export type AiDocsReviewItem = z.infer<typeof aiDocsReviewItemSchema>;
+
+/** The docs review payload shown while the job is `awaiting-review`. */
+export const aiDocsReviewSchema = z.object({
+  phase: z.enum(AI_DOCS_REVIEW_PHASES),
+  items: z.array(aiDocsReviewItemSchema),
+  /** Names auto-merged by the exact normalized-name pass (info only). */
+  autoMerged: z.array(z.string()),
+  /** Zone 1: number of semantic-duplicate groups. */
+  groupCount: z.number().int().min(0),
+  /** Zone 2: number of items flagged as duplicates of existing requirements. */
+  duplicateCount: z.number().int().min(0),
+});
+export type AiDocsReview = z.infer<typeof aiDocsReviewSchema>;
+
+/**
+ * Docs variant of the `POST /api/ai-import/:jobId/apply` body. `phase` guards
+ * against double-submits/races (409 when it does not match the gate); `ids`
+ * may be EMPTY on the `existing` phase — «всё оказалось дублями» finishes the
+ * job with created=0 instead of forcing a cancel.
+ */
+export const aiDocsApplyBodySchema = z.object({
+  phase: z.enum(AI_DOCS_REVIEW_PHASES),
+  ids: z.array(z.string().min(1)).max(10000),
+});
+export type AiDocsApplyBody = z.infer<typeof aiDocsApplyBodySchema>;
+
 /** Response of `GET /api/ai-import/:jobId` (polled by the modal). */
 export const aiImportJobViewSchema = z.object({
   jobId: z.string(),
@@ -1001,6 +1094,11 @@ export const aiImportJobViewSchema = z.object({
   backlogReview: aiBacklogReviewSchema.optional(),
   /** Present when a backlog job finished (also partial on failure). */
   backlogReport: aiBacklogReportSchema.optional(),
+  /**
+   * Двухзонная выверка docs-импорта: present from the zone-1 `awaiting-review`
+   * gate on docs jobs (nothing written yet). Absent on backlog jobs.
+   */
+  docsReview: aiDocsReviewSchema.optional(),
 });
 export type AiImportJobView = z.infer<typeof aiImportJobViewSchema>;
 
@@ -1033,35 +1131,6 @@ export type AiImportJobList = z.infer<typeof aiImportJobListSchema>;
 /** Response of `POST /api/projects/:id/ai-import` (202). */
 export const aiImportStartResponseSchema = z.object({ jobId: z.string() });
 export type AiImportStartResponse = z.infer<typeof aiImportStartResponseSchema>;
-
-/**
- * One requirement extracted by the model from a documentation chunk. `source`
- * (file + section provenance) is MANDATORY — a record without it is dropped
- * (golden rule of the extraction skill: no provenance → no requirement).
- * `targetYear` reuses the EXACT validator of the creation contract
- * ({@link requirementCreateShape}), so a record the contract would reject
- * (e.g. year 2019) is dropped at parsing time and never reaches populate.
- */
-export const aiExtractedRequirementSchema = z.object({
-  type: z.enum(REQUIREMENT_TYPES),
-  name: z.string().min(1).max(200),
-  description: z.string().min(1).max(5000),
-  source: z.string().min(1).max(300),
-  criticality: z.enum(CRITICALITIES).optional(),
-  implemented: z.boolean().optional(),
-  targetQuarter: z.enum(TARGET_QUARTERS).optional(),
-  targetYear: requirementCreateShape.targetYear,
-  parentName: z.string().optional(),
-  /**
-   * Task 15: names of the FUNCTION requirements this NFR explicitly constrains
-   * (extraction-stage evidence only — the model sees the chunk text). Meaningful
-   * for `type='NFR'` only; the server ignores it on FUNCTION records with a warn
-   * instead of failing validation. Resolved case-insensitively into RELATES_TO
-   * links at populate time.
-   */
-  relatedFunctions: z.array(z.string().min(1).max(200)).max(20).optional(),
-});
-export type AiExtractedRequirement = z.infer<typeof aiExtractedRequirementSchema>;
 
 /**
  * One node of the structure-stage answer (Task 13 B2): the model receives the

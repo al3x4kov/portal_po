@@ -28,6 +28,7 @@ import {
 } from '../src/factory.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../src/lib/errors.js';
 import { cleanup, fixedNow, makeTmpRoot } from './helpers.js';
+import { approveDocsReview } from './aiImportKit.js';
 
 const SECRET = 'sk-import-secret';
 const PROJECT = 'Demo';
@@ -128,6 +129,10 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
   ): Promise<string> {
     const { jobId } = await service.start(PROJECT, archive, model);
     await service.waitForCompletion(jobId);
+    // The docs pipeline now pauses at the two review gates (zone 1 «self»,
+    // zone 2 «existing») instead of auto-writing; approve both keeping every
+    // item — a no-op for jobs that failed/cancelled/finished before the gate.
+    await approveDocsReview(service, jobId);
     return jobId;
   }
 
@@ -1514,6 +1519,9 @@ describe('T11 AiImportService (unit, mock AI client)', () => {
     const { jobId } = await service.start(PROJECT, await writeZip({ 'a.md': 'Документ.' }));
     cancelTarget.jobId = jobId;
     await service.waitForCompletion(jobId);
+    // Populate (and its RELATES_TO links) only runs after both review gates
+    // are approved — the cancel fires mid-populate, after the zone-2 apply.
+    await approveDocsReview(service, jobId);
 
     const view = service.getView(jobId);
     expect(view.status).toBe('cancelled');

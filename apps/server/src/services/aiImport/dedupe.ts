@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { unionRelatedFunctions, type AiExtractedRequirement, type AiModelPreset } from '@po/core';
+import {
+  unionRelatedFunctions,
+  type AiExtractedRequirement,
+  type AiModelPreset,
+  type Requirement,
+} from '@po/core';
 import type { AiClient } from '../AiHubService.js';
 import { extractJsonArray } from '../aiImportPrompt.js';
 import type { AiChatMessage } from '../aiPrompt.js';
@@ -151,12 +156,115 @@ export interface DedupeStageInput {
   preset: AiModelPreset;
 }
 
-export type DedupeOutcome = { ok: true; extracted: AiExtractedRequirement[] } | { ok: false };
+export type DedupeOutcome =
+  | {
+      ok: true;
+      extracted: AiExtractedRequirement[];
+      /**
+       * Двухзонная выверка (zone 1): semantic-duplicate groups — every group is
+       * ≥2 records of `extracted` the model (or the fuzzy pass) considers the
+       * same requirement. Records are NOT merged anymore: the PO decides on the
+       * review gate which of them to keep.
+       */
+      duplicateGroups: AiExtractedRequirement[][];
+      /** Names dropped by the automatic exact normalized-name merge. */
+      autoMerged: string[];
+    }
+  | { ok: false };
 
 /**
- * Deduplication step between analyze and structure. Deterministic merging is
- * code-only; ambiguous pairs go to the model in batches with a binary answer.
- * Best-effort: any model failure keeps both records (only cancel stops the run).
+ * Build connected components over confirmed duplicate pairs (a chain A~B, B~C
+ * lands in one group). Group order and in-group order are deterministic:
+ * first-seen order of `records`.
+ */
+export function groupDuplicatePairs(
+  records: AiExtractedRequirement[],
+  pairs: Array<{ kept: AiExtractedRequirement; candidate: AiExtractedRequirement }>,
+): AiExtractedRequirement[][] {
+  const groupOf = new Map<AiExtractedRequirement, Set<AiExtractedRequirement>>();
+  for (const { kept, candidate } of pairs) {
+    const a = groupOf.get(kept);
+    const b = groupOf.get(candidate);
+    if (a && b) {
+      if (a !== b) {
+        for (const rec of b) {
+          a.add(rec);
+          groupOf.set(rec, a);
+        }
+      }
+    } else if (a) {
+      a.add(candidate);
+      groupOf.set(candidate, a);
+    } else if (b) {
+      b.add(kept);
+      groupOf.set(kept, b);
+    } else {
+      const group = new Set([kept, candidate]);
+      groupOf.set(kept, group);
+      groupOf.set(candidate, group);
+    }
+  }
+  const seen = new Set<Set<AiExtractedRequirement>>();
+  const groups: AiExtractedRequirement[][] = [];
+  for (const record of records) {
+    const group = groupOf.get(record);
+    if (!group || seen.has(group)) continue;
+    seen.add(group);
+    groups.push(records.filter((r) => group.has(r)));
+  }
+  return groups;
+}
+
+/** Zone-2 verdict for one generated record vs the existing project set. */
+export interface ExistingDuplicate {
+  /** Name of the existing project requirement. */
+  name: string;
+  /** Similarity in [0..1]; 1 = exact normalized-name match. */
+  similarity: number;
+}
+
+/**
+ * Двухзонная выверка (zone 2), deterministic: match generated records against
+ * the EXISTING project requirements of the same type — exact normalized name
+ * first (similarity 1), then fuzzy ≥ {@link AI_DEDUPE_SIMILARITY} (best match
+ * wins). Pure; returns only the flagged records.
+ */
+export function detectExistingDuplicates(
+  records: readonly AiExtractedRequirement[],
+  existing: readonly Pick<Requirement, 'type' | 'name'>[],
+): Map<AiExtractedRequirement, ExistingDuplicate> {
+  const byType = new Map<string, Array<{ name: string; normalized: string }>>();
+  for (const req of existing) {
+    const list = byType.get(req.type) ?? [];
+    list.push({ name: req.name, normalized: normalizeRequirementName(req.name) });
+    byType.set(req.type, list);
+  }
+  const result = new Map<AiExtractedRequirement, ExistingDuplicate>();
+  for (const record of records) {
+    const candidates = byType.get(record.type);
+    if (!candidates) continue;
+    const normalized = normalizeRequirementName(record.name);
+    let best: ExistingDuplicate | undefined;
+    for (const candidate of candidates) {
+      const sim =
+        candidate.normalized === normalized ? 1 : nameSimilarity(candidate.normalized, normalized);
+      if (sim >= AI_DEDUPE_SIMILARITY && (!best || sim > best.similarity)) {
+        best = { name: candidate.name, similarity: sim };
+        if (sim === 1) break;
+      }
+    }
+    if (best) result.set(record, best);
+  }
+  return result;
+}
+
+/**
+ * Deduplication step between analyze and structure. The exact normalized-name
+ * merge stays automatic (identical names ARE the same requirement); ambiguous
+ * near-pairs go to the model in batches with a binary answer, but a confirmed
+ * pair is NO LONGER merged silently — it forms a duplicate GROUP handed to the
+ * zone-1 manual review gate. Best-effort: any model failure keeps the pair
+ * ungrouped-but-present (only cancel stops the run).
  */
 export async function runDedupeStage(
   rt: AiImportRuntime,
@@ -170,13 +278,15 @@ export async function runDedupeStage(
         `(${autoMerged.map((n) => `«${n}»`).join(', ')}).`,
     );
   }
-  if (ambiguous.length === 0) return { ok: true, extracted: records };
+  if (ambiguous.length === 0) {
+    return { ok: true, extracted: records, duplicateGroups: [], autoMerged };
+  }
 
   rt.log(
     'info',
     `Дедупликация: спорных пар имён ${ambiguous.length} — уточняю у модели (батчами по ${AI_DEDUPE_PAIR_BATCH}).`,
   );
-  const drop = new Set<AiExtractedRequirement>();
+  const confirmed: AmbiguousPair[] = [];
   for (let i = 0; i < ambiguous.length; i += AI_DEDUPE_PAIR_BATCH) {
     if (rt.cancelled()) return { ok: false };
     const batch = ambiguous.slice(i, i + AI_DEDUPE_PAIR_BATCH);
@@ -208,18 +318,20 @@ export async function runDedupeStage(
     }
     for (const answer of outcome.value) {
       const pair = batch[answer.pair - 1];
-      if (!pair || !answer.duplicate || drop.has(pair.kept)) continue;
-      drop.add(pair.candidate);
-      mergeRecords(pair.kept, pair.candidate);
+      if (!pair || !answer.duplicate) continue;
+      confirmed.push(pair);
       rt.log(
         'info',
-        `Дедупликация: «${pair.candidate.name}» слито с «${pair.kept.name}» (подтверждено моделью).`,
+        `Дедупликация: «${pair.candidate.name}» похоже дублирует «${pair.kept.name}» — пара уйдёт на ручную выверку (зона 1).`,
       );
     }
   }
-  const final = records.filter((r) => !drop.has(r));
-  if (drop.size > 0) {
-    rt.log('info', `Дедупликация завершена: слито ${drop.size}, осталось ${final.length}.`);
+  const duplicateGroups = groupDuplicatePairs(records, confirmed);
+  if (duplicateGroups.length > 0) {
+    rt.log(
+      'info',
+      `Дедупликация завершена: групп смысловых дублей ${duplicateGroups.length} — решение остаётся за вами на шаге выверки.`,
+    );
   }
-  return { ok: true, extracted: final };
+  return { ok: true, extracted: records, duplicateGroups, autoMerged };
 }

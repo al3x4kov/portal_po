@@ -3,6 +3,7 @@ import type {
   AiBacklogPreview,
   AiBacklogReport,
   AiBacklogReview,
+  AiDocsReview,
   AiImportEstimateView,
   AiImportInventoryView,
   AiImportJobError,
@@ -70,6 +71,8 @@ export interface AiImportJobState {
   backlogPreview?: AiBacklogPreview;
   backlogReview?: AiBacklogReview;
   backlogReport?: AiBacklogReport;
+  /* ── Двухзонная выверка docs-импорта (absent on backlog jobs) ── */
+  docsReview?: AiDocsReview;
 }
 
 /**
@@ -206,6 +209,8 @@ export class AiImportJobs {
       ...(job.backlogPreview ? { backlogPreview: structuredClone(job.backlogPreview) } : {}),
       ...(job.backlogReview ? { backlogReview: structuredClone(job.backlogReview) } : {}),
       ...(job.backlogReport ? { backlogReport: structuredClone(job.backlogReport) } : {}),
+      // Двухзонная выверка docs-импорта (absent on backlog jobs).
+      ...(job.docsReview ? { docsReview: structuredClone(job.docsReview) } : {}),
     };
   }
 }

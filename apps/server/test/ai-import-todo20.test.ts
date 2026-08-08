@@ -16,6 +16,7 @@ import {
   type ServiceContext,
 } from '../src/factory.js';
 import { cleanup, fixedNow, makeTmpRoot } from './helpers.js';
+import { approveDocsReview } from './aiImportKit.js';
 
 /*
  * todo_20 · волна 1.1 — интеграция стадий в AiImportService:
@@ -117,6 +118,9 @@ describe('todo_20 · AiImportService (волна 1.1)', () => {
   async function runToEnd(service: AiImportService, archive: string): Promise<string> {
     const { jobId } = await service.start(PROJECT, archive);
     await service.waitForCompletion(jobId);
+    // Approve both review gates (zone 1 «self», zone 2 «existing») keeping
+    // every item — a no-op for jobs that failed before the gate.
+    await approveDocsReview(service, jobId);
     return jobId;
   }
 

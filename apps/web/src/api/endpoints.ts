@@ -4,6 +4,7 @@ import type {
   AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
+  AiDocsApplyBody,
   AiImportConfirmBody,
   AiImportJobList,
   AiImportJobView,
@@ -263,6 +264,16 @@ export const aiImportApi = {
    * `rowIds` — invalid edits come back as 400 with a russian message.
    */
   apply: (jobId: string, body: AiBacklogApplyBody): Promise<AiImportJobView> =>
+    apiRequest(`/ai-import/${encodeURIComponent(jobId)}/apply`, {
+      method: 'POST',
+      body,
+    }),
+  /**
+   * Двухзонная выверка docs-импорта: apply one review zone. `phase:'self'`
+   * confirms zone 1 (gen-vs-gen duplicates) and opens zone 2; `phase:'existing'`
+   * confirms zone 2 (gen-vs-project duplicates) and starts the actual write.
+   */
+  applyDocs: (jobId: string, body: AiDocsApplyBody): Promise<AiImportJobView> =>
     apiRequest(`/ai-import/${encodeURIComponent(jobId)}/apply`, {
       method: 'POST',
       body,

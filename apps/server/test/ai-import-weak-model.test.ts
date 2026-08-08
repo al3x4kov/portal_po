@@ -9,6 +9,7 @@ import {
 import { cleanup, makeTmpRoot } from './helpers.js';
 import {
   KIT_PROJECT,
+  approveDocsReview,
   httpError,
   makeImportHarness,
   makeWeakModelClient,
@@ -142,6 +143,8 @@ describe('T-216 · приёмки на слабой модели (интегра
 
     await service2.resume(jobId);
     await service2.waitForCompletion(jobId);
+    // Двухзонная выверка: подтверждаем оба гейта — никаких вызовов извлечения.
+    await approveDocsReview(service2, jobId);
     expect(service2.getView(jobId).status).toBe('succeeded');
 
     // Пройденные фрагменты не переоплачены.
@@ -162,6 +165,7 @@ describe('T-216 · приёмки на слабой модели (интегра
       const service = harness.makeService(weak.client, { chunkChars: 2000 });
       const { jobId } = await service.start(project, await zip(archive.files));
       await service.waitForCompletion(jobId);
+      await approveDocsReview(service, jobId);
       expect(service.getView(jobId).status).toBe('succeeded');
       const names = await projectRequirementNames(root, project);
       return compareWithEtalon(names, archive.etalon).completeness;

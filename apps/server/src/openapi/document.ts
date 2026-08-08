@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   aiBacklogApplyBodySchema,
   aiChatRequestSchema,
+  aiDocsApplyBodySchema,
   aiGenerateTestsRequestSchema,
   aiGenerateTestsResponseSchema,
   aiChatResponseSchema,
@@ -130,6 +131,8 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
     // backlog fields — they are derived from the same extended zod schemas).
     AiImportConfirmBody: toSchema(aiImportConfirmBodySchema),
     AiBacklogApplyBody: toSchema(aiBacklogApplyBodySchema),
+    // Двухзонная выверка docs-импорта: тело apply для docs-заданий.
+    AiDocsApplyBody: toSchema(aiDocsApplyBodySchema),
     AiModelsView: toSchema(aiModelsViewSchema),
     AiChatRequest: toSchema(aiChatRequestSchema),
     AiGenerateTestsRequest: toSchema(aiGenerateTestsRequestSchema),
@@ -705,17 +708,29 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
     '/api/ai-import/{jobId}/apply': {
       post: {
         tags: ['ai'],
-        summary: 'Записать выверенную разметку бэклога в проект (todo_22)',
+        summary: 'Записать выверенный выбор в проект (backlog todo_22 / docs двухзонная выверка)',
         description:
-          'Единственный шаг, который пишет в проект: создаёт новые узлы (родитель→дитя), требования ' +
-          'выбранных строк, связи CHILD_OF и источники типа `BACKLOG` с дефолтным приоритетом словаря. ' +
-          'Идемпотентен: повторный запуск не дублирует уже созданное. Дубли (`duplicateOf`) не создаются. ' +
-          'task25: необязательное поле `overrides` (rowId → правка шага выверки) мерджится в разметку ДО записи: ' +
-          '`businessName` — новое имя требования; `parent` — существующий узел дерева (точное имя, тип строки) ' +
-          'или новый КОРНЕВОЙ узел; `targetQuarter`+`targetYear` — срок реализации (только парой). ' +
-          'Ключи overrides обязаны входить в `rowIds`; отчёт и контрольная точка отражают отредактированные значения.',
+          'Единственный шаг, который пишет в проект. Для `kind: "backlog"` (тело `{rowIds, overrides?}`): ' +
+          'создаёт новые узлы (родитель→дитя), требования выбранных строк, связи CHILD_OF и источники типа ' +
+          '`BACKLOG` с дефолтным приоритетом словаря. Идемпотентен: повторный запуск не дублирует уже созданное. ' +
+          'Дубли (`duplicateOf`) не создаются. task25: необязательное поле `overrides` (rowId → правка шага ' +
+          'выверки) мерджится в разметку ДО записи; ключи overrides обязаны входить в `rowIds`. ' +
+          'Для docs-заданий (тело `{phase, ids}`, двухзонная выверка дублей): `phase: "self"` подтверждает ' +
+          'зону 1 (дубли сгенерированных требований между собой) и открывает зону 2 с детерминированным ' +
+          'анализом дублей против уже существующих в проекте (`duplicateOf`); `phase: "existing"` подтверждает ' +
+          'зону 2 и запускает запись выбранных записей (populate + необязательный relate). Пустой `ids` на зоне 2 ' +
+          'завершает задание без записи.',
         parameters: [jobIdParam],
-        requestBody: jsonBody('AiBacklogApplyBody'),
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                oneOf: [ref('AiBacklogApplyBody'), ref('AiDocsApplyBody')],
+              },
+            },
+          },
+        },
         responses: {
           200: jsonResponse(
             'Запись запущена; прогресс — через `GET /api/ai-import/{jobId}`.',

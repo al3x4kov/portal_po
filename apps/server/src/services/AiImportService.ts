@@ -3,8 +3,13 @@ import {
   AI_IMPORT_MAX_ARCHIVE_BYTES,
   AI_IMPORT_STRUCTURE_BATCH,
   aiImportErrorFromCode,
+  nameKey,
   nextQuarterOf,
   resolveModelPreset,
+  type AiDocsReview,
+  type AiDocsReviewItem,
+  type AiDocsReviewPhase,
+  type AiExtractedRequirement,
   type AiImportConfirmBody,
   type AiImportErrorCode,
   type AiImportJobList,
@@ -33,7 +38,12 @@ import {
   AI_IMPORT_JSON_ATTEMPTS,
 } from './aiImport/constants.js';
 import { sanitize } from './aiImport/text.js';
-import type { AiImportRuntime, ChatArgs, JsonCallOutcome } from './aiImport/types.js';
+import type {
+  AggregatedRecord,
+  AiImportRuntime,
+  ChatArgs,
+  JsonCallOutcome,
+} from './aiImport/types.js';
 import { callAiWithRetries, type AiCallErrorClass } from './aiImport/aiCall.js';
 import { BudgetTracker } from './aiImport/budget.js';
 import { CheckpointRecorder, type AiJobCheckpoint } from './aiImport/checkpoint.js';
@@ -46,7 +56,7 @@ import { runUnpackStage } from './aiImport/unpackStage.js';
 import { runInventoryStage, type InventoryFileEntry } from './aiImport/inventoryStage.js';
 import { runEstimateStage } from './aiImport/estimateStage.js';
 import { runAnalyzeStage, type AnalyzeResume } from './aiImport/analyzeStage.js';
-import { runDedupeStage } from './aiImport/dedupe.js';
+import { detectExistingDuplicates, runDedupeStage } from './aiImport/dedupe.js';
 import { runStructureStage } from './aiImport/structureStage.js';
 import { runPoStructureStage } from './aiImport/poStructureStage.js';
 import { runAggregateStage } from './aiImport/aggregateStage.js';
@@ -132,6 +142,17 @@ interface BacklogRunCtx {
   model: string;
 }
 
+/**
+ * Per-job context of a docs run kept across the two review gates (двухзонная
+ * выверка). `aggregated` is keyed 1:1 by the review item ids; after a restart
+ * it is rebuilt from the checkpointed review items (they carry the full
+ * extracted record + resolved parent).
+ */
+interface DocsReviewCtx {
+  recorder: CheckpointRecorder;
+  aggregatedById: Map<string, AggregatedRecord>;
+}
+
 /** Everything one run (fresh or resumed) needs besides the live job. */
 interface RunContext {
   model: string;
@@ -164,6 +185,8 @@ export class AiImportService {
   private readonly confirmWaiters = new Map<string, (confirmed: boolean) => void>();
   /** todo_22: live context of backlog jobs (rebuilt from the checkpoint after a restart). */
   private readonly backlogRuns = new Map<string, BacklogRunCtx>();
+  /** Двухзонная выверка: live context of docs jobs paused on a review gate. */
+  private readonly docsRuns = new Map<string, DocsReviewCtx>();
 
   constructor(deps: AiImportServiceDeps) {
     this.deps = deps;
@@ -272,6 +295,9 @@ export class AiImportService {
     }
     // todo_22: backlog jobs resume from their parsed rows / paid mappings.
     if (checkpoint.kind === 'backlog') return this.resumeBacklog(memJob, checkpoint);
+    // Двухзонная выверка: a saved review gate resumes AS the gate — the paid
+    // analysis is complete, no model calls are repeated.
+    if (checkpoint.docsReview) return this.resumeDocsReview(memJob, checkpoint);
     if (!checkpoint.analyze || !(await repo!.hasDocs(checkpoint.projectId, checkpoint.jobId))) {
       throw new ConflictError(
         `AI import job "${jobId}" has no resumable checkpoint data — start a new analysis.`,
@@ -386,6 +412,7 @@ export class AiImportService {
       ...(cp.backlog?.preview ? { backlogPreview: cp.backlog.preview } : {}),
       ...(cp.backlog?.review ? { backlogReview: cp.backlog.review } : {}),
       ...(cp.backlog?.report ? { backlogReport: cp.backlog.report } : {}),
+      ...(cp.docsReview ? { docsReview: cp.docsReview } : {}),
     };
   }
 
@@ -458,9 +485,10 @@ export class AiImportService {
         outcome: 'ok',
       });
     }
-    // todo_22: backlog jobs paused on a user gate survive a restart AS the
-    // same pause (never `interrupted`) — re-adopt them so confirm/apply work.
-    for (const cp of await repo.listPausedBacklog()) {
+    // todo_22: jobs paused on a REST user gate (backlog preview/review, docs
+    // двухзонная выверка) survive a restart AS the same pause (never
+    // `interrupted`) — re-adopt them so confirm/apply work.
+    for (const cp of await repo.listPausedGates()) {
       if (this.deps.jobs.get(cp.jobId)) continue;
       try {
         this.deps.jobs.adopt(AiImportService.jobFromCheckpoint(cp, cp.status));
@@ -501,6 +529,21 @@ export class AiImportService {
         this.logLine(job, 'warn', 'Импорт бэклога отменён — в проект ничего не записано.');
         this.deps.jobs.finish(job, 'cancelled');
         void this.ensureBacklogCtx(job)
+          .then((ctx) => {
+            ctx.recorder.save(job, ctx.recorder.state.counters);
+            return ctx.recorder.flush();
+          })
+          .catch(() => {});
+      } else if (
+        job.kind !== 'backlog' &&
+        job.status === 'awaiting-review' &&
+        !this.running.has(jobId)
+      ) {
+        // Двухзонная выверка: a docs job paused on a review gate has no
+        // runner either — finish it here (populate has not run yet).
+        this.logLine(job, 'warn', 'Импорт отменён на шаге выверки — в проект ничего не записано.');
+        this.deps.jobs.finish(job, 'cancelled');
+        void this.ensureDocsCtx(job)
           .then((ctx) => {
             ctx.recorder.save(job, ctx.recorder.state.counters);
             return ctx.recorder.flush();
@@ -581,6 +624,8 @@ export class AiImportService {
       ...(cp.backlog?.preview ? { backlogPreview: structuredClone(cp.backlog.preview) } : {}),
       ...(cp.backlog?.review ? { backlogReview: structuredClone(cp.backlog.review) } : {}),
       ...(cp.backlog?.report ? { backlogReport: structuredClone(cp.backlog.report) } : {}),
+      // Двухзонная выверка: the review gate payload survives restart/adopt.
+      ...(cp.docsReview ? { docsReview: structuredClone(cp.docsReview) } : {}),
     };
   }
 
@@ -1163,6 +1208,321 @@ export class AiImportService {
     }
   }
 
+  /*
+   * ── Двухзонная выверка docs-импорта ───────────────────────────────────────
+   * unpack → … → aggregate → awaiting-review (phase 'self': дубли
+   * сгенерированных между собой, ничего не записано) → apply {phase:'self',
+   * ids} → awaiting-review (phase 'existing': дубли с уже существующими в
+   * проекте) → apply {phase:'existing', ids} → populate → (relate) →
+   * succeeded. Оба гейта — REST-вызовы, как у backlog: пауза переживает
+   * перезапуск сервера тем же статусом.
+   */
+
+  /** Zone-1 review payload: every aggregated record with its proposed placement. */
+  private static buildDocsSelfReview(
+    aggregated: AggregatedRecord[],
+    dedupe: { duplicateGroups: AiExtractedRequirement[][]; autoMerged: string[] },
+  ): AiDocsReview {
+    // Groups came out of dedupe BEFORE aggregate — match by (type, name) key,
+    // which survives the aggregate pass unchanged.
+    const groupIdByKey = new Map<string, string>();
+    dedupe.duplicateGroups.forEach((group, i) => {
+      for (const record of group) {
+        groupIdByKey.set(nameKey(record.type, record.name), `g${i + 1}`);
+      }
+    });
+    const items: AiDocsReviewItem[] = aggregated.map((item, i) => {
+      const groupId = groupIdByKey.get(nameKey(item.record.type, item.record.name));
+      return {
+        id: `d${i + 1}`,
+        record: structuredClone(item.record),
+        parentName: item.parentName ?? null,
+        ...(groupId !== undefined ? { groupId } : {}),
+      };
+    });
+    const groupCount = new Set(
+      items.map((i) => i.groupId).filter((g): g is string => g !== undefined),
+    ).size;
+    return {
+      phase: 'self',
+      items,
+      autoMerged: [...dedupe.autoMerged],
+      groupCount,
+      duplicateCount: 0,
+    };
+  }
+
+  /**
+   * Rebuild the id → {@link AggregatedRecord} map from review items. The items
+   * carry the full extracted record + resolved parent, so this works equally
+   * from the live run and from a checkpoint after a restart.
+   */
+  private static aggregatedByReviewId(
+    items: readonly AiDocsReviewItem[],
+  ): Map<string, AggregatedRecord> {
+    const map = new Map<string, AggregatedRecord>();
+    for (const item of items) {
+      map.set(item.id, {
+        record: structuredClone(item.record),
+        ...(item.parentName !== null
+          ? {
+              parentKey: nameKey(item.record.type, item.parentName),
+              parentName: item.parentName,
+            }
+          : {}),
+      });
+    }
+    return map;
+  }
+
+  /** Rebuild the docs review context from the checkpoint after a restart (or reuse). */
+  private async ensureDocsCtx(job: AiImportJobState): Promise<DocsReviewCtx> {
+    const existing = this.docsRuns.get(job.jobId);
+    if (existing) return existing;
+    const cp = await this.deps.checkpoints?.load(job.projectId, job.jobId);
+    const review = job.docsReview ?? cp?.docsReview;
+    if (!cp || !review) {
+      throw new ConflictError(
+        `AI import job "${job.jobId}" has no review checkpoint — start a new analysis.`,
+      );
+    }
+    const recorder = new CheckpointRecorder(
+      this.deps.checkpoints,
+      { ...structuredClone(cp), error: undefined, finishedAt: undefined },
+      this.deps.now,
+    );
+    const ctx: DocsReviewCtx = {
+      recorder,
+      aggregatedById: AiImportService.aggregatedByReviewId(review.items),
+    };
+    this.docsRuns.set(job.jobId, ctx);
+    return ctx;
+  }
+
+  /**
+   * Apply one zone of the docs review (двухзонная выверка).
+   *
+   * Phase `self` (zone 1): keep only the selected generated requirements, run
+   * the DETERMINISTIC duplicate detection against the existing project tree
+   * and re-open the gate as phase `existing` (zone 2). No writes, no AI calls.
+   * An empty selection finishes the job with nothing written.
+   *
+   * Phase `existing` (zone 2): launch populate (+ optional relate) for the
+   * selected records — the ONLY docs step that writes. `ids` may be empty
+   * («всё оказалось дублями») — the job then succeeds with created=0.
+   * A `failed` docs job with a saved zone-2 review may re-apply (populate is
+   * idempotent), mirroring the backlog contract.
+   */
+  async applyDocsReview(
+    jobId: string,
+    phase: AiDocsReviewPhase,
+    ids: string[],
+  ): Promise<AiImportJobView> {
+    let job = this.deps.jobs.get(jobId);
+    if (!job) {
+      const cp = await this.deps.checkpoints?.findByJobId(jobId);
+      if (cp && cp.kind !== 'backlog' && cp.status === 'awaiting-review' && cp.docsReview) {
+        job = this.deps.jobs.adopt(AiImportService.jobFromCheckpoint(cp, cp.status));
+      } else if (cp) {
+        throw new ConflictError(`AI import job "${jobId}" is not awaiting review.`);
+      } else {
+        throw new NotFoundError(`AI import job not found: "${jobId}".`);
+      }
+    }
+    if (job.kind === 'backlog') {
+      throw new ConflictError(
+        `AI import job "${jobId}" is a backlog import — send {rowIds} instead of {phase, ids}.`,
+      );
+    }
+    const review = job.docsReview;
+    const reApplicable =
+      job.status === 'failed' && review !== undefined && review.phase === 'existing';
+    if ((job.status !== 'awaiting-review' && !reApplicable) || !review) {
+      throw new ConflictError(`AI import job "${jobId}" is not awaiting review.`);
+    }
+    if (review.phase !== phase) {
+      throw new ConflictError(
+        `AI import job "${jobId}" review is on phase "${review.phase}", not "${phase}".`,
+      );
+    }
+    const known = new Set(review.items.map((i) => i.id));
+    const unknown = ids.filter((id) => !known.has(id));
+    if (unknown.length > 0) {
+      throw new BadRequestError(`Неизвестные записи в выборе: ${unknown.slice(0, 5).join(', ')}.`);
+    }
+    const ctx = await this.ensureDocsCtx(job);
+
+    if (phase === 'self') {
+      const selectedIds = new Set(ids);
+      const selected = review.items.filter((i) => selectedIds.has(i.id));
+      if (selected.length === 0) {
+        // «Ничего не оставить» — законный исход зоны 1: завершаем без записи.
+        this.logLine(
+          job,
+          'info',
+          'Выверка (зона 1): не выбрано ни одной записи — импорт завершён, в проект ничего не записано.',
+        );
+        this.completeJob(job, { ...ctx.recorder.state.counters });
+        ctx.recorder.save(job, ctx.recorder.state.counters);
+        await ctx.recorder.flush();
+        return this.deps.jobs.view(job);
+      }
+      // Zone 2: deterministic gen-vs-project duplicate detection (no AI cost).
+      const { requirements } = await this.deps.makeRequirementService(job.projectId).list();
+      const records = selected.map((i) => ctx.aggregatedById.get(i.id)!.record);
+      const dupOf = detectExistingDuplicates(records, requirements);
+      const items: AiDocsReviewItem[] = selected.map((item, idx) => {
+        const dup = dupOf.get(records[idx]!);
+        return {
+          id: item.id,
+          record: item.record,
+          parentName: item.parentName,
+          ...(dup
+            ? {
+                duplicateOf: dup.name,
+                duplicateSimilarity: Math.round(dup.similarity * 100) / 100,
+              }
+            : {}),
+        };
+      });
+      const duplicateCount = items.filter((i) => i.duplicateOf !== undefined).length;
+      job.docsReview = {
+        phase: 'existing',
+        items,
+        autoMerged: review.autoMerged,
+        groupCount: review.groupCount,
+        duplicateCount,
+      };
+      job.progress = 84;
+      this.logLine(
+        job,
+        'info',
+        `Зона 1 подтверждена: оставлено ${selected.length} из ${review.items.length}. ` +
+          `Дублей с уже существующими в проекте: ${duplicateCount} — разберите зону 2 и запишите в проект.`,
+      );
+      ctx.recorder.save(job, ctx.recorder.state.counters);
+      await ctx.recorder.flush();
+      return this.deps.jobs.view(job);
+    }
+
+    // Phase 'existing' — the write step.
+    if (reApplicable) this.deps.jobs.reactivate(job);
+    job.status = 'running';
+    job.stage = 'populate';
+    job.progress = 85;
+    job.error = undefined;
+    this.logLine(
+      job,
+      'info',
+      `Запись в проект: выбрано ${ids.length} из ${review.items.length} записей выверки.`,
+    );
+    const run = this.runDocsApply(job, ctx, ids)
+      .catch(async (err: unknown) => {
+        // The optional relate step holds a live API key — sanitize the crash
+        // message with the REAL key, not a placeholder.
+        const key =
+          (await this.deps.configRepo.read().catch(() => undefined))?.apiKey ??
+          'no-api-key-in-populate';
+        this.handleInternalError(job, ctx.recorder, key, err);
+      })
+      .finally(() => this.running.delete(job.jobId));
+    this.running.set(job.jobId, run);
+    return this.deps.jobs.view(job);
+  }
+
+  /** Docs stages «populate» (+ optional relate) for the zone-2 selection. */
+  private async runDocsApply(
+    job: AiImportJobState,
+    ctx: DocsReviewCtx,
+    ids: string[],
+  ): Promise<void> {
+    const cp = ctx.recorder.state;
+    const counters: AiImportResult = { ...cp.counters };
+    const budget = BudgetTracker.fromJSON({
+      limit: null,
+      promptTokens: cp.usage?.promptTokens ?? 0,
+      completionTokens: cp.usage?.completionTokens ?? 0,
+    });
+    const rt = this.buildRuntime(job, counters, budget, ctx.recorder);
+    try {
+      // Persist the review/selection state BEFORE the first write — a crash
+      // mid-populate must re-apply with the same reviewed values.
+      rt.checkpoint();
+      const requirementService = this.deps.makeRequirementService(job.projectId);
+      const linkService = this.deps.makeLinkService(job.projectId);
+      const existing = (await requirementService.list()).requirements;
+      const aggregated = ids
+        .map((id) => ctx.aggregatedById.get(id))
+        .filter((item): item is AggregatedRecord => item !== undefined);
+      const populated = await runPopulateStage(rt, {
+        aggregated,
+        existing,
+        requirementService,
+        linkService,
+      });
+      if (!populated.ok) return;
+      rt.checkpoint();
+
+      // Optional relate step (todo_16 B2): best-effort, never fails the import.
+      if (cp.inferLinks) {
+        const cfg = await this.deps.configRepo.read();
+        if (cfg.apiKey) {
+          const preset = resolveModelPreset(cp.model, cfg.modelPresets?.[cp.model]);
+          const stopped = await runRelateStage(rt, {
+            client: this.deps.makeAiClient(cfg.apiKey, cfg.baseURL),
+            model: cp.model,
+            preset,
+            apiKey: cfg.apiKey,
+            requirementService,
+            linkService,
+          });
+          if (stopped) return;
+        } else {
+          rt.log('warn', 'Проставление связей пропущено: ключ AI-хаба недоступен.');
+        }
+      }
+
+      this.completeJob(job, counters);
+      rt.checkpoint();
+    } finally {
+      await ctx.recorder.flush();
+      await this.cleanupDocs(job, this.deps.checkpoints?.docsDir(job.projectId, job.jobId));
+    }
+  }
+
+  /** Resume a docs job straight onto its saved review gate (no re-analysis). */
+  private async resumeDocsReview(
+    memJob: AiImportJobState | undefined,
+    checkpoint: AiJobCheckpoint,
+  ): Promise<AiImportStartResponse> {
+    const review = checkpoint.docsReview!;
+    const job: AiImportJobState =
+      memJob ??
+      this.deps.jobs.adopt(AiImportService.jobFromCheckpoint(checkpoint, checkpoint.status));
+    this.deps.jobs.reactivate(job); // 409 when the project has another active job
+    job.status = 'awaiting-review';
+    job.progress = review.phase === 'self' ? 82 : 84;
+    job.docsReview = structuredClone(review);
+    job.error = undefined;
+    const recorder = new CheckpointRecorder(
+      this.deps.checkpoints,
+      { ...structuredClone(checkpoint), error: undefined, finishedAt: undefined },
+      this.deps.now,
+    );
+    this.docsRuns.set(job.jobId, {
+      recorder,
+      aggregatedById: AiImportService.aggregatedByReviewId(review.items),
+    });
+    this.logLine(
+      job,
+      'info',
+      'Выверка восстановлена из контрольной точки — продолжите разбор дублей и запишите выбранное в проект.',
+    );
+    recorder.save(job, recorder.state.counters);
+    await recorder.flush();
+    return { jobId: job.jobId };
+  }
+
   /** Resume a backlog job: match continues from paid batches; a saved review re-opens the gate. */
   private async resumeBacklog(
     memJob: AiImportJobState | undefined,
@@ -1380,7 +1740,9 @@ export class AiImportService {
       });
       if (!analyzed.ok) return;
 
-      // T-207: deterministic dedupe + model-confirmed ambiguous pairs.
+      // T-207: deterministic dedupe; model-confirmed ambiguous pairs become
+      // duplicate GROUPS for the zone-1 manual review (двухзонная выверка) —
+      // nothing is merged silently anymore.
       const deduped = await runDedupeStage(rt, {
         extracted: analyzed.extracted,
         client: analyzed.client,
@@ -1434,31 +1796,35 @@ export class AiImportService {
       });
       if (!aggregated.ok) return;
 
-      const linkService = this.deps.makeLinkService(job.projectId);
-      const populated = await runPopulateStage(rt, {
-        aggregated: aggregated.aggregated,
-        existing: aggregated.existing,
-        requirementService,
-        linkService,
-      });
-      if (!populated.ok) return;
-      rt.checkpoint();
-
-      // Optional relate step (todo_16 B2): best-effort, never fails the import.
-      if (ctx.inferLinks) {
-        const stopped = await runRelateStage(rt, {
-          client: analyzed.client,
-          model: ctx.model,
-          preset: ctx.preset,
-          apiKey: ctx.apiKey,
-          requirementService,
-          linkService,
-        });
-        if (stopped) return;
+      // Двухзонная выверка: the pipeline PAUSES here on a REST gate (same
+      // contract as the backlog review) instead of writing to the project.
+      // Zone 1 — semantic duplicates among the GENERATED requirements, each
+      // item shown with its proposed tree placement. An empty aggregate has
+      // nothing to review — finish immediately with zero counters.
+      if (aggregated.aggregated.length === 0) {
+        this.completeJob(job, counters);
+        rt.checkpoint();
+        return;
       }
-
-      this.completeJob(job, counters);
+      const review = AiImportService.buildDocsSelfReview(aggregated.aggregated, {
+        duplicateGroups: deduped.duplicateGroups,
+        autoMerged: deduped.autoMerged,
+      });
+      this.docsRuns.set(job.jobId, {
+        recorder: ctx.recorder,
+        aggregatedById: AiImportService.aggregatedByReviewId(review.items),
+      });
+      job.docsReview = review;
+      job.status = 'awaiting-review';
+      job.progress = 82;
+      this.logLine(
+        job,
+        'info',
+        `Анализ завершён: требований к выверке ${review.items.length}, групп смысловых дублей ${review.groupCount}. ` +
+          'До подтверждения в проект ничего не записано — разберите дубли (зона 1) и продолжите.',
+      );
       rt.checkpoint();
+      // populate/relate run later from applyDocsReview (zone-2 apply).
     } finally {
       await ctx.recorder.flush();
       await this.cleanupDocs(job, docsDir);

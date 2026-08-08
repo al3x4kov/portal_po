@@ -4,6 +4,7 @@ import { ConflictError, NotFoundError } from '../src/lib/errors.js';
 import { cleanup, makeTmpRoot } from './helpers.js';
 import {
   KIT_PROJECT,
+  approveDocsReview,
   makeImportHarness,
   scriptedClient,
   writeZipArchive,
@@ -80,7 +81,10 @@ describe('T-204 · смета и гейт подтверждения', () => {
 
     const confirmed = await service.confirm(jobId);
     expect(confirmed.status).toBe('running');
+    // Двухзонная выверка: the run now pauses at the docs review gate — approve
+    // both zones keeping everything to reach the terminal state.
     await service.waitForCompletion(jobId);
+    await approveDocsReview(service, jobId);
     const done = service.getView(jobId);
     expect(done.status).toBe('succeeded');
     expect(done.result?.createdFunctions).toBe(1);
@@ -95,6 +99,8 @@ describe('T-204 · смета и гейт подтверждения', () => {
       await zip({ 'auth.md': '# Что нового\nВход по паролю.' }),
     );
     await service.waitForCompletion(jobId);
+    // Порога сметы нет, но двухзонная выверка — есть: подтверждаем обе зоны.
+    await approveDocsReview(service, jobId);
     const view = service.getView(jobId);
     expect(view.status).toBe('succeeded');
     expect(view.estimate?.thresholdTokens).toBeNull();
@@ -108,6 +114,7 @@ describe('T-204 · смета и гейт подтверждения', () => {
       await zip({ 'auth.md': '# Что нового\nВход.' }),
     );
     await service.waitForCompletion(jobId);
+    await approveDocsReview(service, jobId);
     expect(service.getView(jobId).status).toBe('succeeded');
     await expect(service.confirm(jobId)).rejects.toThrow(ConflictError);
     await expect(service.confirm('nope')).rejects.toThrow(NotFoundError);

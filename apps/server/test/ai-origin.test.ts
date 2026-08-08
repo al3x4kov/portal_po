@@ -14,6 +14,7 @@ import { FsRequirementRepo } from '../src/repositories/FsRequirementRepo.js';
 import { RequirementService } from '../src/services/RequirementService.js';
 import type { ExportResult } from '../src/repositories/ArchiveRepo.js';
 import {
+  approveDocsReview,
   backlogXlsxBuffer,
   makeImportHarness,
   scriptedClient,
@@ -323,7 +324,10 @@ describe('task26 · documentation import stamps AI_DOCS', () => {
     });
 
     const { jobId } = await service.start(KIT_PROJECT, archive);
+    // Двухзонная выверка: the run pauses at the review gate before any write.
     await service.waitForCompletion(jobId);
+    expect(service.getView(jobId).docsReview?.phase).toBe('self');
+    await approveDocsReview(service, jobId);
     expect(service.getView(jobId).status).toBe('succeeded');
 
     const { requirements } = await createRequirementService(

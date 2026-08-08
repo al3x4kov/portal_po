@@ -9,6 +9,7 @@ import { EtaTracker } from '../src/services/aiImport/eta.js';
 import { cleanup, makeTmpRoot } from './helpers.js';
 import {
   KIT_PROJECT,
+  approveDocsReview,
   httpError,
   makeImportHarness,
   writeZipArchive,
@@ -161,6 +162,8 @@ describe('T-210 · интеграция пула (сервис + мок-клие
     archives.push(archive);
     const { jobId } = await service.start(KIT_PROJECT, archive);
     await service.waitForCompletion(jobId);
+    // Двухзонная выверка: подтверждаем оба гейта, populate дописывает в проект.
+    await approveDocsReview(service, jobId);
 
     const view = service.getView(jobId);
     expect(view.status).toBe('succeeded');
