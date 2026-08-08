@@ -203,6 +203,109 @@ describe('Двухзонная выверка docs-импорта (интегр�
     expect(requirements).toHaveLength(4);
   });
 
+  it('гонка apply/cancel: отмена во время анализа зоны 2 не даёт записать (409)', async () => {
+    // Отмена прилетает В СЕРЕДИНЕ applyDocsReview — пока сервис ждёт список
+    // требований проекта. Гейт обязан перепровериться после await, иначе
+    // отменённая джоба запустила бы populate.
+    const client = scriptedClient([EXTRACTION, PAIR_CONFIRM, STRUCTURE]);
+    let cancelOnNextList = false;
+    let jobIdRef: string | undefined;
+    const service: ReturnType<ImportHarness['makeService']> = h.makeService(client, {
+      makeRequirementService: (pid) => {
+        const real = createRequirementService(h.ctx, pid);
+        return {
+          list: async () => {
+            const out = await real.list();
+            if (cancelOnNextList && jobIdRef) {
+              cancelOnNextList = false;
+              service.cancel(jobIdRef);
+            }
+            return out;
+          },
+          checkName: (...args) => real.checkName(...args),
+          create: (input) => real.create(input),
+          update: (slug, input) => real.update(slug, input),
+          delete: (slug, opts) => real.delete(slug, opts),
+        };
+      },
+    });
+    const jobId = await startToZone1(service);
+    jobIdRef = jobId;
+    const items = service.getView(jobId).docsReview!.items;
+
+    cancelOnNextList = true;
+    await expect(
+      service.applyDocsReview(
+        jobId,
+        'self',
+        items.map((i) => i.id),
+      ),
+    ).rejects.toThrow(ConflictError);
+    expect(service.getView(jobId).status).toBe('cancelled');
+    expect((await createRequirementService(h.ctx, KIT_PROJECT).list()).requirements).toHaveLength(
+      0,
+    );
+  });
+
+  it('двойной сабмит зоны 2: побеждает ровно один apply, второй — 409, без дублей', async () => {
+    const client = scriptedClient([EXTRACTION, PAIR_CONFIRM, STRUCTURE]);
+    const service = h.makeService(client);
+    const jobId = await startToZone1(service);
+    const zone1 = service.getView(jobId).docsReview!;
+    await service.applyDocsReview(
+      jobId,
+      'self',
+      zone1.items.map((i) => i.id),
+    );
+    const zone2 = service.getView(jobId).docsReview!;
+    const ids = zone2.items.map((i) => i.id);
+
+    const [first, second] = await Promise.allSettled([
+      service.applyDocsReview(jobId, 'existing', ids),
+      service.applyDocsReview(jobId, 'existing', ids),
+    ]);
+    const outcomes = [first!, second!];
+    expect(outcomes.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const rejected = outcomes.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(rejected.reason).toBeInstanceOf(ConflictError);
+
+    await service.waitForCompletion(jobId);
+    expect(service.getView(jobId).status).toBe('succeeded');
+    const { requirements } = await createRequirementService(h.ctx, KIT_PROJECT).list();
+    // 3 ФТ + 1 НФТ из выгрузки — ровно по одному, без дублей от гонки.
+    expect(requirements).toHaveLength(4);
+  });
+
+  it('родитель отсеян на выверке: ребёнок создаётся в корне с явным warn', async () => {
+    const client = scriptedClient([EXTRACTION, PAIR_CONFIRM, STRUCTURE]);
+    const service = h.makeService(client);
+    const jobId = await startToZone1(service);
+    const items = service.getView(jobId).docsReview!.items;
+    await service.applyDocsReview(
+      jobId,
+      'self',
+      items.map((i) => i.id),
+    );
+
+    // Зона 2: отсеиваем родителя «Быстрый фильтр по статусу», ребёнка оставляем.
+    const zone2 = service.getView(jobId).docsReview!;
+    const parent = zone2.items.find((i) => i.record.name === 'Быстрый фильтр по статусу')!;
+    const keep = zone2.items.filter((i) => i.id !== parent.id).map((i) => i.id);
+    await service.applyDocsReview(jobId, 'existing', keep);
+    await service.waitForCompletion(jobId);
+
+    const view = service.getView(jobId);
+    expect(view.status).toBe('succeeded');
+    // Обещанное «под родителем» место исчезло не молча — есть явный warn.
+    expect(
+      view.log.some((l) => l.level === 'warn' && l.message.includes('не выбран на выверке')),
+    ).toBe(true);
+    const { requirements } = await createRequirementService(h.ctx, KIT_PROJECT).list();
+    const child = requirements.find((r) => r.name === 'Экспорт проекта')!;
+    expect(child.links.some((l) => l.type === 'CHILD_OF')).toBe(false); // корень
+    expect(view.result?.links).toBe(0);
+  });
+
   it('отмена на гейте выверки: ничего не записано, статус cancelled, resume возвращает гейт', async () => {
     const client = scriptedClient([EXTRACTION, PAIR_CONFIRM, STRUCTURE]);
     const service = h.makeService(client);

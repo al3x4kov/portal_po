@@ -1351,6 +1351,19 @@ export class AiImportService {
       throw new BadRequestError(`Неизвестные записи в выборе: ${unknown.slice(0, 5).join(', ')}.`);
     }
     const ctx = await this.ensureDocsCtx(job);
+    // Гонка apply/cancel/apply: пока ждали контекст (или список требований
+    // проекта ниже), джоба могла уйти с гейта — отмена или параллельный
+    // сабмит. Перепроверяем ЖИВОЕ состояние перед любой мутацией/записью,
+    // иначе отменённая на гейте джоба всё равно запустила бы populate.
+    const assertStillOnGate = (): void => {
+      if (
+        job.docsReview !== review ||
+        (job.status !== 'awaiting-review' && !(reApplicable && job.status === 'failed'))
+      ) {
+        throw new ConflictError(`AI import job "${jobId}" is not awaiting review.`);
+      }
+    };
+    assertStillOnGate();
 
     if (phase === 'self') {
       const selectedIds = new Set(ids);
@@ -1369,6 +1382,7 @@ export class AiImportService {
       }
       // Zone 2: deterministic gen-vs-project duplicate detection (no AI cost).
       const { requirements } = await this.deps.makeRequirementService(job.projectId).list();
+      assertStillOnGate(); // the gate may have been cancelled during list()
       const records = selected.map((i) => ctx.aggregatedById.get(i.id)!.record);
       const dupOf = detectExistingDuplicates(records, requirements);
       const items: AiDocsReviewItem[] = selected.map((item, idx) => {
@@ -1451,9 +1465,30 @@ export class AiImportService {
       const requirementService = this.deps.makeRequirementService(job.projectId);
       const linkService = this.deps.makeLinkService(job.projectId);
       const existing = (await requirementService.list()).requirements;
-      const aggregated = ids
+      const selected = ids
         .map((id) => ctx.aggregatedById.get(id))
         .filter((item): item is AggregatedRecord => item !== undefined);
+      // Выверка могла отсеять родителя, оставив его детей: populate молча
+      // пропускает CHILD_OF без цели, поэтому предупреждаем явно (карточка
+      // выверки обещала место «под родителем») и создаём запись в корне.
+      // Копия записи, а не мутация ctx.aggregatedById: повторный apply после
+      // сбоя может выбрать другой набор, где родитель снова присутствует.
+      const selectedKeys = new Set(selected.map((i) => nameKey(i.record.type, i.record.name)));
+      const existingKeys = new Set(existing.map((r) => nameKey(r.type, r.name)));
+      const aggregated = selected.map((item) => {
+        if (
+          item.parentKey === undefined ||
+          selectedKeys.has(item.parentKey) ||
+          existingKeys.has(item.parentKey)
+        ) {
+          return item;
+        }
+        rt.log(
+          'warn',
+          `«${item.record.name}»: родитель «${item.parentName ?? item.parentKey}» не выбран на выверке — требование будет создано в корне дерева.`,
+        );
+        return { record: item.record };
+      });
       const populated = await runPopulateStage(rt, {
         aggregated,
         existing,
