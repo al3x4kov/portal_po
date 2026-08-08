@@ -1833,10 +1833,17 @@ test.describe('Выверка дублей · снятая в зоне 1 гал�
     expect(await listRequirements(page, id)).toHaveLength(0);
 
     // Снимаем галочку с RESET (строка ищется по имени — id порядковые).
-    const resetRow = page
+    // Тумблер клавиатурный (focus + Space): чекбоксы таблицы выверки живут во
+    // вложенных скролл-контейнерах, где mouse hit-test нестабилен между
+    // сборками браузера; Space шлёт тот же change без hit-теста.
+    const resetCheck = page
       .locator('[data-testid^="ai-docs-review-row-"]')
-      .filter({ hasText: REQ_RESET });
-    await resetRow.locator('[data-testid^="ai-docs-review-check-"]').uncheck();
+      .filter({ hasText: REQ_RESET })
+      .locator('[data-testid^="ai-docs-review-check-"]');
+    await expect(resetCheck).toBeChecked();
+    await resetCheck.focus();
+    await page.keyboard.press('Space');
+    await expect(resetCheck).not.toBeChecked();
     await expect(apply).toHaveText('Продолжить: дубли с проектом (2)');
     await apply.click();
 

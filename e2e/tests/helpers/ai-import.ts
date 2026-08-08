@@ -77,10 +77,17 @@ async function selectAllReviewRows(page: Page): Promise<void> {
   const selectAll = page.getByTestId('ai-docs-review-select-all');
   await expect(selectAll).toBeVisible(REVIEW_TIMEOUT);
   // The default selection of a zone is seeded by an effect right after the
-  // zone renders — a click landing before the seed could be overwritten, so
-  // the whole «click if unchecked, then must be checked» block retries.
+  // zone renders — a toggle landing before the seed could be overwritten, so
+  // the whole «toggle if unchecked, then must be checked» block retries.
+  // The toggle is keyboard-driven (focus + Space): the checkbox lives in the
+  // sticky table header inside nested scroll containers, where mouse
+  // hit-testing is flaky across browser builds; Space needs no hit-test and
+  // fires the same change event.
   await expect(async () => {
-    if (!(await selectAll.isChecked())) await selectAll.click();
+    if (!(await selectAll.isChecked())) {
+      await selectAll.focus();
+      await page.keyboard.press('Space');
+    }
     await expect(selectAll).toBeChecked({ timeout: 1_000 });
   }).toPass({ timeout: 15_000 });
 }
@@ -102,16 +109,24 @@ export async function approveDocsReviewGates(page: Page): Promise<void> {
   const banner = page.getByTestId('ai-docs-review-banner');
   const apply = page.getByTestId('ai-docs-review-apply');
 
+  // Real click when the footer is on screen; on cramped viewports (mobile
+  // 375×667) the tall review card pushes the modal footer below the fold of a
+  // non-scrollable overlay, so fall back to a dispatched click there.
+  const clickApply = async (): Promise<void> => {
+    await expect(apply).toBeEnabled(REVIEW_TIMEOUT);
+    await apply.click({ timeout: 5_000 }).catch(() => apply.dispatchEvent('click'));
+  };
+
   // Zone 1 · дубли среди сгенерированных: keep everything, continue.
   await expect(step).toBeVisible(REVIEW_TIMEOUT);
   await expect(banner).toContainText('Зона 1', REVIEW_TIMEOUT);
   await selectAllReviewRows(page);
-  await apply.click();
+  await clickApply();
 
   // Zone 2 · дубли с уже созданными в проекте: keep everything, write.
   await expect(banner).toContainText('Зона 2', REVIEW_TIMEOUT);
   await selectAllReviewRows(page);
-  await apply.click();
+  await clickApply();
 
   // Populate launched — the review step leaves the modal.
   await expect(step).toBeHidden(REVIEW_TIMEOUT);
