@@ -1,7 +1,7 @@
 import AdmZip from 'adm-zip';
 import { expect, request as pwRequest, test, type Page, type TestInfo } from '@playwright/test';
 import { createProject, projectIdFromUrl, rowByName, uniqueName } from './helpers/app.js';
-import { expectAiImportSummary } from './helpers/ai-import.js';
+import { approveDocsReviewGates, expectAiImportSummary } from './helpers/ai-import.js';
 import {
   addExpectation,
   bodyAsString,
@@ -342,6 +342,10 @@ test.describe('AI против реального MockServer', () => {
     await page.getByTestId('ai-import-file').setInputFiles(zipPath);
     await expect(page.getByTestId('ai-import-file-name')).toContainText('ms-docs.zip');
     await page.getByTestId('ai-import-start').click();
+
+    // Двухзонная выверка дублей: одобряем обе зоны (select-all → apply),
+    // воспроизводя прежний исход пайплайна.
+    await approveDocsReviewGates(page);
 
     // Мок отвечает ОДНИМ и тем же массивом (1 ФТ + 1 НФТ) на КАЖДЫЙ файл →
     // из 4 извлечённых записей создаются 2; 2 in-run дубликата второго файла

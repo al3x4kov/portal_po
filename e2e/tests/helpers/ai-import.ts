@@ -64,3 +64,55 @@ export async function expectAiImportSummary(
   // The relates counter keeps its dedicated testid (now a bare number cell).
   await expect(page.getByTestId('ai-import-relates-links')).toHaveText(String(counts.relatesLinks));
 }
+
+/** Review-gate transitions ride the ~800 ms status poller — same budget as jobs. */
+const REVIEW_TIMEOUT = { timeout: 30_000 } as const;
+
+/**
+ * Двухзонная выверка дублей: ensure the select-all checkbox of the CURRENT
+ * review zone is checked. Clicking an unchecked/partially-checked box selects
+ * all rows, so up to two clicks always converge on «checked».
+ */
+async function selectAllReviewRows(page: Page): Promise<void> {
+  const selectAll = page.getByTestId('ai-docs-review-select-all');
+  await expect(selectAll).toBeVisible(REVIEW_TIMEOUT);
+  // The default selection of a zone is seeded by an effect right after the
+  // zone renders — a click landing before the seed could be overwritten, so
+  // the whole «click if unchecked, then must be checked» block retries.
+  await expect(async () => {
+    if (!(await selectAll.isChecked())) await selectAll.click();
+    await expect(selectAll).toBeChecked({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+}
+
+/**
+ * Approve BOTH zones of the docs-import review gate («двухзонная выверка
+ * дублей») with «select all», reproducing the pre-gate pipeline outcome:
+ * everything extracted goes to populate, which still skips requirements that
+ * already exist in the project.
+ *
+ * Zone 1 (дубли между собой) keeps only ONE record per semantic-duplicate
+ * group by default; zone 2 (дубли с проектом) DESELECTS records flagged as
+ * duplicates of existing requirements — so each zone is select-ALL'ed before
+ * its apply. Waits for the review step to disappear at the end (populate has
+ * been launched). Playwright auto-waiting only, no sleeps.
+ */
+export async function approveDocsReviewGates(page: Page): Promise<void> {
+  const step = page.getByTestId('ai-docs-review-step');
+  const banner = page.getByTestId('ai-docs-review-banner');
+  const apply = page.getByTestId('ai-docs-review-apply');
+
+  // Zone 1 · дубли среди сгенерированных: keep everything, continue.
+  await expect(step).toBeVisible(REVIEW_TIMEOUT);
+  await expect(banner).toContainText('Зона 1', REVIEW_TIMEOUT);
+  await selectAllReviewRows(page);
+  await apply.click();
+
+  // Zone 2 · дубли с уже созданными в проекте: keep everything, write.
+  await expect(banner).toContainText('Зона 2', REVIEW_TIMEOUT);
+  await selectAllReviewRows(page);
+  await apply.click();
+
+  // Populate launched — the review step leaves the modal.
+  await expect(step).toBeHidden(REVIEW_TIMEOUT);
+}

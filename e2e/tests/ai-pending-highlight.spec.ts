@@ -12,6 +12,7 @@ import {
   setTreeMode,
   uniqueName,
 } from './helpers/app.js';
+import { approveDocsReviewGates } from './helpers/ai-import.js';
 import { BACKLOG_JOB_TIMEOUT, goToReview, makeXlsx } from './helpers/backlog.js';
 
 /**
@@ -151,6 +152,8 @@ async function runDocsImport(page: Page, testInfo: TestInfo): Promise<void> {
   await page.getByTestId('ai-import-file').setInputFiles(zip);
   await expect(page.getByTestId('ai-import-file-name')).toContainText(path.basename(zip));
   await page.getByTestId('ai-import-start').click();
+  // Двухзонная выверка дублей: одобряем обе зоны (select-all → apply).
+  await approveDocsReviewGates(page);
   await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
   await page.getByTestId('ai-import-done').click();
   await expect(page.getByTestId('ai-import')).toHaveCount(0);
