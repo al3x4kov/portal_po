@@ -247,6 +247,26 @@ describe('Г3/Г4 — способ и параметры', () => {
     await user.click(screen.getByTestId('gen-include-unimpl'));
     expect(screen.getByTestId('gen-estimate')).toHaveTextContent('1 из 3 ФТ');
   });
+
+  it('фильтр «только реализованные» доступен и в режиме шаблона: без галочки в модель не попадает ни одно нереализованное ФТ', async () => {
+    const user = userEvent.setup();
+    await gotoMode(user, 'smoke');
+    await user.click(screen.getByTestId('export-mode-template'));
+    // Чекбокс живёт на шаге способа НЕЗАВИСИМО от выбранного режима.
+    const checkbox = screen.getByTestId('gen-include-unimpl');
+    expect(checkbox).toBeChecked();
+    await user.click(checkbox);
+    // Смок без нереализованных: остаются только реализованные BLOCKER/HIGH.
+    expect(screen.getByTestId('gen-estimate')).toHaveTextContent('2 из 3 ФТ');
+
+    await user.click(screen.getByTestId('gen-template-start'));
+    await screen.findByTestId('gen-cases');
+    const markdown = screen.getByTestId('gen-cases').textContent ?? '';
+    expect(markdown).toContain('Вход по паролю');
+    expect(markdown).toContain('Выход из системы');
+    // Запланированное (нереализованное) ФТ явно исключено из выгрузки.
+    expect(markdown).not.toContain('Вход по биометрии');
+  });
 });
 
 // ── Г5 · негатив: AI не настроен ────────────────────────────────────────────
