@@ -103,6 +103,11 @@ async function gotoMode(
   await screen.findByTestId(`export-tasks-dir-${dir}`);
   await user.click(screen.getByTestId(`export-tasks-dir-${dir}`));
   await user.click(screen.getByTestId('gen-direction-next'));
+  if (dir === 'smoke') {
+    // Smoke идёт через промежуточный «Состав модели» — подтверждаем целиком.
+    await screen.findByTestId('gen-compose');
+    await user.click(screen.getByTestId('gen-compose-next'));
+  }
   await screen.findByTestId('gen-mode');
 }
 
@@ -149,10 +154,13 @@ describe('Г1 — направление', () => {
 
   it('степпер отмечает пройденные шаги и подсвечивает активный', async () => {
     const user = userEvent.setup();
+    // Смок теперь идёт через 4 шага: «Состав модели» вторым.
     await gotoMode(user);
     expect(screen.getByTestId('gen-step-1')).toHaveAttribute('data-state', 'done');
-    expect(screen.getByTestId('gen-step-2')).toHaveAttribute('data-state', 'active');
-    expect(screen.getByTestId('gen-step-3')).toHaveAttribute('data-state', 'todo');
+    expect(screen.getByTestId('gen-step-2')).toHaveAttribute('data-state', 'done');
+    expect(screen.getByTestId('gen-step-2')).toHaveTextContent('Состав модели');
+    expect(screen.getByTestId('gen-step-3')).toHaveAttribute('data-state', 'active');
+    expect(screen.getByTestId('gen-step-4')).toHaveAttribute('data-state', 'todo');
   });
 });
 
@@ -246,6 +254,106 @@ describe('Г3/Г4 — способ и параметры', () => {
     expect(screen.getByTestId('gen-estimate')).toHaveTextContent('2 из 3 ФТ');
     await user.click(screen.getByTestId('gen-include-unimpl'));
     expect(screen.getByTestId('gen-estimate')).toHaveTextContent('1 из 3 ФТ');
+  });
+
+  it('смок: шаг «Состав модели» показывает принцип отбора и причину попадания каждого ФТ', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('export-tasks-dir-smoke');
+    await user.click(screen.getByTestId('export-tasks-dir-smoke'));
+    expect(screen.getByTestId('gen-direction-next')).toHaveTextContent('Далее: состав модели');
+    await user.click(screen.getByTestId('gen-direction-next'));
+
+    // Принцип отбора виден словами, не только счётчиком.
+    const compose = await screen.findByTestId('gen-compose');
+    expect(screen.getByTestId('gen-compose-aside')).toHaveTextContent(
+      'Критичность Блокер/Критическая/Высокая, корни дерева и нереализованные ФТ',
+    );
+    // Все три отобранных ФТ показаны с причинами.
+    expect(compose.querySelectorAll('[data-testid^="gen-compose-row-"]')).toHaveLength(3);
+    const ftAReasons = screen.getAllByTestId('gen-compose-reason-ft-a').map((el) => el.textContent);
+    expect(ftAReasons).toContain('высокая критичность');
+    expect(ftAReasons).toContain('корень дерева');
+    const plannedReasons = screen
+      .getAllByTestId('gen-compose-reason-ft-plan')
+      .map((el) => el.textContent);
+    expect(plannedReasons).toContain('не реализовано');
+    // Сводка честная: отобрано правилом / исключено / войдут.
+    expect(screen.getByTestId('gen-compose-summary')).toHaveTextContent('3 из 3 ФТ');
+    expect(screen.getByTestId('gen-compose-included')).toHaveTextContent('3');
+  });
+
+  it('смок: исключённое на «Составе модели» ФТ не попадает в смету и в собранный файл', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('export-tasks-dir-smoke');
+    await user.click(screen.getByTestId('export-tasks-dir-smoke'));
+    await user.click(screen.getByTestId('gen-direction-next'));
+    await screen.findByTestId('gen-compose');
+
+    // Исключаем «Выход из системы»; счётчики и кнопка пересчитываются.
+    await user.click(screen.getByTestId('gen-compose-check-ft-b'));
+    expect(screen.getByTestId('gen-compose-excluded')).toHaveTextContent('1');
+    expect(screen.getByTestId('gen-compose-included')).toHaveTextContent('2');
+    expect(screen.getByTestId('gen-compose-next')).toHaveTextContent('(2)');
+
+    await user.click(screen.getByTestId('gen-compose-next'));
+    await screen.findByTestId('gen-mode');
+    expect(screen.getByTestId('gen-estimate')).toHaveTextContent('2 из 3 ФТ');
+
+    // Шаблонная сборка уважает исключение.
+    await user.click(screen.getByTestId('export-mode-template'));
+    await user.click(screen.getByTestId('gen-template-start'));
+    await screen.findByTestId('gen-cases');
+    const markdown = screen.getByTestId('gen-cases').textContent ?? '';
+    expect(markdown).toContain('Вход по паролю');
+    expect(markdown).not.toContain('Выход из системы');
+  });
+
+  it('смок: исключить все ФТ нельзя — «Далее» блокируется; «Вернуть исключённые» возвращает всё', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('export-tasks-dir-smoke');
+    await user.click(screen.getByTestId('export-tasks-dir-smoke'));
+    await user.click(screen.getByTestId('gen-direction-next'));
+    await screen.findByTestId('gen-compose');
+
+    await user.click(screen.getByTestId('gen-compose-check-ft-a'));
+    await user.click(screen.getByTestId('gen-compose-check-ft-b'));
+    await user.click(screen.getByTestId('gen-compose-check-ft-plan'));
+    expect(screen.getByTestId('gen-compose-next')).toBeDisabled();
+
+    await user.click(screen.getByTestId('gen-compose-reset'));
+    expect(screen.getByTestId('gen-compose-included')).toHaveTextContent('3');
+    expect(screen.getByTestId('gen-compose-next')).toBeEnabled();
+  });
+
+  it('смок: «Назад» с шага способа возвращает на «Состав модели», исключения сохранены', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('export-tasks-dir-smoke');
+    await user.click(screen.getByTestId('export-tasks-dir-smoke'));
+    await user.click(screen.getByTestId('gen-direction-next'));
+    await screen.findByTestId('gen-compose');
+    await user.click(screen.getByTestId('gen-compose-check-ft-b'));
+    await user.click(screen.getByTestId('gen-compose-next'));
+    await screen.findByTestId('gen-mode');
+
+    await user.click(screen.getByTestId('gen-back-1'));
+    await screen.findByTestId('gen-compose');
+    expect(screen.getByTestId('gen-compose-check-ft-b')).not.toBeChecked();
+    expect(screen.getByTestId('gen-compose-excluded')).toHaveTextContent('1');
+  });
+
+  it('крит-регресс и полная модель идут на способ без шага состава', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId('export-tasks-dir-crit-regression');
+    await user.click(screen.getByTestId('export-tasks-dir-crit-regression'));
+    expect(screen.getByTestId('gen-direction-next')).toHaveTextContent('Далее: способ и параметры');
+    await user.click(screen.getByTestId('gen-direction-next'));
+    await screen.findByTestId('gen-mode');
+    expect(screen.queryByTestId('gen-compose')).not.toBeInTheDocument();
   });
 
   it('фильтр «только реализованные» доступен и в режиме шаблона: без галочки в модель не попадает ни одно нереализованное ФТ', async () => {

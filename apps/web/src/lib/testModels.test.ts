@@ -10,6 +10,7 @@ import {
   buildTemplateDoc,
   buildTrackerDoc,
   selectForKind,
+  smokeSelectionReasons,
 } from './testModels';
 import { makeReq } from '../test/fixtures';
 
@@ -255,6 +256,32 @@ describe('Task 12 — generator ordering branches', () => {
 });
 
 // ─── Блочная сборка: карточный предпросмотр экрана «Результат» ───────────────
+
+describe('smokeSelectionReasons — причины отбора зеркалят предикат smoke', () => {
+  it('каждая причина названа: критичность, корень, нереализовано (и их комбинации)', () => {
+    // ftA: BLOCKER + корень (нет CHILD_OF).
+    expect(smokeSelectionReasons(ftA)).toEqual(['высокая критичность', 'корень дерева']);
+    // ftB: HIGH, но дитя.
+    expect(smokeSelectionReasons(ftB)).toEqual(['высокая критичность']);
+    // ftC: MEDIUM-дитя, не реализовано.
+    expect(smokeSelectionReasons(ftC)).toEqual(['не реализовано']);
+  });
+
+  it('инвариант: непустой список причин ⇔ ФТ отобрано правилом smoke', () => {
+    const midChild = makeReq({
+      slug: 'mid-child',
+      name: 'Реализованное среднее дитя',
+      criticality: 'MEDIUM',
+      implemented: true,
+      links: [{ type: 'CHILD_OF', targetSlug: 'ft-a' }],
+    });
+    const all = [ftA, ftB, ftC, midChild];
+    const selected = new Set(selectForKind('smoke', all).map((r) => r.slug));
+    for (const r of all) {
+      expect(smokeSelectionReasons(r).length > 0).toBe(selected.has(r.slug));
+    }
+  });
+});
 
 describe('testModels — блоки документа', () => {
   const reqs = [ftA, ftB, ftC, nfrA];

@@ -73,6 +73,8 @@ test('шаблонный путь через шаг «Способ»: прежн
   await page.getByTestId('sidebar-open-tasks').click();
   await page.getByTestId('export-tasks-dir-smoke').click();
   await page.getByTestId('gen-direction-next').click();
+  // Смок: промежуточный шаг «Состав модели» — подтверждаем отбор целиком.
+  await page.getByTestId('gen-compose-next').click();
   // Развилка: оба способа на экране.
   await expect(page.getByTestId('export-mode-template')).toBeVisible();
   await expect(page.getByTestId('export-mode-ai')).toBeVisible();
@@ -94,6 +96,8 @@ test('AI-путь: модель проекта, журнал прогона, к�
   await page.getByTestId('sidebar-open-tasks').click();
   await page.getByTestId('export-tasks-dir-smoke').click();
   await page.getByTestId('gen-direction-next').click();
+  // Смок: промежуточный шаг «Состав модели» — подтверждаем отбор целиком.
+  await page.getByTestId('gen-compose-next').click();
   await page.getByTestId('export-mode-ai').click();
 
   // Шаг «Способ и параметры»: модель проекта подставлена, чекбокс негативов есть.
@@ -143,6 +147,8 @@ test('анти-галлюцинации: чужой slug отброшен, пр�
     await page.getByTestId('sidebar-open-tasks').click();
     await page.getByTestId('export-tasks-dir-smoke').click();
     await page.getByTestId('gen-direction-next').click();
+    // Смок: промежуточный шаг «Состав модели» — подтверждаем отбор целиком.
+    await page.getByTestId('gen-compose-next').click();
     await page.getByTestId('export-mode-ai').click();
     await page.getByTestId('gen-ai-start').click();
 

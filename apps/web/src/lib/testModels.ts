@@ -162,6 +162,21 @@ export function selectForKind(kind: TestModelKind, reqs: Requirement[]): Require
   return bfsOrder(fn);
 }
 
+/**
+ * Почему конкретное ФТ попало в smoke-отбор — человекочитаемые чипы шага
+ * «Состав модели». Правила ЗЕРКАЛЯТ предикат {@link selectForKind} (smoke):
+ * непустой список причин ⇔ требование отобрано (закреплено юнит-тестом).
+ */
+export function smokeSelectionReasons(r: Requirement): string[] {
+  const reasons: string[] = [];
+  if (['BLOCKER', 'CRITICAL', 'HIGH'].includes(r.criticality)) {
+    reasons.push('высокая критичность');
+  }
+  if (!hasParent(r)) reasons.push('корень дерева');
+  if (!r.implemented) reasons.push('не реализовано');
+  return reasons;
+}
+
 export const TC_PREFIX: Record<TestModelKind, string> = {
   smoke: 'SMK',
   'crit-regression': 'CRG',

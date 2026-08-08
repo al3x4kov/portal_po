@@ -364,6 +364,8 @@ test.describe('Wave 1-2 UX', () => {
     // Направление «smoke» → способ «Шаблон» → сборка.
     await page.getByTestId('export-tasks-dir-smoke').click();
     await page.getByTestId('gen-direction-next').click();
+    // Смок: промежуточный шаг «Состав модели» — подтверждаем отбор целиком.
+    await page.getByTestId('gen-compose-next').click();
     await page.getByTestId('export-mode-template').click();
     await page.getByTestId('gen-template-start').click();
 

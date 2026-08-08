@@ -35,11 +35,14 @@ import {
   KIND_RULES,
   KIND_TITLE,
   selectForKind,
+  smokeSelectionReasons,
   type TestModelDoc,
 } from '../lib/testModels';
+import { CRITICALITY_LABEL } from '../lib/criticality';
 
 type Direction = 'tracker' | 'smoke' | 'crit-regression' | 'full';
-type Step = 'direction' | 'select' | 'mode' | 'result';
+/** `compose` — промежуточный шаг smoke-модели: состав отбора + исключения. */
+type Step = 'direction' | 'select' | 'compose' | 'mode' | 'result';
 /** Развилка тестовых моделей: детерминированный шаблон или AI-генерация. */
 type GenMode = 'template' | 'ai';
 /** Состояние AI-прогона: он же управляет содержимым экрана «Результат». */
@@ -264,6 +267,12 @@ export function GeneratePage(): React.ReactElement {
   const [trackerSelected, setTrackerSelected] = useState<Set<string> | null>(null);
   /** Чекбокс «Включить нереализованные ФТ» — заменил отдельный шаг-вопрос. */
   const [includeUnimpl, setIncludeUnimpl] = useState(true);
+  /**
+   * Шаг «Состав модели» (smoke): ФТ, исключённые пользователем из отбора.
+   * Пользователи не понимали, какие ФТ попадают в smoke-модель, — теперь
+   * отбор показан явно (с причинами) и лишнее можно снять до генерации.
+   */
+  const [excludedSmoke, setExcludedSmoke] = useState<ReadonlySet<string>>(new Set());
   const [aiNegatives, setAiNegatives] = useState(false);
   const [aiModelOverride, setAiModelOverride] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'cards' | 'markdown'>('cards');
@@ -341,10 +350,37 @@ export function GeneratePage(): React.ReactElement {
     return map;
   }, [genReqs]);
 
+  // ── Шаг «Состав модели» (smoke): отбор правилом + ручные исключения ──
+  const smokeSelection = useMemo(() => selectForKind('smoke', genReqs), [genReqs]);
+  const smokeIncluded = useMemo(
+    () => smokeSelection.filter((r) => !excludedSmoke.has(r.slug)),
+    [smokeSelection, excludedSmoke],
+  );
+  // Отбор пересчитался (другие требования / чекбокс нереализованных) —
+  // старые исключения больше не про тот набор, сбрасываем.
+  useEffect(() => {
+    setExcludedSmoke(new Set());
+  }, [genReqs]);
+  /** Набор для генерации с учётом ручных исключений smoke-состава. */
+  const effectiveGenReqs = useMemo(
+    () =>
+      direction === 'smoke' && excludedSmoke.size > 0
+        ? genReqs.filter((r) => !excludedSmoke.has(r.slug))
+        : genReqs,
+    [genReqs, direction, excludedSmoke],
+  );
+
   const isTracker = direction === 'tracker';
   const kind = direction as TestModelKind;
-  const dirCoverage = isTracker ? requirements.length : (coverage.get(direction) ?? 0);
-  const zeroCoverage = !isTracker && dirCoverage === 0;
+  /** Охват правила отбора (без ручных исключений) — гейт шага «Направление». */
+  const ruleCoverage = isTracker ? requirements.length : (coverage.get(direction) ?? 0);
+  /** Фактический размер модели: для smoke — после ручных исключений. */
+  const dirCoverage = isTracker
+    ? requirements.length
+    : direction === 'smoke'
+      ? smokeIncluded.length
+      : (coverage.get(direction) ?? 0);
+  const zeroCoverage = !isTracker && ruleCoverage === 0;
 
   const effectiveTrackerSelected = trackerSelected ?? new Set(requirements.map((r) => r.slug));
 
@@ -397,6 +433,17 @@ export function GeneratePage(): React.ReactElement {
       setStep('select');
       return;
     }
+    if (direction === 'smoke') {
+      // Промежуточный шаг: показать принцип отбора и дать исключить лишние ФТ.
+      setStep('compose');
+      return;
+    }
+    setMode(configured ? 'ai' : 'template');
+    setStep('mode');
+  }
+
+  /** «Состав модели» подтверждён — дальше обычная развилка «Шаблон / AI». */
+  function goFromCompose(): void {
     setMode(configured ? 'ai' : 'template');
     setStep('mode');
   }
@@ -409,7 +456,7 @@ export function GeneratePage(): React.ReactElement {
   }
 
   function buildTemplate(): void {
-    setTemplateDoc(buildTemplateDoc(kind, genReqs));
+    setTemplateDoc(buildTemplateDoc(kind, effectiveGenReqs));
     setRunStatus('done');
     setStep('result');
   }
@@ -422,7 +469,7 @@ export function GeneratePage(): React.ReactElement {
    */
   async function runAi(fromBatch = 0, only?: number[]): Promise<void> {
     const resuming = fromBatch > 0 || only !== undefined;
-    const list = resuming && ordered.length > 0 ? ordered : selectForKind(kind, genReqs);
+    const list = resuming && ordered.length > 0 ? ordered : selectForKind(kind, effectiveGenReqs);
     if (list.length === 0) {
       logLine('warn', 'Под выбранную модель не попало ни одного ФТ — генерировать нечего.');
       return;
@@ -570,6 +617,23 @@ export function GeneratePage(): React.ReactElement {
         : { sub: DIRECTION_INFO[direction].title }),
       state: step === 'direction' ? 'active' : 'done',
     },
+    // Smoke: промежуточный шаг «Состав модели» — принцип отбора + исключения.
+    ...(direction === 'smoke'
+      ? [
+          {
+            label: 'Состав модели',
+            sub:
+              step === 'direction'
+                ? 'что войдёт в smoke'
+                : `${smokeIncluded.length} из ${smokeSelection.length} ФТ`,
+            state: (step === 'compose'
+              ? 'active'
+              : step === 'mode' || step === 'result'
+                ? 'done'
+                : 'todo') as 'todo' | 'active' | 'done',
+          },
+        ]
+      : []),
     isTracker
       ? {
           label: 'Выбор требований',
@@ -627,13 +691,20 @@ export function GeneratePage(): React.ReactElement {
         title={zeroCoverage ? 'Под правила отбора не попало ни одного ФТ' : undefined}
         onClick={goFromDirection}
       >
-        {isTracker ? 'Далее: выбор требований →' : 'Далее: способ и параметры →'}
+        {isTracker
+          ? 'Далее: выбор требований →'
+          : direction === 'smoke'
+            ? 'Далее: состав модели →'
+            : 'Далее: способ и параметры →'}
       </button>
     );
   } else if (step === 'select') {
     footerLeft = backButton('direction', 'gen-back-1');
-  } else if (step === 'mode') {
+  } else if (step === 'compose') {
     footerLeft = backButton('direction', 'gen-back-1');
+  } else if (step === 'mode') {
+    // Smoke пришёл через «Состав модели» — назад именно туда, не через шаг.
+    footerLeft = backButton(direction === 'smoke' ? 'compose' : 'direction', 'gen-back-1');
   } else {
     footerLeft = (
       <button
@@ -824,6 +895,120 @@ export function GeneratePage(): React.ReactElement {
             onClick={buildTracker}
           >
             Сформировать ({effectiveTrackerSelected.size})
+          </button>
+        </AsideActions>
+      </WorkspaceAside>
+    </>
+  );
+
+  /* ── Шаг «Состав модели» (smoke): принцип отбора + ручные исключения ──── */
+  const composeStep = (
+    <>
+      <div
+        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-6"
+        data-testid="gen-compose"
+      >
+        <p className="text-sm" style={{ color: 'var(--color-text-2)' }}>
+          Ниже — ФТ, отобранные правилом smoke-модели, с причиной попадания у каждого. Снимите
+          галочку, чтобы исключить ФТ из модели — на следующий шаг уйдёт только выбранное.
+        </p>
+        {smokeSelection.map((r) => {
+          const included = !excludedSmoke.has(r.slug);
+          return (
+            <label
+              key={r.slug}
+              className="flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--color-border)', opacity: included ? 1 : 0.55 }}
+              data-testid={`gen-compose-row-${r.slug}`}
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-primary)]"
+                data-testid={`gen-compose-check-${r.slug}`}
+                checked={included}
+                onChange={() =>
+                  setExcludedSmoke((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(r.slug)) next.delete(r.slug);
+                    else next.add(r.slug);
+                    return next;
+                  })
+                }
+              />
+              <span className="min-w-0">
+                <span className="font-medium">{r.name}</span>
+                <span className="t3 ml-2 text-xs">
+                  {CRITICALITY_LABEL[r.criticality]}
+                  {r.implemented ? '' : ' · не реализовано'}
+                </span>
+                <span className="mt-1 flex flex-wrap gap-1.5">
+                  {smokeSelectionReasons(r).map((reason) => (
+                    <span
+                      key={reason}
+                      className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+                      style={{ background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }}
+                      data-testid={`gen-compose-reason-${r.slug}`}
+                    >
+                      {reason}
+                    </span>
+                  ))}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      <WorkspaceAside testid="gen-compose-aside">
+        <AsideTitle>Принцип отбора</AsideTitle>
+        <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-2)' }}>
+          {KIND_RULES.smoke}
+        </p>
+        <dl
+          className="space-y-1 rounded-lg border p-3 text-sm"
+          style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg)' }}
+          data-testid="gen-compose-summary"
+        >
+          <div className="flex justify-between gap-3">
+            <dt style={{ color: 'var(--color-text-2)' }}>Отобрано правилом</dt>
+            <dd className="font-semibold">
+              {smokeSelection.length} из {functionalCount} ФТ
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt style={{ color: 'var(--color-text-2)' }}>Исключено вручную</dt>
+            <dd className="font-semibold" data-testid="gen-compose-excluded">
+              {excludedSmoke.size}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt style={{ color: 'var(--color-text-2)' }}>Войдут в модель</dt>
+            <dd className="font-semibold" data-testid="gen-compose-included">
+              {smokeIncluded.length}
+            </dd>
+          </div>
+        </dl>
+        {excludedSmoke.size > 0 ? (
+          <button
+            type="button"
+            className="btn btn-secondary w-full justify-center"
+            data-testid="gen-compose-reset"
+            onClick={() => setExcludedSmoke(new Set())}
+          >
+            Вернуть исключённые ({excludedSmoke.size})
+          </button>
+        ) : null}
+        <AsideActions>
+          <button
+            type="button"
+            className="btn btn-primary w-full justify-center"
+            data-testid="gen-compose-next"
+            disabled={smokeIncluded.length === 0}
+            title={
+              smokeIncluded.length === 0 ? 'Исключены все ФТ — модель будет пустой' : undefined
+            }
+            onClick={goFromCompose}
+          >
+            Далее: способ и параметры ({smokeIncluded.length}) →
           </button>
         </AsideActions>
       </WorkspaceAside>
@@ -1392,9 +1577,11 @@ export function GeneratePage(): React.ReactElement {
         ? directionStep
         : step === 'select'
           ? selectStep
-          : step === 'mode'
-            ? modeStep
-            : resultStep}
+          : step === 'compose'
+            ? composeStep
+            : step === 'mode'
+              ? modeStep
+              : resultStep}
 
       {leaveConfirm ? (
         <ConfirmDialog
