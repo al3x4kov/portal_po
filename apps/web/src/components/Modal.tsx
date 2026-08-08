@@ -2,6 +2,14 @@ import { useEffect, useRef } from 'react';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 
 /**
+ * Stack of mounted Modals: Esc must close only the TOP one, so a stacked
+ * dialog (e.g. LinkModal over RequirementModal) doesn't also fire the cancel
+ * guard of the dialog beneath it. Mount order = stacking order (same rule as
+ * the focus-trap stack in useFocusTrap).
+ */
+const escStack: Array<{ close: () => void }> = [];
+
+/**
  * task24: modal size variant.
  * - `default` — content-sized card capped by `widthClass` (unchanged behaviour).
  * - `large` — on ≥768px the card takes ~70% of the viewport in BOTH dimensions
@@ -67,13 +75,23 @@ export function Modal({
   // UX-5: keep focus inside the dialog; preserves an inner autoFocus (see hook).
   useFocusTrap(cardRef, { restoreTo: openerRef });
 
+  // The stack entry is registered once per mount so its position reflects the
+  // real stacking order even when `onClose` is re-created on every render.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
+    const entry = { close: (): void => onCloseRef.current() };
+    escStack.push(entry);
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && escStack[escStack.length - 1] === entry) entry.close();
     };
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    return () => {
+      const idx = escStack.indexOf(entry);
+      if (idx >= 0) escStack.splice(idx, 1);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, []);
 
   return (
     <div

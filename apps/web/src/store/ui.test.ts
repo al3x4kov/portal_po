@@ -195,6 +195,22 @@ describe('modal', () => {
     s().openModal({ kind: 'requirement', reqType: 'FUNCTION' });
     expect(s().modal).toMatchObject({ kind: 'requirement', reqType: 'FUNCTION' });
   });
+
+  it('link overlay: opens over the modal, closes alone, and dies with closeModal', () => {
+    const source = makeReq({ slug: 'a', name: 'A' });
+    s().openModal({ kind: 'requirement', reqType: 'FUNCTION', requirement: source });
+    s().openLinkOverlay({ source, initialTypeFilter: 'NFR' });
+    expect(s().linkOverlay).toEqual({ source, initialTypeFilter: 'NFR' });
+    // Закрытие оверлея не трогает карточку под ним.
+    s().closeLinkOverlay();
+    expect(s().linkOverlay).toBeNull();
+    expect(s().modal).toMatchObject({ kind: 'requirement' });
+    // Закрытие базовой модалки прибирает и оверлей.
+    s().openLinkOverlay({ source });
+    s().closeModal();
+    expect(s().modal).toBeNull();
+    expect(s().linkOverlay).toBeNull();
+  });
 });
 
 describe('initialTheme (module init)', () => {

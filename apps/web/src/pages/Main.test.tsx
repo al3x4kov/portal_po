@@ -358,17 +358,26 @@ describe('Main page (E11 integration)', () => {
     expect(await screen.findByTestId('tree-row-pay')).toBeInTheDocument();
   });
 
-  it('onAddLink: editing → "+ Связать с ФТ" swaps the edit modal for the LinkModal', async () => {
+  it('onAddLink: editing → "+ Связать с ФТ" opens the LinkModal OVER the card, edits survive', async () => {
     const user = userEvent.setup();
     renderMain();
     await screen.findByTestId('tree-row-pay');
     await user.click(screen.getByTestId('req-name-pay'));
     await screen.findByTestId('requirement-modal');
+    // Unsaved edit in the card — must survive the link detour (жалоба ПО).
+    const nameInput = screen.getByTestId('req-name') as HTMLInputElement;
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Платежи v2');
     await user.click(screen.getByTestId('req-tab-links'));
     await user.click(await screen.findByTestId('req-links-add-ft'));
-    // The requirement modal closes and a LinkModal opens for the same source.
+    // The LinkModal stacks on top; the requirement modal stays mounted.
     expect(await screen.findByTestId('link-modal')).toBeInTheDocument();
-    expect(screen.queryByTestId('requirement-modal')).not.toBeInTheDocument();
+    expect(screen.getByTestId('requirement-modal')).toBeInTheDocument();
+    // Esc closes only the top LinkModal and returns to the card intact.
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByTestId('link-modal')).not.toBeInTheDocument());
+    expect(screen.getByTestId('requirement-modal')).toBeInTheDocument();
+    expect((screen.getByTestId('req-name') as HTMLInputElement).value).toBe('Платежи v2');
   });
 
   it('opens the description drawer on demand and closes it (T-1104)', async () => {

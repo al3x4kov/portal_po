@@ -44,6 +44,9 @@ export function Main(): React.ReactElement {
   const modal = useUiStore((s) => s.modal);
   const openModal = useUiStore((s) => s.openModal);
   const closeModal = useUiStore((s) => s.closeModal);
+  const linkOverlay = useUiStore((s) => s.linkOverlay);
+  const openLinkOverlay = useUiStore((s) => s.openLinkOverlay);
+  const closeLinkOverlay = useUiStore((s) => s.closeLinkOverlay);
 
   const graphView = useUiStore((s) => s.graphView);
   const mainView = useUiStore((s) => s.mainView);
@@ -640,29 +643,40 @@ export function Main(): React.ReactElement {
           />
         ) : null}
 
-        {modal?.kind === 'requirement' ? (
-          <RequirementModal
-            projectId={id}
-            reqType={modal.reqType}
-            requirement={modal.requirement}
-            nameBySlug={nameBySlug}
-            requirementsBySlug={requirementsBySlug}
-            linkFrom={modal.linkFrom}
-            linkType={modal.linkType}
-            focusField={modal.focusField}
-            noDefaultCriticality={!modal.requirement && modal.linkType === 'CHILD_OF'}
-            onAddLink={
-              modal.requirement
-                ? (typeHint: RequirementType) => {
-                    const req = modal.requirement!;
-                    closeModal();
-                    openModal({ kind: 'link', source: req, initialTypeFilter: typeHint });
+        {modal?.kind === 'requirement'
+          ? (() => {
+              // Живое требование из query-кэша: после мутации связи из оверлея
+              // refetch приносит свежий список links — карточка его подхватит,
+              // не пересоздавая форму (снимок в zustand не обновляется).
+              const liveRequirement = modal.requirement
+                ? (requirementsBySlug.get(modal.requirement.slug) ?? modal.requirement)
+                : undefined;
+              return (
+                <RequirementModal
+                  projectId={id}
+                  reqType={modal.reqType}
+                  requirement={liveRequirement}
+                  nameBySlug={nameBySlug}
+                  requirementsBySlug={requirementsBySlug}
+                  linkFrom={modal.linkFrom}
+                  linkType={modal.linkType}
+                  focusField={modal.focusField}
+                  noDefaultCriticality={!modal.requirement && modal.linkType === 'CHILD_OF'}
+                  onAddLink={
+                    liveRequirement
+                      ? (typeHint: RequirementType) => {
+                          // Карточка ОСТАЁТСЯ смонтированной — LinkModal
+                          // открывается оверлеем поверх неё, несохранённые
+                          // правки формы не теряются.
+                          openLinkOverlay({ source: liveRequirement, initialTypeFilter: typeHint });
+                        }
+                      : undefined
                   }
-                : undefined
-            }
-            onClose={closeModal}
-          />
-        ) : null}
+                  onClose={closeModal}
+                />
+              );
+            })()
+          : null}
 
         {modal?.kind === 'link' ? (
           <LinkModal
@@ -671,6 +685,17 @@ export function Main(): React.ReactElement {
             requirements={requirements}
             initialTypeFilter={modal.initialTypeFilter}
             onClose={closeModal}
+          />
+        ) : null}
+
+        {/* Оверлей «Новая связь» поверх открытой карточки требования. */}
+        {linkOverlay ? (
+          <LinkModal
+            projectId={id}
+            source={linkOverlay.source}
+            requirements={requirements}
+            initialTypeFilter={linkOverlay.initialTypeFilter}
+            onClose={closeLinkOverlay}
           />
         ) : null}
 

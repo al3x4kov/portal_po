@@ -21,6 +21,16 @@ export type ModalState =
   | { kind: 'export-tasks' }
   | null;
 
+/**
+ * Оверлей «Новая связь» ПОВЕРХ открытой карточки требования. Отдельный слот,
+ * а не kind в `modal`: карточка должна остаться смонтированной, иначе все
+ * несохранённые правки формы (RHF + локальные вкладки) погибнут вместе с ней.
+ */
+export interface LinkOverlayState {
+  source: Requirement;
+  initialTypeFilter?: RequirementType;
+}
+
 export type Theme = 'light' | 'dark';
 
 /** "Раскрыть все" (default) vs "Скрыть зависимости" (B1). */
@@ -100,6 +110,11 @@ interface UiState {
   modal: ModalState;
   openModal: (modal: NonNullable<ModalState>) => void;
   closeModal: () => void;
+
+  /** Оверлей связи поверх карточки требования (см. LinkOverlayState). */
+  linkOverlay: LinkOverlayState | null;
+  openLinkOverlay: (overlay: LinkOverlayState) => void;
+  closeLinkOverlay: () => void;
 }
 
 function initialTheme(): Theme {
@@ -183,5 +198,10 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   modal: null,
   openModal: (modal) => set({ modal }),
-  closeModal: () => set({ modal: null }),
+  // Закрытие базовой модалки убирает и оверлей связи — он не живёт сам по себе.
+  closeModal: () => set({ modal: null, linkOverlay: null }),
+
+  linkOverlay: null,
+  openLinkOverlay: (linkOverlay) => set({ linkOverlay }),
+  closeLinkOverlay: () => set({ linkOverlay: null }),
 }));

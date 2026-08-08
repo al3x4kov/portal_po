@@ -147,6 +147,13 @@ export function RequirementModal({
 
   // T2/T3: local copy of the requirement's links so a deletion disappears at once.
   const [links, setLinks] = useState<Link[]>(requirement?.links ?? []);
+  // Связь может добавиться извне, пока карточка открыта (LinkModal-оверлей):
+  // после invalidation родитель передаёт свежее требование — подхватываем только
+  // список связей, не трогая форму и локальные вкладки.
+  const requirementLinks = requirement?.links;
+  useEffect(() => {
+    if (requirementLinks) setLinks(requirementLinks);
+  }, [requirementLinks]);
   // T3: which link (if any) is awaiting inline delete confirmation.
   const [pendingDelete, setPendingDelete] = useState<{ type: LinkType; targetSlug: string } | null>(
     null,
