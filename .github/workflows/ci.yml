@@ -40,6 +40,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Тесты сервера/MCP импортируют @po/core из его dist/ (package.json exports),
+      # поэтому перед vitest нужна сборка project references.
+      - run: npx tsc -b
       - run: npm run test
 
   e2e:
