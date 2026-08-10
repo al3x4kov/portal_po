@@ -3,6 +3,22 @@ setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
 
+rem Защита от запуска прямо из окна ZIP-архива: проводник Windows распаковывает
+rem во временную папку только сам start.cmd, без остальных файлов репозитория,
+rem и npm подхватывает чужой package.json выше по дереву — Missing script: "build".
+if not exist "%~dp0package.json" (
+  echo Ошибка: рядом со start.cmd нет package.json проекта.
+  echo Текущая папка: %CD%
+  echo.
+  echo Похоже, скрипт запущен прямо из окна ZIP-архива или из неполной распаковки.
+  echo Что сделать:
+  echo   1. Кликните по скачанному ZIP правой кнопкой и выберите «Извлечь всё...»
+  echo   2. Запустите start.cmd из распакованной папки с проектом
+  echo Либо клонируйте репозиторий: git clone и запустите start.cmd из его корня.
+  pause
+  exit /b 1
+)
+
 rem Портал требует Node.js >= 20 (см. package.json engines / CLAUDE.md).
 where node >nul 2>nul
 if errorlevel 1 (
