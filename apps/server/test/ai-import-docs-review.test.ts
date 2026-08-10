@@ -209,16 +209,16 @@ describe('Двухзонная выверка docs-импорта (интегр�
     // отменённая джоба запустила бы populate.
     const client = scriptedClient([EXTRACTION, PAIR_CONFIRM, STRUCTURE]);
     let cancelOnNextList = false;
-    let jobIdRef: string | undefined;
+    const jobIdRef: { current?: string } = {};
     const service: ReturnType<ImportHarness['makeService']> = h.makeService(client, {
       makeRequirementService: (pid) => {
         const real = createRequirementService(h.ctx, pid);
         return {
           list: async () => {
             const out = await real.list();
-            if (cancelOnNextList && jobIdRef) {
+            if (cancelOnNextList && jobIdRef.current) {
               cancelOnNextList = false;
-              service.cancel(jobIdRef);
+              service.cancel(jobIdRef.current);
             }
             return out;
           },
@@ -230,7 +230,7 @@ describe('Двухзонная выверка docs-импорта (интегр�
       },
     });
     const jobId = await startToZone1(service);
-    jobIdRef = jobId;
+    jobIdRef.current = jobId;
     const items = service.getView(jobId).docsReview!.items;
 
     cancelOnNextList = true;
