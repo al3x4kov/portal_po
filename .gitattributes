@@ -1,0 +1,5 @@
+# Batch-скрипты должны выезжать из git с CRLF, иначе cmd.exe может неправильно их разобрать
+*.cmd text eol=crlf
+*.bat text eol=crlf
+# Shell-скрипты — всегда LF, даже при core.autocrlf=true на Windows
+*.sh text eol=lf

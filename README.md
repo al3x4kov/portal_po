@@ -5,6 +5,33 @@
 приоритизирует их (источники + RICE) и хранит результат в **машиночитаемом Markdown** —
 чтобы требования можно было отдавать ИИ-агентам как источник истины.
 
+## Локальный запуск (Windows / Linux / macOS)
+
+**Пререквизиты:**
+
+- **Node.js ≥ 20** (npm идёт в комплекте) — <https://nodejs.org>
+- **Git** — чтобы клонировать репозиторий
+
+**Windows** — двойной клик по `start.cmd` в проводнике или из терминала:
+
+```bat
+git clone <repo> project_po
+cd project_po
+start.cmd        (в PowerShell — .\start.cmd)
+```
+
+**Linux / macOS:**
+
+```bash
+git clone <repo> project_po && cd project_po && bash start.sh
+```
+
+Скрипт проверит версию Node.js, выполнит `npm install` → `npm run build` и запустит
+сервер. Откройте <http://127.0.0.1:3000> — SPA на `/`, API на `/api`, Swagger UI
+на `/docs`. Проекты сохраняются в `./Projects/` (каталог создаётся автоматически).
+Порт и другие настройки — переменными окружения, см.
+[«Переменные окружения»](#переменные-окружения-сервер).
+
 ![Дерево требований демо-проекта «Twitter»: RICE, источники, сроки и связи](docs/screenshots/tree.png)
 
 > Все скриншоты в README сняты с работающего приложения на демо-описании продукта
@@ -318,12 +345,21 @@ node apps/server/dist/main.js
 
 ### Одна команда (на новой машине)
 
+Linux / macOS:
+
 ```bash
 git clone <repo> project_po && cd project_po && bash start.sh
 ```
 
-Скрипт `start.sh` проверяет версию Node, выполняет `npm install` → `npm run build` →
-`node apps/server/dist/main.js` и показывает прогресс установки.
+Windows (cmd; в PowerShell — `.\start.cmd`; работает и двойной клик по файлу):
+
+```bat
+git clone <repo> project_po && cd project_po && start.cmd
+```
+
+Оба скрипта (`start.sh` / `start.cmd`) проверяют версию Node, выполняют
+`npm install` → `npm run build` → `node apps/server/dist/main.js` и показывают
+прогресс установки.
 
 ### Переменные окружения (сервер)
 
