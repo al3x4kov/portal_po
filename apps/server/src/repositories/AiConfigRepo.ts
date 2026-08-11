@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   AI_DEFAULT_BASE_URL,
   aiModelPresetOverrideSchema,
+  aiRequestDelaySecSchema,
   type AiConfigUpdate,
   type AiConfigView,
   type AiModelPresetOverride,
@@ -23,6 +24,12 @@ export interface AiConfigFile {
    * `resolveModelPreset(model, modelPresets[model])`.
    */
   modelPresets?: Record<string, AiModelPresetOverride>;
+  /**
+   * «Задержка при отправке запросов в секундах»: принудительная пауза после
+   * КАЖДОГО запроса к AI Hub (троттлинг перегруженного хаба — разбор NET-02).
+   * Absent = 0 = выключена; дефолт не материализуется на диске.
+   */
+  requestDelaySec?: number;
 }
 
 /** Keep only valid, non-empty per-model overrides (defensive against hand edits). */
@@ -67,12 +74,17 @@ export class AiConfigRepo {
     }
     const obj = (parsed ?? {}) as Partial<AiConfigFile>;
     const presets = sanitizePresets(obj.modelPresets);
+    // Defensive against hand edits: an invalid/zero delay reads as «выключена».
+    const delayParsed = aiRequestDelaySecSchema.safeParse(obj.requestDelaySec);
+    const requestDelaySec =
+      delayParsed.success && delayParsed.data > 0 ? delayParsed.data : undefined;
     return {
       baseURL: typeof obj.baseURL === 'string' && obj.baseURL ? obj.baseURL : AI_DEFAULT_BASE_URL,
       apiKey: typeof obj.apiKey === 'string' && obj.apiKey.length > 0 ? obj.apiKey : undefined,
       modelByProject:
         obj.modelByProject && typeof obj.modelByProject === 'object' ? obj.modelByProject : {},
       ...(presets ? { modelPresets: presets } : {}),
+      ...(requestDelaySec !== undefined ? { requestDelaySec } : {}),
     };
   }
 
@@ -88,6 +100,7 @@ export class AiConfigRepo {
       hasApiKey: Boolean(cfg.apiKey),
       ...(model ? { model } : {}),
       ...(cfg.modelPresets ? { modelPresets: cfg.modelPresets } : {}),
+      ...(cfg.requestDelaySec !== undefined ? { requestDelaySec: cfg.requestDelaySec } : {}),
     };
   }
 
@@ -105,6 +118,11 @@ export class AiConfigRepo {
     if (patch.apiKey === null) delete cfg.apiKey;
     else if (patch.apiKey && patch.apiKey.trim().length > 0) cfg.apiKey = patch.apiKey;
     if (patch.projectId && patch.model) cfg.modelByProject[patch.projectId] = patch.model;
+    // «Задержка при отправке запросов»: 0 выключает (ключ удаляется с диска).
+    if (patch.requestDelaySec !== undefined) {
+      if (patch.requestDelaySec > 0) cfg.requestDelaySec = patch.requestDelaySec;
+      else delete cfg.requestDelaySec;
+    }
 
     // Merge per-model preset overrides (todo_18): a non-empty override object is
     // stored, an empty `{}` resets that model to its defaults (drops the key so

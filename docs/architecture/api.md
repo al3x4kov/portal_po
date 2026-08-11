@@ -45,8 +45,8 @@
 
 | Метод | Путь | Запрос → Ответ | Ошибки |
 |-------|------|----------------|--------|
-| GET | `/api/ai/config` | `?projectId?` → `{ baseURL, hasApiKey, model?, modelPresets? }` | 400 |
-| PUT | `/api/ai/config` | `{ baseURL?, apiKey?: string\|null, model?, modelPresets?, projectId? }` → `AiConfigView` | 400 |
+| GET | `/api/ai/config` | `?projectId?` → `{ baseURL, hasApiKey, model?, modelPresets?, requestDelaySec? }` | 400 |
+| PUT | `/api/ai/config` | `{ baseURL?, apiKey?: string\|null, model?, modelPresets?, projectId?, requestDelaySec? }` → `AiConfigView` | 400 |
 | GET | `/api/ai/models` | → `{ models: string[] }` | 400/5xx (провайдер) |
 | POST | `/api/ai/chat` | `{ messages[], model?, projectId? }` → `{ message }` | 400/5xx |
 | POST | `/api/ai/generate-description` | `{ projectId, requirement…, hint? }` → `{ description }` | 400/5xx |
@@ -55,6 +55,9 @@
 | GET | `/api/ai-import/:jobId` | → `AiImportJobView` `{ jobId, projectId, status, stage, progress, log[], result?, error?, relate? }` (`status`: `running\|succeeded\|failed\|cancelled`) | 404 (нет/истёк/после рестарта) |
 | POST | `/api/ai-import/:jobId/cancel` | отменить импорт-джобу → `AiImportJobView` | 404 |
 
+- **Задержка при отправке запросов** (`requestDelaySec`, целые секунды 0–600, `0`/absent =
+  выключена): принудительная пауза после **каждого** запроса к AI Hub — троттлинг перегруженного
+  хаба (разбор NET-01/NET-02). Применяется ко всем вызовам: импорт, чат, генерации, список моделей.
 - **Async-контракт импорта:** старт возвращает `jobId` (202); клиент опрашивает статус (~800 мс).
   Реестр джоб **in-memory, single-process** — после рестарта процесса `jobId` → `404` (ARCH-4).
   Повторный запуск идемпотентен по смыслу (доливает недостающее). `apiKey:null` в `PUT` удаляет ключ.

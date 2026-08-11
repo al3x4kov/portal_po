@@ -15,7 +15,7 @@ import {
   type GenerateDescriptionRequest,
   type Requirement,
 } from '@po/core';
-import type { AiConfigRepo } from '../repositories/AiConfigRepo.js';
+import type { AiConfigFile, AiConfigRepo } from '../repositories/AiConfigRepo.js';
 import { AiUpstreamError, BadRequestError } from '../lib/errors.js';
 import { assertChatCapableModel } from '../lib/embeddingGuard.js';
 import type { OpLogger } from '../lib/logger.js';
@@ -92,6 +92,8 @@ export interface AiHubServiceDeps {
   repo: AiConfigRepo;
   makeClient: AiClientFactory;
   log?: OpLogger;
+  /** Injectable pause for «Задержка при отправке запросов» (tests make it instant). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -123,10 +125,22 @@ function describeError(err: unknown): string {
 export class AiHubService {
   private readonly repo: AiConfigRepo;
   private readonly makeClient: AiClientFactory;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(deps: AiHubServiceDeps) {
     this.repo = deps.repo;
     this.makeClient = deps.makeClient;
+    this.sleep = deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  }
+
+  /**
+   * «Задержка при отправке запросов в секундах» (глобальная настройка AI):
+   * принудительная пауза ПОСЛЕ каждого обращения к AI Hub — и успешного, и
+   * ошибочного (вызывается из `finally`). 0/absent — без паузы.
+   */
+  private async pauseAfterRequest(cfg: Pick<AiConfigFile, 'requestDelaySec'>): Promise<void> {
+    const delayMs = (cfg.requestDelaySec ?? 0) * 1000;
+    if (delayMs > 0) await this.sleep(delayMs);
   }
 
   /** List available model ids (sorted, de-duplicated). Requires a stored key. */
@@ -144,6 +158,8 @@ export class AiHubService {
       throw new AiUpstreamError(
         sanitize(`Failed to load models from AI Hub: ${describeError(err)}`, cfg.apiKey),
       );
+    } finally {
+      await this.pauseAfterRequest(cfg);
     }
     const ids = new Set<string>();
     for (const m of data) if (m && typeof m.id === 'string' && m.id) ids.add(m.id);
@@ -185,6 +201,8 @@ export class AiHubService {
       throw new AiUpstreamError(
         sanitize(`AI Hub generation failed: ${describeError(err)}`, cfg.apiKey),
       );
+    } finally {
+      await this.pauseAfterRequest(cfg);
     }
 
     const text = this.cleanAnswer(content, preset);
@@ -246,6 +264,8 @@ export class AiHubService {
       content = res.choices?.[0]?.message?.content ?? null;
     } catch (err) {
       throw new AiUpstreamError(sanitize(`AI Hub chat failed: ${describeError(err)}`, cfg.apiKey));
+    } finally {
+      await this.pauseAfterRequest(cfg);
     }
 
     const text = this.cleanAnswer(content, preset);
@@ -340,6 +360,9 @@ export class AiHubService {
               withFormat ? { ...params, response_format: buildTestGenResponseFormat() } : params,
             ),
           timeoutMs: preset.perCallTimeoutSec * 1000,
+          // «Задержка при отправке запросов»: пауза после каждого вызова хаба.
+          delayAfterAttemptMs: (cfg.requestDelaySec ?? 0) * 1000,
+          sleep: this.sleep,
         });
 
       let result = await ask(true);

@@ -14,6 +14,14 @@ import { requirementCreateShape } from './contracts.js';
 
 /** Default OpenAI-compatible AI Hub endpoint (PO decision §7). */
 export const AI_DEFAULT_BASE_URL = 'https://api.ai.sbt/openai/v1';
+/**
+ * Верхняя граница глобальной настройки «Задержка при отправке запросов в
+ * секундах»: принудительная пауза ПОСЛЕ каждого запроса к AI Hub (троттлинг
+ * перегруженного хаба — разбор NET-02). `0` = задержка выключена (дефолт).
+ */
+export const AI_REQUEST_DELAY_MAX_SEC = 600;
+/** Валидатор «Задержки при отправке запросов» (целые секунды, 0..600). */
+export const aiRequestDelaySecSchema = z.number().int().min(0).max(AI_REQUEST_DELAY_MAX_SEC);
 /** Sampling temperature for description generation (PO decision §7). */
 export const AI_GEN_TEMPERATURE = 0.4;
 /** Token budget for description generation (PO decision §7). */
@@ -242,6 +250,8 @@ export const aiConfigViewSchema = z.object({
   hasApiKey: z.boolean(),
   model: z.string().optional(),
   modelPresets: z.record(z.string(), aiModelPresetOverrideSchema).optional(),
+  /** «Задержка при отправке запросов», секунд; поле присутствует, когда задержка включена (>0). */
+  requestDelaySec: aiRequestDelaySecSchema.optional(),
 });
 export type AiConfigView = z.infer<typeof aiConfigViewSchema>;
 
@@ -259,6 +269,8 @@ export const aiConfigUpdateSchema = z.object({
   projectId: z.string().min(1).optional(),
   model: z.string().optional(),
   modelPresets: z.record(z.string(), aiModelPresetOverrideSchema).optional(),
+  /** «Задержка при отправке запросов», секунд: `0` выключает задержку, omitted — без изменений. */
+  requestDelaySec: aiRequestDelaySecSchema.optional(),
 });
 export type AiConfigUpdate = z.infer<typeof aiConfigUpdateSchema>;
 

@@ -25,7 +25,7 @@ import {
 import type { AiConfigRepo } from '../repositories/AiConfigRepo.js';
 import type { FsAiJobsRepo } from '../repositories/AiJobsRepo.js';
 import type { LinkServicePort, RequirementServicePort } from './ports.js';
-import type { AiClientFactory } from './AiHubService.js';
+import type { AiChatCompletionParams, AiClientFactory } from './AiHubService.js';
 import type { AiImportJobs, AiImportJobState } from './AiImportJobs.js';
 import type { OpLogger } from '../lib/logger.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../lib/errors.js';
@@ -37,7 +37,8 @@ import {
   AI_IMPORT_HINT_CONFIGURE,
   AI_IMPORT_JSON_ATTEMPTS,
 } from './aiImport/constants.js';
-import { sanitize } from './aiImport/text.js';
+import { sanitize, shortenText } from './aiImport/text.js';
+import { describeAiFailure, describeAiRequest } from './aiImport/aiDiagnostics.js';
 import type {
   AggregatedRecord,
   AiImportRuntime,
@@ -699,6 +700,12 @@ export class AiImportService {
   ): Promise<JsonCallOutcome<T>> {
     // todo_20 T-209: per-call timeout from the preset (test override wins).
     const timeoutMs = this.deps.callTimeoutMs ?? args.preset.perCallTimeoutSec * 1000;
+    // «Задержка при отправке запросов» + baseURL/ключ для технических строк
+    // лога. Конфиг перечитывается на каждый логический вызов, поэтому смена
+    // задержки подхватывается прямо по ходу прогона.
+    const cfg = await this.deps.configRepo.read();
+    const delayAfterAttemptMs = (cfg.requestDelaySec ?? 0) * 1000;
+    const keyForLog = cfg.apiKey ?? '';
     for (let attempt = 1; attempt <= AI_IMPORT_JSON_ATTEMPTS; attempt++) {
       let content = '';
       let transportDone = false;
@@ -707,24 +714,23 @@ export class AiImportService {
       // the downgraded mode (T-206) — it never burns a JSON attempt.
       while (!transportDone) {
         const responseFormat = args.negotiator?.responseFormat();
+        const params: AiChatCompletionParams = {
+          model: args.model,
+          messages: args.messages,
+          temperature: args.preset.temperature,
+          // todo_18: import calls use the model's FULL generation budget so
+          // thinking models have room for `<think>…</think>` reasoning AND
+          // the JSON answer. The preset value is the single knob users
+          // raise for thinking models.
+          max_tokens: args.preset.maxOutputTokens,
+          ...(args.preset.topP !== undefined ? { top_p: args.preset.topP } : {}),
+          ...(responseFormat ? { response_format: responseFormat } : {}),
+        };
         const result = await callAiWithRetries({
           call: (signal) =>
-            args.client.chat.completions.create(
-              {
-                model: args.model,
-                messages: args.messages,
-                temperature: args.preset.temperature,
-                // todo_18: import calls use the model's FULL generation budget so
-                // thinking models have room for `<think>…</think>` reasoning AND
-                // the JSON answer. The preset value is the single knob users
-                // raise for thinking models.
-                max_tokens: args.preset.maxOutputTokens,
-                ...(args.preset.topP !== undefined ? { top_p: args.preset.topP } : {}),
-                ...(responseFormat ? { response_format: responseFormat } : {}),
-              },
-              { signal, timeout: timeoutMs },
-            ),
+            args.client.chat.completions.create(params, { signal, timeout: timeoutMs }),
           timeoutMs,
+          delayAfterAttemptMs,
           sleep: this.deps.sleep,
           random: this.deps.random,
           shouldStop: () => args.job.cancelRequested,
@@ -736,7 +742,8 @@ export class AiImportService {
               args.job,
               'warn',
               `Повтор запроса к модели: ${AiImportService.retryReason(diag.errorClass, timeoutMs)}; ` +
-                `попытка ${diag.attempt} из ${diag.maxAttempts}, ожидание ${Math.max(1, Math.round(diag.waitMs / 1000))} с.`,
+                `попытка ${diag.attempt} из ${diag.maxAttempts}, ожидание ${Math.max(1, Math.round(diag.waitMs / 1000))} с. ` +
+                sanitize(`Техническая причина: ${shortenText(diag.detail, 300)}`, keyForLog),
             );
           },
         });
@@ -754,6 +761,26 @@ export class AiImportService {
             continue; // repeat immediately with the downgraded mode
           }
           if (result.errorClass === 'rate-limit') args.onUpstreamRetry?.('rate-limit');
+          // Разбор NET-02: в скачиваемом логе видно, ЧТО отправлялось и КАКОЙ
+          // ответ вернулся. context-length — рабочий сигнал чанкеру (warn),
+          // остальное завершится ошибкой прогона (error).
+          const level = result.errorClass === 'context-length' ? 'warn' : 'error';
+          this.logLine(
+            args.job,
+            level,
+            sanitize(
+              `Технические детали запроса: ${describeAiRequest(cfg.baseURL, params)}`,
+              keyForLog,
+            ),
+          );
+          this.logLine(
+            args.job,
+            level,
+            sanitize(
+              `Технические детали ответа (попыток: ${result.attempts}): ${describeAiFailure(result.error)}`,
+              keyForLog,
+            ),
+          );
           return { kind: 'upstream', error: result.error, errorClass: result.errorClass };
         }
         const res = result.value;

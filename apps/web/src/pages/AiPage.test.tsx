@@ -224,6 +224,40 @@ describe('AiPage (T-803)', () => {
     expect(screen.getByTestId('ai-key-saved')).toBeInTheDocument();
   });
 
+  // ── «Задержка при отправке запросов в секундах» (глобальная настройка AI) ──
+
+  it('hydrates the request delay from config and saves the edited value', async () => {
+    getConfig.mockResolvedValue({ baseURL: '', hasApiKey: true, requestDelaySec: 15 });
+    saveConfig.mockResolvedValue({ baseURL: '', hasApiKey: true, requestDelaySec: 30 });
+    const user = userEvent.setup();
+    renderAiPage();
+
+    const input = await screen.findByTestId('ai-delay-input');
+    await waitFor(() => expect(input).toHaveValue(15));
+
+    await user.clear(input);
+    await user.type(input, '30');
+    await user.click(screen.getByTestId('ai-save'));
+
+    await waitFor(() =>
+      expect(saveConfig).toHaveBeenCalledWith(expect.objectContaining({ requestDelaySec: 30 })),
+    );
+  });
+
+  it('defaults the request delay to 0 and sends 0 to clear it', async () => {
+    getConfig.mockResolvedValue({ baseURL: '', hasApiKey: true });
+    saveConfig.mockResolvedValue({ baseURL: '', hasApiKey: true });
+    const user = userEvent.setup();
+    renderAiPage();
+
+    const input = await screen.findByTestId('ai-delay-input');
+    expect(input).toHaveValue(0);
+    await user.click(screen.getByTestId('ai-save'));
+    await waitFor(() =>
+      expect(saveConfig).toHaveBeenCalledWith(expect.objectContaining({ requestDelaySec: 0 })),
+    );
+  });
+
   it('allows manual model id entry as a fallback', async () => {
     getConfig.mockResolvedValue({ baseURL: '', hasApiKey: false });
     const user = userEvent.setup();

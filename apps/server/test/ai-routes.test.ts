@@ -85,6 +85,42 @@ describe('T-802 AI routes (integration, mock client)', () => {
     expect(get.body).not.toContain(SECRET);
   });
 
+  // «Задержка при отправке запросов в секундах» — глобальная настройка AI.
+  it('PUT /api/ai/config сохраняет requestDelaySec, 0 удаляет настройку', async () => {
+    await boot(okClient());
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { requestDelaySec: 30 },
+    });
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toMatchObject({ requestDelaySec: 30 });
+
+    const get = await app.inject({ method: 'GET', url: '/api/ai/config' });
+    expect(get.json()).toMatchObject({ requestDelaySec: 30 });
+
+    // 0 = задержка выключена: поле исчезает из view (дефолт не материализуется).
+    const reset = await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { requestDelaySec: 0 },
+    });
+    expect(reset.statusCode).toBe(200);
+    expect(reset.json()).not.toHaveProperty('requestDelaySec');
+  });
+
+  it('PUT /api/ai/config отклоняет невалидную задержку (отрицательную/дробную/сверх лимита) с 422', async () => {
+    await boot(okClient());
+    for (const requestDelaySec of [-1, 2.5, 100500]) {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/ai/config',
+        payload: { requestDelaySec },
+      });
+      expect(res.statusCode).toBe(422);
+    }
+  });
+
   it('PUT /api/ai/config rejects an invalid baseURL with 422 (BE-4 unified input validation)', async () => {
     await boot(okClient());
     const res = await app.inject({

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Check, Eye, EyeOff, Trash2, TriangleAlert } from 'lucide-react';
-import { AI_DEFAULT_BASE_URL, type AiConfigUpdate } from '@po/core';
+import { AI_DEFAULT_BASE_URL, AI_REQUEST_DELAY_MAX_SEC, type AiConfigUpdate } from '@po/core';
 import {
   useAiConfig,
   useAiModelsRefresh,
@@ -71,6 +71,7 @@ export function AiPage(): React.ReactElement {
   const [showKey, setShowKey] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [baseURL, setBaseURL] = useState(AI_DEFAULT_BASE_URL);
+  const [requestDelaySec, setRequestDelaySec] = useState('0');
   const [model, setModel] = useState('');
   const [manualModel, setManualModel] = useState(false);
   const [status, setStatus] = useState<Status>(null);
@@ -85,10 +86,11 @@ export function AiPage(): React.ReactElement {
     onModelReset: setModel,
   });
 
-  // Hydrate baseURL/model once saved config arrives (don't clobber edits).
+  // Hydrate baseURL/model/delay once saved config arrives (don't clobber edits).
   useEffect(() => {
     if (config && !hydrated) {
       setBaseURL(config.baseURL || AI_DEFAULT_BASE_URL);
+      setRequestDelaySec(String(config.requestDelaySec ?? 0));
       if (config.model) setModel(config.model);
       setHydrated(true);
     }
@@ -109,6 +111,11 @@ export function AiPage(): React.ReactElement {
     const update: AiConfigUpdate = { baseURL: baseURL.trim(), projectId: id };
     if (apiKey.trim().length > 0) update.apiKey = apiKey;
     if (model.trim().length > 0) update.model = model.trim();
+    // «Задержка при отправке запросов»: нечисло читается как 0 (выключена).
+    const delay = Math.round(Number(requestDelaySec));
+    update.requestDelaySec = Number.isFinite(delay)
+      ? Math.min(AI_REQUEST_DELAY_MAX_SEC, Math.max(0, delay))
+      : 0;
     return update;
   };
 
@@ -386,6 +393,28 @@ export function AiPage(): React.ReactElement {
                 />
                 <p className="hint mt-1">
                   AI Hub совместим с OpenAI API — достаточно сменить base_url.
+                </p>
+              </div>
+
+              {/* «Задержка при отправке запросов»: троттлинг перегруженного хаба (NET-01/NET-02) */}
+              <div>
+                <label className="label" htmlFor="ai-delay-input">
+                  Задержка при отправке запросов в секундах
+                </label>
+                <input
+                  id="ai-delay-input"
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={AI_REQUEST_DELAY_MAX_SEC}
+                  step={1}
+                  value={requestDelaySec}
+                  data-testid="ai-delay-input"
+                  onChange={(e) => setRequestDelaySec(e.target.value)}
+                />
+                <p className="hint mt-1">
+                  Принудительная пауза после каждого запроса к AI Hub (0 — без паузы). Помогает при
+                  ошибках NET-01/NET-02, когда сервис перегружен или ограничивает частоту запросов.
                 </p>
               </div>
 

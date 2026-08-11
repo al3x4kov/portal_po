@@ -283,6 +283,92 @@ describe('ARC-T2 · AiImportService error branches (populate/link/unpack)', () =
     );
   });
 
+  // ── Разбор NET-02: технические детали запроса/ответа в скачиваемом логе ────
+
+  it('NET-02: лог содержит «что отправлялось» и «какой вернулся ответ», без API-ключа', async () => {
+    // «Connection error.» SDK прячет реальную причину в cause — как в проде.
+    const cause = Object.assign(new Error(`connect ECONNREFUSED 127.0.0.1:443 key=${SECRET}`), {
+      code: 'ECONNREFUSED',
+    });
+    const transport = Object.assign(new Error('Connection error.'), { cause });
+    const client: AiClient = {
+      models: { list: vi.fn(async () => ({ data: [] })) },
+      chat: {
+        completions: {
+          create: vi.fn(async () => {
+            throw transport;
+          }),
+        },
+      },
+    };
+    const projectRepo = createProjectRepo(ctx);
+    const service = new AiImportService({
+      now: fixedNow,
+      jobs,
+      configRepo,
+      makeAiClient: () => client,
+      makeRequirementService: (pid) => createRequirementService(ctx, pid),
+      makeLinkService: (pid) => createLinkService(ctx, pid),
+      projectExists: (pid) => projectRepo.exists(pid),
+      sleep: async () => {}, // сетевые ретраи мгновенны в тесте
+      random: () => 0,
+    });
+    const jobId = await runToEnd(service, await writeZip({ 'a.md': 'Документация о входе.' }));
+
+    const view = service.getView(jobId);
+    expect(view.status).toBe('failed');
+    expect(view.error?.code).toBe('NET-02');
+
+    // «Что отправлялось»: endpoint, модель, параметры и превью сообщений.
+    const reqLine = view.log.find((l) => l.message.includes('Технические детали запроса'));
+    expect(reqLine?.level).toBe('error');
+    expect(reqLine?.message).toContain('/chat/completions');
+    expect(reqLine?.message).toContain('модель: Qwen-Coder-Next');
+    expect(reqLine?.message).toContain('max_tokens');
+    expect(reqLine?.message).toContain('последнее сообщение');
+
+    // «Какой вернулся ответ»: цепочка причин до транспортного кода.
+    const resLine = view.log.find((l) => l.message.includes('Технические детали ответа'));
+    expect(resLine?.level).toBe('error');
+    expect(resLine?.message).toContain('ECONNREFUSED');
+    expect(resLine?.message).toContain('Connection error.');
+
+    // Ключ не утекает ни в одну строку скачиваемого лога.
+    const logText = await service.getLogText(jobId);
+    expect(logText).not.toContain(SECRET);
+    expect(logText).toContain('Технические детали запроса');
+  });
+
+  it('«Задержка при отправке запросов»: пауза выдерживается после каждого вызова хаба', async () => {
+    await configRepo.update({ requestDelaySec: 9 });
+    const sleeps: number[] = [];
+    const client = fixedClient('[]');
+    const projectRepo = createProjectRepo(ctx);
+    const service = new AiImportService({
+      now: fixedNow,
+      jobs,
+      configRepo,
+      makeAiClient: () => client,
+      makeRequirementService: (pid) => createRequirementService(ctx, pid),
+      makeLinkService: (pid) => createLinkService(ctx, pid),
+      projectExists: (pid) => projectRepo.exists(pid),
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      random: () => 0,
+    });
+    const jobId = await runToEnd(service, await writeZip({ 'a.md': 'Текст.' }));
+
+    // Каждый фактический запрос к хабу закончился принудительной паузой 9 с.
+    const create = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    expect(create.mock.calls.length).toBeGreaterThan(0);
+    expect(sleeps.filter((ms) => ms === 9000).length).toBeGreaterThanOrEqual(
+      create.mock.calls.length,
+    );
+    // Прогон при этом завершился (задержка не ломает pipeline).
+    expect(['succeeded', 'failed']).toContain(service.getView(jobId).status);
+  });
+
   it('a corrupt tar.gz (gzip magic + garbage) fails the unpack stage with a readable message', async () => {
     const file = path.join(os.tmpdir(), `po-test-corrupt-${randomBytes(6).toString('hex')}.tar.gz`);
     await fs.writeFile(file, Buffer.concat([Buffer.from([0x1f, 0x8b]), randomBytes(128)]));
