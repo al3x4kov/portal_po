@@ -1,9 +1,13 @@
 import path from 'node:path';
 import {
   aiExtractedRequirementSchema,
+  aiPoAssignmentSchema,
   aiRelatePairSchema,
   aiStructureNodeSchema,
+  sanitizeAiName,
+  sanitizeAiParentName,
   type AiExtractedRequirement,
+  type AiPoAssignment,
   type AiRelatePair,
   type AiStructureNode,
   type RequirementType,
@@ -255,6 +259,180 @@ export function buildStructureMessages(
 }
 
 /*
+ * ── buildTree: логическое дерево «навык AI Product Owner» ──────────────────
+ * Два вида вызовов opt-in-этапа poStructure: проектирование таксономии
+ * бизнес-доменов (map-reduce по батчам имён — модель каждый раунд видит и
+ * расширяет текущую таксономию) и раскладка требований по узлам таксономии
+ * (по коротким id «F1.2»). В отличие от легаси-этапа structure, модели
+ * РАЗРЕШЕНО придумывать группирующие узлы — портал создаст их как требования.
+ */
+
+/**
+ * System prompt (RU) таксономического раунда. Персона — опытный PO: группирует
+ * по бизнес-смыслу (домены/способности продукта), а не по файлам документации;
+ * технические свалки («Прочее», «Разное», «Бэклог») запрещены; 2 уровня.
+ * Ответ — ПОЛНАЯ обновлённая таксономия (существующие узлы + новые), формат
+ * узла совпадает со structure-этапом: {"type","name","parentName"|null}.
+ */
+const PO_TAXONOMY_SYSTEM_PROMPT = [
+  'Ты — опытный senior Product Owner. Твоя задача — спроектировать логическое дерево',
+  'требований продукта: компактную бизнес-таксономию, по которой будут разложены',
+  'функциональные (FUNCTION) и нефункциональные (NFR) требования.',
+  'Тебе дают текущую таксономию (возможно пустую) и очередной батч имён требований.',
+  'Верни ПОЛНУЮ обновлённую таксономию: сохрани существующие узлы (не переименовывай',
+  'и не перевешивай их) и добавь новые, только если батч не укладывается в имеющиеся.',
+  'Группируй по бизнес-смыслу — домены и способности продукта (например «Управление',
+  'доступом», «Отчётность», «Интеграции»), а НЕ по именам файлов или разделов документации.',
+  'Запрещены технические и бессодержательные группы: «Прочее», «Разное», «Общее»,',
+  '«Бэклог», «Требования», названия файлов.',
+  'Ровно два уровня: корневые домены (parentName: null) и их разделы (parentName = имя',
+  'корневого домена). Доменов на каждый тип целься в 6–10 (жёсткий максимум — 12),',
+  'разделов у домена — не больше 15. Один домен на весь тип — это НЕ дерево:',
+  'если требований больше сотни, доменов должно быть несколько.',
+  'Иерархия только внутри типа: FUNCTION-раздел под FUNCTION-доменом, NFR под NFR.',
+  'Для NFR используй качественные категории (производительность, надёжность, безопасность,',
+  'совместимость, удобство…), если они соответствуют переданным именам.',
+  'Имена узлов — короткие (до 60 символов), деловые, по-русски (или на языке требований).',
+  'Ответ верни СТРОГО как JSON-массив объектов вида',
+  '{"type":"FUNCTION"|"NFR","name":string,"parentName":string|null}.',
+  'Без markdown, без преамбул и пояснений.',
+].join(' ');
+
+/** Compact taxonomy rendering shared by both PO calls: `id\tTYPE\tname[\t→ parent]`. */
+export function renderTaxonomy(
+  nodes: ReadonlyArray<{
+    id: string;
+    type: RequirementType;
+    name: string;
+    parentKey: string | null;
+  }>,
+): string {
+  if (nodes.length === 0) return '(таксономия пока пуста)';
+  const nameById = new Map(nodes.map((n) => [n.id, n.name]));
+  return nodes
+    .map((n) => {
+      const rootId = n.id.includes('.') ? n.id.slice(0, n.id.indexOf('.')) : null;
+      const parent = rootId ? (nameById.get(rootId) ?? '') : '';
+      return rootId
+        ? `${n.id}\t${n.type}\t${n.name}\t→ ${parent}`
+        : `${n.id}\t${n.type}\t${n.name}`;
+    })
+    .join('\n');
+}
+
+/** Build the two-message conversation of one taxonomy-design round. */
+export function buildPoTaxonomyMessages(
+  taxonomy: ReadonlyArray<{
+    id: string;
+    type: RequirementType;
+    name: string;
+    parentKey: string | null;
+  }>,
+  batch: StructureItem[],
+  archiveMap: string,
+  round: { index: number; total: number },
+): AiChatMessage[] {
+  const user = [
+    `Раунд проектирования ${round.index} из ${round.total}.`,
+    'Структура архива (файлы документации, для контекста):',
+    archiveMap,
+    '',
+    'Текущая таксономия (id, тип, имя, родитель):',
+    renderTaxonomy(taxonomy),
+    '',
+    `Батч имён требований (${batch.length} шт., формат: тип, имя и источник через табуляцию):`,
+    ...batch.map((item) => `${item.type}\t${item.name}\t${item.source}`),
+  ].join('\n');
+  return [
+    { role: 'system', content: PO_TAXONOMY_SYSTEM_PROMPT },
+    { role: 'user', content: user },
+  ];
+}
+
+/**
+ * System prompt (RU) вызова раскладки: каждому требованию батча — ровно один
+ * узел таксономии по короткому id (или null, если ничего не подходит по
+ * смыслу). Модель не создаёт узлы и не меняет имена — только распределяет.
+ */
+const PO_ASSIGN_SYSTEM_PROMPT = [
+  'Ты — опытный senior Product Owner. Тебе дают готовую таксономию требований продукта',
+  '(узлы с короткими id вида «F1», «F1.2», «N3») и батч требований (тип, имя, источник).',
+  'Для КАЖДОГО требования батча выбери ровно один узел таксономии, к которому оно',
+  'относится по бизнес-смыслу, и верни его id в поле node.',
+  'Выбирай самый конкретный подходящий узел (раздел, а не домен, когда раздел подходит).',
+  'Тип узла обязан совпадать с типом требования: FUNCTION — в F-узлы, NFR — в N-узлы.',
+  'Если по смыслу не подходит ни один узел — верни node: null (требование останется корневым);',
+  'не подгоняй насильно.',
+  'Используй ТОЛЬКО переданные id узлов и имена требований: ничего не выдумывай,',
+  'не переименовывай, не добавляй и не удаляй элементы.',
+  'Ответ верни СТРОГО как JSON-массив объектов вида',
+  '{"type":"FUNCTION"|"NFR","name":string,"node":string|null} —',
+  'ровно по одному элементу на каждое требование батча.',
+  'Без markdown, без преамбул и пояснений.',
+].join(' ');
+
+/** Build the two-message conversation for one assignment batch. */
+export function buildPoAssignMessages(
+  taxonomy: ReadonlyArray<{
+    id: string;
+    type: RequirementType;
+    name: string;
+    parentKey: string | null;
+  }>,
+  batch: StructureItem[],
+): AiChatMessage[] {
+  const user = [
+    'Таксономия (id, тип, имя, родитель):',
+    renderTaxonomy(taxonomy),
+    '',
+    `Батч требований (${batch.length} шт., формат: тип, имя и источник через табуляцию):`,
+    ...batch.map((item) => `${item.type}\t${item.name}\t${item.source}`),
+  ].join('\n');
+  return [
+    { role: 'system', content: PO_ASSIGN_SYSTEM_PROMPT },
+    { role: 'user', content: user },
+  ];
+}
+
+/** Outcome of parsing one assignment answer (mirrors {@link ParsedStructure}). */
+export interface ParsedPoAssign {
+  /** Elements that passed {@link aiPoAssignmentSchema}. */
+  assignments: AiPoAssignment[];
+  /** Elements dropped by the lenient mode (always 0 in strict mode). */
+  droppedInvalid: number;
+  /** Total number of elements in the answer array. */
+  total: number;
+}
+
+/**
+ * Parse one assignment answer: locate the JSON array (bare, fenced, embedded,
+ * object-root `{"answers":[…]}` or salvaged), then validate every element
+ * against {@link aiPoAssignmentSchema}. `strict` (default) invalidates the
+ * whole answer on any bad element (retried); `lenient` (last attempt) keeps
+ * the valid ones. `null` when no array found.
+ */
+export function parsePoAssignResponse(
+  content: string,
+  mode: 'strict' | 'lenient' = 'strict',
+): ParsedPoAssign | null {
+  const array = extractJsonArray(content);
+  if (array === null) return null;
+  const assignments: AiPoAssignment[] = [];
+  let droppedInvalid = 0;
+  for (const element of array) {
+    const parsed = aiPoAssignmentSchema.safeParse(element);
+    if (parsed.success) {
+      assignments.push(parsed.data);
+    } else if (mode === 'strict') {
+      return null;
+    } else {
+      droppedInvalid += 1;
+    }
+  }
+  return { assignments, droppedInvalid, total: array.length };
+}
+
+/*
  * ── todo_16 B2: relate step («Проставление связей ФТ↔НФТ») ─────────────────
  */
 
@@ -463,7 +641,20 @@ export function parseExtractionResponse(content: string): ParsedExtraction | nul
   for (const record of array) {
     const parsed = aiExtractedRequirementSchema.safeParse(record);
     if (parsed.success) {
-      result.items.push(parsed.data);
+      // Zod пропускает строковый «null» и имя с приклеенным хвостом ответа
+      // модели — это непустые строки. Чистим детерминированно; запись без
+      // осмысленного имени отбраковываем, а не создаём требование «null».
+      const name = sanitizeAiName(parsed.data.name);
+      if (name === null) {
+        result.droppedInvalid += 1;
+        continue;
+      }
+      const parentName = sanitizeAiParentName(parsed.data.parentName);
+      result.items.push({
+        ...parsed.data,
+        name,
+        ...(parentName === null ? { parentName: undefined } : { parentName }),
+      });
       continue;
     }
     const isObject = typeof record === 'object' && record !== null;

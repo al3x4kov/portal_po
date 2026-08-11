@@ -149,10 +149,10 @@ test.describe('Q-1 · axe-сканы новых AI-поверхностей (0 s
 
     await page.getByTestId('sidebar-open-export').click();
     await expect(page.getByTestId('export-modal')).toBeVisible();
-    await expectNoSeriousA11y(page, 'ExportModal (fields step)');
-    await attachShot(page, testInfo, 'export-modal-open');
+    await expectNoSeriousA11y(page, 'Экран экспорта проекта');
+    await attachShot(page, testInfo, 'export-screen-open');
 
-    await page.getByTestId('export-modal-close').click();
+    await page.getByTestId('export-cancel').click();
     await expect(page.getByTestId('export-modal')).toHaveCount(0);
   });
 });

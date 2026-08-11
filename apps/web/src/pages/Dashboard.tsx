@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Check } from 'lucide-react';
 import { aggregateRiceScore, type Requirement } from '@po/core';
 import { useProject, useRequirements } from '../api/hooks';
@@ -8,8 +8,6 @@ import { PathHeader } from '../components/PathHeader';
 import { CriticalityBadge } from '../components/badges';
 import { useUiStore } from '../store/ui';
 import { RequirementModal } from '../components/RequirementModal';
-import { ExportModal } from '../components/ExportModal';
-import { ExportTasksModal } from '../components/ExportTasksModal';
 
 // T-514: criticality sort order
 const CRIT_ORDER: Record<string, number> = {
@@ -242,6 +240,7 @@ function StatCard({
 
 export function Dashboard(): React.ReactElement {
   const { id = '' } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const projectQuery = useProject(id);
   const reqQuery = useRequirements(id);
 
@@ -312,8 +311,8 @@ export function Dashboard(): React.ReactElement {
       <Sidebar
         projectId={id}
         activePage="dashboard"
-        onOpenExport={() => openModal({ kind: 'export' })}
-        onOpenTasks={() => openModal({ kind: 'export-tasks' })}
+        onOpenExport={() => navigate(`/p/${id}/export`)}
+        onOpenTasks={() => navigate(`/p/${id}/generate`)}
       />
       <div
         className="flex min-h-screen flex-col"
@@ -557,14 +556,6 @@ export function Dashboard(): React.ReactElement {
             focusField={modal.focusField}
             onClose={closeModal}
           />
-        ) : null}
-
-        {modal?.kind === 'export' ? (
-          <ExportModal projectId={id} requirements={requirements} onClose={closeModal} />
-        ) : null}
-
-        {modal?.kind === 'export-tasks' ? (
-          <ExportTasksModal projectId={id} requirements={requirements} onClose={closeModal} />
         ) : null}
       </div>
     </>

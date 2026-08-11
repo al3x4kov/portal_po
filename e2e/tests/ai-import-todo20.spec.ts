@@ -3,7 +3,7 @@ import path from 'node:path';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { startAiStub, type AiStub } from './helpers/ai-stub.js';
 import { createProject, projectIdFromUrl, rowByName, uniqueName } from './helpers/app.js';
-import { expectAiImportSummary } from './helpers/ai-import.js';
+import { approveDocsReviewGates, expectAiImportSummary } from './helpers/ai-import.js';
 
 /**
  * todo_20 · T-217 · E2E качества AI-импорта (спек .dev/design/todo20-spec.md §3):
@@ -239,8 +239,9 @@ test.describe('todo_20 · смета и подтверждение', () => {
         contentType: 'image/png',
       });
 
-      // Подтверждаем — прогон идёт до успеха.
+      // Подтверждаем — прогон доходит до гейта выверки, одобряем обе зоны.
       await confirmBtn.click();
+      await approveDocsReviewGates(page);
       await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
       const log = page.getByTestId('ai-import-log');
       await expect(log).toContainText('Смета подтверждена пользователем');
@@ -329,8 +330,9 @@ test.describe('todo_20 · смета и подтверждение', () => {
       expect(secondJobId).not.toBe(firstJobId);
       await expect(page.getByTestId('ai-import-estimate-step')).toBeVisible(JOB_TIMEOUT);
 
-      // Теперь подтверждаем — второй запуск доходит до успеха.
+      // Теперь подтверждаем — второй запуск доходит до успеха (через гейт).
       await page.getByTestId('ai-import-confirm-start').click();
+      await approveDocsReviewGates(page);
       await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
     } finally {
       stub.setExtractionItems(null);
@@ -410,6 +412,8 @@ test.describe('todo_20 · ошибка NET-02 и «Продолжить»', () =
       ]);
       expect(resumeRes.status()).toBe(202);
 
+      // Возобновлённый прогон доходит до гейта выверки — одобряем обе зоны.
+      await approveDocsReviewGates(page);
       await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
       await expect(log).toContainText('Продолжаю прогон с контрольной точки');
       await expectAiImportSummary(page, {
@@ -451,10 +455,12 @@ test.describe('todo_20 · история прогонов', () => {
     try {
       const zip = makeZip(testInfo, 'docs-hist.zip', { 'notes.md': NOTES_DOC });
 
-      // Прогон 1 — успех (порог дефолтный 2 млн → без гейта).
+      // Прогон 1 — успех (порог дефолтный 2 млн → без гейта сметы; гейт
+      // выверки дублей одобряем).
       await openAiImport(page);
       await chooseFile(page, zip);
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
       await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
       await page.getByTestId('ai-import-done').click();
       await expect(page.getByTestId('ai-import')).toHaveCount(0);
@@ -657,7 +663,9 @@ test.describe('todo_20 · прогресс с содержанием', () => {
         contentType: 'image/png',
       });
 
-      // Прогон доходит до успеха; события фрагментов — в журнале.
+      // Прогон доходит до гейта выверки и — после одобрения — до успеха;
+      // события фрагментов — в журнале.
+      await approveDocsReviewGates(page);
       await expect(page.getByTestId('ai-import-success')).toBeVisible({ timeout: 60_000 });
       const log = page.getByTestId('ai-import-log');
       await expect(log).toContainText(/фрагмент \d+\/\d+\): извлечено/);

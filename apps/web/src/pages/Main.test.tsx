@@ -60,6 +60,9 @@ function renderMain(): void {
   renderWithProviders(
     <Routes>
       <Route path="/p/:id" element={<Main />} />
+      {/* Экспорт и генерация — отдельные полноэкранные маршруты. */}
+      <Route path="/p/:id/export" element={<div data-testid="export-screen" />} />
+      <Route path="/p/:id/generate" element={<div data-testid="generate-screen" />} />
     </Routes>,
     { route: '/p/proj-1' },
   );
@@ -130,37 +133,13 @@ describe('Main page (E11 integration)', () => {
     expect(await screen.findByTestId('tree-row-token')).toBeInTheDocument();
   });
 
-  it('UX-8: "Экспорт" footer button opens ExportModal', async () => {
+  it('UX-8: кнопка «Экспорт проекта» в сайдбаре ведёт на полноэкранный экспорт', async () => {
     const user = userEvent.setup();
     renderMain();
     const btn = await screen.findByTestId('sidebar-open-export');
     expect(btn.tagName).toBe('BUTTON');
     await user.click(btn);
-    expect(await screen.findByTestId('export-modal')).toBeInTheDocument();
-  });
-
-  it('UX-8: ExportModal shows format buttons on step 2 and calls exportXlsx', async () => {
-    exportXlsx.mockReturnValue(new Promise(() => {}));
-    const user = userEvent.setup();
-    renderMain();
-    await user.click(await screen.findByTestId('sidebar-open-export'));
-    // advance to format step
-    await user.click(await screen.findByTestId('export-next'));
-    const xlsxBtn = await screen.findByTestId('export-fmt-xlsx');
-    expect(xlsxBtn.tagName).toBe('BUTTON');
-    await user.click(xlsxBtn);
-    // Task 2: default selection has all optional fields enabled.
-    expect(exportXlsx).toHaveBeenCalledWith('proj-1', ['source', 'description', 'info', 'links']);
-  });
-
-  it('UX-8: ExportModal surfaces xlsx error on step 2', async () => {
-    exportXlsx.mockRejectedValueOnce(new Error('Не удалось собрать Excel'));
-    const user = userEvent.setup();
-    renderMain();
-    await user.click(await screen.findByTestId('sidebar-open-export'));
-    await user.click(await screen.findByTestId('export-next'));
-    await user.click(await screen.findByTestId('export-fmt-xlsx'));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось собрать Excel');
+    expect(await screen.findByTestId('export-screen')).toBeInTheDocument();
   });
 
   it('renders both requirement sections after loading', async () => {
@@ -360,11 +339,11 @@ describe('Main page (E11 integration)', () => {
     expect(await screen.findByTestId('requirement-modal')).toBeInTheDocument();
   });
 
-  it('sidebar "Генерация задач" opens the ExportTasksModal (onOpenTasks)', async () => {
+  it('sidebar «Генерация задач» ведёт на полноэкранный мастер генерации', async () => {
     const user = userEvent.setup();
     renderMain();
     await user.click(await screen.findByTestId('sidebar-open-tasks'));
-    expect(await screen.findByTestId('export-tasks-modal')).toBeInTheDocument();
+    expect(await screen.findByTestId('generate-screen')).toBeInTheDocument();
   });
 
   it('search-empty state clears the query and restores the tree (onClick search reset)', async () => {
@@ -379,17 +358,26 @@ describe('Main page (E11 integration)', () => {
     expect(await screen.findByTestId('tree-row-pay')).toBeInTheDocument();
   });
 
-  it('onAddLink: editing → "+ Связать с ФТ" swaps the edit modal for the LinkModal', async () => {
+  it('onAddLink: editing → "+ Связать с ФТ" opens the LinkModal OVER the card, edits survive', async () => {
     const user = userEvent.setup();
     renderMain();
     await screen.findByTestId('tree-row-pay');
     await user.click(screen.getByTestId('req-name-pay'));
     await screen.findByTestId('requirement-modal');
+    // Unsaved edit in the card — must survive the link detour (жалоба ПО).
+    const nameInput = screen.getByTestId('req-name') as HTMLInputElement;
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Платежи v2');
     await user.click(screen.getByTestId('req-tab-links'));
     await user.click(await screen.findByTestId('req-links-add-ft'));
-    // The requirement modal closes and a LinkModal opens for the same source.
+    // The LinkModal stacks on top; the requirement modal stays mounted.
     expect(await screen.findByTestId('link-modal')).toBeInTheDocument();
-    expect(screen.queryByTestId('requirement-modal')).not.toBeInTheDocument();
+    expect(screen.getByTestId('requirement-modal')).toBeInTheDocument();
+    // Esc closes only the top LinkModal and returns to the card intact.
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByTestId('link-modal')).not.toBeInTheDocument());
+    expect(screen.getByTestId('requirement-modal')).toBeInTheDocument();
+    expect((screen.getByTestId('req-name') as HTMLInputElement).value).toBe('Платежи v2');
   });
 
   it('opens the description drawer on demand and closes it (T-1104)', async () => {

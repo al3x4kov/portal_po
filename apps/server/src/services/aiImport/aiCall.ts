@@ -176,6 +176,14 @@ export interface CallAiOptions<T> {
   onRetry?: (diag: AiRetryDiagnostics) => void;
   /** Cancel check between attempts (job cancel). */
   shouldStop?: () => boolean;
+  /**
+   * «Задержка при отправке запросов» (глобальная настройка AI): принудительная
+   * пауза, мс, ПОСЛЕ каждого фактического запроса к AI Hub. Выполняется ВНЕ
+   * per-call тайм-аута (та не съедает бюджет ответа): после успешного ответа и
+   * после финальной ошибки — перед возвратом результата; ожидание между
+   * повторными попытками не короче этой задержки.
+   */
+  delayAfterAttemptMs?: number;
 }
 
 export type CallAiResult<T> =
@@ -215,17 +223,22 @@ export async function callAiWithRetries<T>(opts: CallAiOptions<T>): Promise<Call
   const maxAttempts = opts.maxAttempts ?? AI_UPSTREAM_MAX_ATTEMPTS;
   const sleep = opts.sleep ?? defaultSleep;
   const random = opts.random ?? Math.random;
+  const delayMs = opts.delayAfterAttemptMs ?? 0;
 
   let lastError: Error = new Error('AI call was not attempted');
   let lastClass: AiCallErrorClass = 'unknown';
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const value = await withTimeout(opts.call, opts.timeoutMs);
+      // Принудительная «Задержка при отправке запросов» — после КАЖДОГО
+      // запроса, в т.ч. успешного (следующий уйдёт не раньше паузы).
+      if (delayMs > 0) await sleep(delayMs);
       return { ok: true, value, attempts: attempt };
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       lastClass = classifyAiError(err);
       if (!RETRIABLE.has(lastClass) || attempt === maxAttempts) {
+        if (delayMs > 0) await sleep(delayMs);
         return { ok: false, errorClass: lastClass, error: lastError, attempts: attempt };
       }
       if (opts.shouldStop?.()) {
@@ -233,9 +246,12 @@ export async function callAiWithRetries<T>(opts: CallAiOptions<T>): Promise<Call
       }
       // todo_23 M4: a timeout waits 15–30s (give the upstream time to recover
       // instead of instantly burning another full per-call timeout).
-      const waitMs =
+      // Межпопыточное ожидание не короче «Задержки при отправке запросов».
+      const waitMs = Math.max(
+        delayMs,
         retryAfterMs(err) ??
-        (lastClass === 'timeout' ? timeoutBackoffMs(random) : backoffDelayMs(attempt, random));
+          (lastClass === 'timeout' ? timeoutBackoffMs(random) : backoffDelayMs(attempt, random)),
+      );
       opts.onRetry?.({
         attempt,
         maxAttempts,

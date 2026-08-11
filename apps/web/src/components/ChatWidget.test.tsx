@@ -56,6 +56,7 @@ describe('ChatWidget (Task 9)', () => {
       fabPos: null,
       widgetPos: null,
       modelOverride: null,
+      projectContext: false,
       messages: [],
       error: null,
       draft: '',
@@ -137,6 +138,39 @@ describe('ChatWidget (Task 9)', () => {
         expect.objectContaining({ model: 'GigaChat-2-Max', projectId: 'proj-1' }),
       ),
     );
+  });
+
+  it('переключатель «Учитывать требования проекта»: выключен по умолчанию, включённый уезжает в запрос', async () => {
+    chat.mockResolvedValue({ message: { role: 'assistant', content: 'ok' } });
+    const user = userEvent.setup();
+    renderWidget('/p/proj-1');
+    await openWidget(user);
+
+    const toggle = screen.getByTestId('chat-context-toggle');
+    expect(toggle).not.toBeChecked();
+
+    // Выключен — off-path запрос байт-в-байт прежний (без useProjectContext).
+    await user.type(screen.getByTestId('chat-input'), 'первый вопрос');
+    await user.click(screen.getByTestId('chat-send'));
+    await waitFor(() => expect(chat).toHaveBeenCalledTimes(1));
+    expect(chat.mock.calls[0]![0]).not.toHaveProperty('useProjectContext');
+
+    // Включён — флаг уходит на сервер вместе с projectId.
+    await user.click(toggle);
+    await user.type(screen.getByTestId('chat-input'), 'что у нас с оплатой?');
+    await user.click(screen.getByTestId('chat-send'));
+    await waitFor(() => expect(chat).toHaveBeenCalledTimes(2));
+    expect(chat.mock.calls[1]![0]).toMatchObject({
+      projectId: 'proj-1',
+      useProjectContext: true,
+    });
+  });
+
+  it('переключатель требований не показывается вне проекта', async () => {
+    const user = userEvent.setup();
+    renderWidget('/');
+    await openWidget(user);
+    expect(screen.queryByTestId('chat-context-toggle')).not.toBeInTheDocument();
   });
 
   it('keeps the conversation when closed with X and reopened', async () => {

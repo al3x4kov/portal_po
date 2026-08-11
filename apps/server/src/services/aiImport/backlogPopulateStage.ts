@@ -10,6 +10,7 @@ import {
 import type { LinkServicePort, RequirementServicePort } from '../ports.js';
 import { AI_IMPORT_DEFAULT_CRITICALITY } from './constants.js';
 import { normalizeRequirementName } from './dedupe.js';
+import { shortenText } from './text.js';
 import type { AiImportRuntime } from './types.js';
 
 /**
@@ -77,11 +78,17 @@ export async function runBacklogPopulateStage(
   };
   for (const req of requirements) index(req);
 
+  /** Human row reference for log lines: the backlog key when present, else rowId. */
+  const rowRef = (m: { rowId: string; key?: string }): string => m.key ?? m.rowId;
+
   const selected = review.mappings.filter((m) => selectedRowIds.has(m.rowId));
   const creatable = selected.filter((m) => m.duplicateOf === undefined);
   const duplicatesSkipped = selected.length - creatable.length;
   for (const dup of selected.filter((m) => m.duplicateOf !== undefined)) {
-    rt.log('info', `Строка ${dup.rowId}: пропущена как дубль «${dup.duplicateOf!}».`);
+    rt.log(
+      'info',
+      `Строка ${rowRef(dup)}: «${shortenText(dup.sourceText)}» — пропущена как дубль существующего «${dup.duplicateOf!}».`,
+    );
   }
 
   const created: CreatedCounters = { functions: 0, nfrs: 0, links: 0, newNodes: 0 };
@@ -235,11 +242,14 @@ export async function runBacklogPopulateStage(
     if (name === null) {
       rt.log(
         'warn',
-        `«${mapping.businessName}» (${mapping.type}) уже создано этим импортом — пропущено (повторный запуск).`,
+        `Строка ${rowRef(mapping)}: «${mapping.businessName}» (${mapping.type === 'FUNCTION' ? 'ФТ' : 'НФТ'}) уже создано этим импортом — пропущено (повторный запуск, не дубль работы).`,
       );
     } else {
       if (name !== mapping.businessName) {
-        rt.log('warn', `Имя «${mapping.businessName}» занято — создано как «${name}».`);
+        rt.log(
+          'warn',
+          `Строка ${rowRef(mapping)}: имя «${mapping.businessName}» занято другим требованием — создано как «${name}».`,
+        );
       }
       const req = await createOne(
         mapping.type,
@@ -257,10 +267,15 @@ export async function runBacklogPopulateStage(
           : slugByTypeKey.get(`${mapping.type}:${parentKey}`);
       if (parentSlug !== undefined) {
         await linkChildOf(req.slug, parentSlug, `«${req.name}» → «${mapping.parent.name}»`);
+        // Итоговая per-row строка «исходное → созданное» (запрос PO по пилоту).
+        rt.log(
+          'info',
+          `Строка ${rowRef(mapping)}: «${shortenText(mapping.sourceText)}» → создано ${mapping.type === 'FUNCTION' ? 'ФТ' : 'НФТ'} «${req.name}» · узел: «${mapping.parent.name}» · срок: ${mapping.targetQuarter} ${mapping.targetYear}.`,
+        );
       } else {
         rt.log(
           'warn',
-          `Строка ${mapping.rowId}: родитель «${mapping.parent.name}» недоступен — требование создано корневым.`,
+          `Строка ${rowRef(mapping)}: «${shortenText(mapping.sourceText)}» → создано ${mapping.type === 'FUNCTION' ? 'ФТ' : 'НФТ'} «${req.name}» КОРНЕВЫМ — родитель «${mapping.parent.name}» недоступен.`,
         );
       }
     }

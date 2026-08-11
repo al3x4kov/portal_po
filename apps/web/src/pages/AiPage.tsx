@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Check, Eye, EyeOff, Trash2, TriangleAlert } from 'lucide-react';
-import { AI_DEFAULT_BASE_URL, type AiConfigUpdate } from '@po/core';
+import { AI_DEFAULT_BASE_URL, AI_REQUEST_DELAY_MAX_SEC, type AiConfigUpdate } from '@po/core';
 import {
   useAiConfig,
   useAiModelsRefresh,
@@ -25,8 +25,6 @@ import { PathHeader } from '../components/PathHeader';
 import { useUiStore } from '../store/ui';
 import { RequirementModal } from '../components/RequirementModal';
 import { AiModelPresetForm } from '../components/AiModelPresetForm';
-import { ExportModal } from '../components/ExportModal';
-import { ExportTasksModal } from '../components/ExportTasksModal';
 
 type Status = { kind: 'success'; text: string } | { kind: 'error'; text: string } | null;
 
@@ -60,6 +58,7 @@ function StepNum({ n }: { n: number }): React.ReactElement {
  */
 export function AiPage(): React.ReactElement {
   const { id = '' } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const projectQuery = useProject(id);
   const reqQuery = useRequirements(id);
   const configQuery = useAiConfig(id);
@@ -72,6 +71,7 @@ export function AiPage(): React.ReactElement {
   const [showKey, setShowKey] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [baseURL, setBaseURL] = useState(AI_DEFAULT_BASE_URL);
+  const [requestDelaySec, setRequestDelaySec] = useState('0');
   const [model, setModel] = useState('');
   const [manualModel, setManualModel] = useState(false);
   const [status, setStatus] = useState<Status>(null);
@@ -86,10 +86,11 @@ export function AiPage(): React.ReactElement {
     onModelReset: setModel,
   });
 
-  // Hydrate baseURL/model once saved config arrives (don't clobber edits).
+  // Hydrate baseURL/model/delay once saved config arrives (don't clobber edits).
   useEffect(() => {
     if (config && !hydrated) {
       setBaseURL(config.baseURL || AI_DEFAULT_BASE_URL);
+      setRequestDelaySec(String(config.requestDelaySec ?? 0));
       if (config.model) setModel(config.model);
       setHydrated(true);
     }
@@ -110,6 +111,11 @@ export function AiPage(): React.ReactElement {
     const update: AiConfigUpdate = { baseURL: baseURL.trim(), projectId: id };
     if (apiKey.trim().length > 0) update.apiKey = apiKey;
     if (model.trim().length > 0) update.model = model.trim();
+    // «Задержка при отправке запросов»: нечисло читается как 0 (выключена).
+    const delay = Math.round(Number(requestDelaySec));
+    update.requestDelaySec = Number.isFinite(delay)
+      ? Math.min(AI_REQUEST_DELAY_MAX_SEC, Math.max(0, delay))
+      : 0;
     return update;
   };
 
@@ -194,7 +200,6 @@ export function AiPage(): React.ReactElement {
   };
 
   const modal = useUiStore((s) => s.modal);
-  const openModal = useUiStore((s) => s.openModal);
   const closeModal = useUiStore((s) => s.closeModal);
   const requirements = reqQuery.data?.requirements ?? [];
   const nameBySlug = useMemo(() => {
@@ -208,8 +213,8 @@ export function AiPage(): React.ReactElement {
       <Sidebar
         projectId={id}
         activePage="ai"
-        onOpenExport={() => openModal({ kind: 'export' })}
-        onOpenTasks={() => openModal({ kind: 'export-tasks' })}
+        onOpenExport={() => navigate(`/p/${id}/export`)}
+        onOpenTasks={() => navigate(`/p/${id}/generate`)}
       />
       <div
         className="flex min-h-screen flex-col"
@@ -391,6 +396,28 @@ export function AiPage(): React.ReactElement {
                 </p>
               </div>
 
+              {/* «Задержка при отправке запросов»: троттлинг перегруженного хаба (NET-01/NET-02) */}
+              <div>
+                <label className="label" htmlFor="ai-delay-input">
+                  Задержка при отправке запросов в секундах
+                </label>
+                <input
+                  id="ai-delay-input"
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={AI_REQUEST_DELAY_MAX_SEC}
+                  step={1}
+                  value={requestDelaySec}
+                  data-testid="ai-delay-input"
+                  onChange={(e) => setRequestDelaySec(e.target.value)}
+                />
+                <p className="hint mt-1">
+                  Принудительная пауза после каждого запроса к AI Hub (0 — без паузы). Помогает при
+                  ошибках NET-01/NET-02, когда сервис перегружен или ограничивает частоту запросов.
+                </p>
+              </div>
+
               {/* §2.16.1 the ONE primary button + §2.16.4 status right under it */}
               <div
                 className="space-y-2 border-t pt-4"
@@ -538,14 +565,6 @@ export function AiPage(): React.ReactElement {
             focusField={modal.focusField}
             onClose={closeModal}
           />
-        ) : null}
-
-        {modal?.kind === 'export' ? (
-          <ExportModal projectId={id} requirements={requirements} onClose={closeModal} />
-        ) : null}
-
-        {modal?.kind === 'export-tasks' ? (
-          <ExportTasksModal projectId={id} requirements={requirements} onClose={closeModal} />
         ) : null}
       </div>
     </>

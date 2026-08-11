@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import OpenAI from 'openai';
-import { Agent, ProxyAgent, fetch as undiciFetch, type Dispatcher } from 'undici';
+import {
+  Agent,
+  EnvHttpProxyAgent,
+  ProxyAgent,
+  fetch as undiciFetch,
+  type Dispatcher,
+} from 'undici';
 import type { AiClient, AiClientFactory } from './AiHubService.js';
 
 /**
@@ -15,12 +21,17 @@ import type { AiClient, AiClientFactory } from './AiHubService.js';
  *   (verification OFF) so the app works behind an internal CA out of the box; this
  *   is scoped to AI Hub only, never the global `NODE_TLS_REJECT_UNAUTHORIZED=0`.
  *   Set `AI_HUB_INSECURE_TLS=0` (or provide `AI_HUB_CA_CERT`) to enforce verification.
- * - `AI_HUB_PROXY` / `HTTPS_PROXY` — route AI Hub requests through an HTTP(S)
- *   proxy (Node's `fetch` ignores proxy env vars by default).
+ * - `AI_HUB_PROXY` — принудительный прокси ТОЛЬКО для AI Hub (явная настройка
+ *   продукта, `NO_PROXY` к ней не применяется).
+ * - `HTTPS_PROXY` из окружения — стандартная семантика: применяется с учётом
+ *   `NO_PROXY`/`no_proxy`. Раньше NO_PROXY игнорировался, и хаб на
+ *   `127.0.0.1`/`localhost` (Ollama, vLLM, e2e-стаб) за корпоративным прокси
+ *   становился недостижим — запросы к нему насильно уходили в прокси.
  */
 export function buildAiDispatcher(env: NodeJS.ProcessEnv = process.env): Dispatcher | undefined {
   const caPath = env.AI_HUB_CA_CERT?.trim();
-  const proxy = (env.AI_HUB_PROXY ?? env.HTTPS_PROXY ?? env.https_proxy ?? '').trim();
+  const forcedProxy = (env.AI_HUB_PROXY ?? '').trim();
+  const envProxy = (env.HTTPS_PROXY ?? env.https_proxy ?? '').trim();
   // Default to insecure (verification off) unless a CA is supplied or the user
   // explicitly opts out with AI_HUB_INSECURE_TLS=0 — AI Hub usually sits behind an
   // internal CA that Node doesn't ship, so this keeps it working out of the box.
@@ -34,7 +45,17 @@ export function buildAiDispatcher(env: NodeJS.ProcessEnv = process.env): Dispatc
   if (insecure) connect.rejectUnauthorized = false;
   const hasConnect = Object.keys(connect).length > 0;
 
-  if (proxy) return new ProxyAgent(hasConnect ? { uri: proxy, connect } : { uri: proxy });
+  if (forcedProxy) {
+    return new ProxyAgent(hasConnect ? { uri: forcedProxy, connect } : { uri: forcedProxy });
+  }
+  if (envProxy) {
+    return new EnvHttpProxyAgent({
+      httpProxy: envProxy,
+      httpsProxy: envProxy,
+      noProxy: (env.NO_PROXY ?? env.no_proxy ?? '').trim(),
+      ...(hasConnect ? { connect } : {}),
+    });
+  }
   if (hasConnect) return new Agent({ connect });
   return undefined;
 }

@@ -8,12 +8,12 @@ import {
 
 /**
  * Task 1 — Именованные группы фильтров + кейс-инсенситивный «Источник»
- * в общем компоненте RequirementPickerModal (два экрана):
- *   A) «Выбор требований для экспорта»  (Sidebar → Экспорт → ExportModal)
+ * в общем компоненте RequirementPicker (два экрана):
+ *   A) «Экспорт проекта» (Sidebar → Экспорт, полноэкранный режим)
  *   B) «Выбор ФТ/НФТ для TaskTracker»   (Sidebar → Задачи → tracker)
  *
  * Контракт селекторов: export-filter-zone, export-filter-crit-*, export-filter-impl-*,
- * export-filter-src-*, export-toggle-all, export-item-<slug>, export-next.
+ * export-filter-src-*, export-toggle-all, export-item-<slug>, export-run / gen-select-confirm.
  * Именованные группы: role="group" + aria-label = Критичность | Реализация | Источник | Выбор.
  */
 
@@ -62,11 +62,12 @@ async function openExportPicker(page: Page): Promise<Locator> {
   return modal;
 }
 
-/** Open the TaskTracker picker modal (screen B). */
+/** Open the TaskTracker requirement picker (screen B). */
 async function openTrackerPicker(page: Page): Promise<Locator> {
   await page.getByTestId('sidebar-open-tasks').click();
   await expect(page.getByTestId('export-tasks-modal')).toBeVisible();
   await page.getByTestId('export-tasks-dir-tracker').click();
+  await page.getByTestId('gen-direction-next').click();
   const modal = page.getByTestId('tracker-select-modal');
   await expect(modal).toBeVisible();
   return modal;
@@ -184,9 +185,10 @@ test.describe('Task 1 · Экран «Выбор требований для э�
     const selectionGroup = modal.getByRole('group', { name: 'Выбор' });
     const selectAll = modal.getByTestId('export-toggle-all');
     const deselectAll = modal.getByTestId('export-untoggle-all');
-    const next = modal.getByTestId('export-next');
+    // Кнопка действия живёт в правой панели-итоге, а не внутри списка.
+    const next = page.getByTestId('export-run');
 
-    // Изначально всё выбрано (3), «Далее» активна, «Выбрать все» уже не нужна.
+    // Изначально всё выбрано (3), выгрузка активна, «Выбрать все» уже не нужна.
     await expect(selectionGroup).toContainText('Выбрано 3');
     await expect(next).toBeEnabled();
     await expect(selectAll).toBeDisabled();
@@ -196,7 +198,7 @@ test.describe('Task 1 · Экран «Выбор требований для э�
     await deselectAll.click();
     await expect(selectionGroup).toContainText('Выбрано 0');
     await expect(next).toBeDisabled();
-    await expect(modal.getByTestId('export-next-hint')).toBeVisible();
+    await expect(page.getByTestId('export-empty-hint')).toBeVisible();
     await expect(deselectAll).toBeDisabled();
 
     // Выбрать все → снова 3, кнопка активна.
@@ -244,7 +246,7 @@ test.describe('Task 1 · Экран «Выбор ФТ/НФТ для TaskTracker�
     await expect(itemByName(modal, excel)).toHaveCount(0);
   });
 
-  test('регресс: «Выбрать все»/счётчик и кнопка «Предпросмотр»', async ({ page }) => {
+  test('регресс: «Выбрать все»/счётчик и кнопка «Сформировать»', async ({ page }) => {
     await setupProject(page, 'trk-sel', [
       { name: uniqueName('F'), kind: 'function' },
       { name: uniqueName('N'), kind: 'nfr' },
@@ -252,10 +254,10 @@ test.describe('Task 1 · Экран «Выбор ФТ/НФТ для TaskTracker�
     const modal = await openTrackerPicker(page);
 
     const selectionGroup = modal.getByRole('group', { name: 'Выбор' });
-    const next = modal.getByTestId('export-next');
+    const next = page.getByTestId('gen-select-confirm');
 
-    // Подпись подтверждения на этом экране — «Предпросмотр».
-    await expect(next).toContainText('Предпросмотр');
+    // Подпись подтверждения на этом экране — «Сформировать».
+    await expect(next).toContainText('Сформировать');
     await expect(selectionGroup).toContainText('Выбрано 2');
     await expect(next).toBeEnabled();
 

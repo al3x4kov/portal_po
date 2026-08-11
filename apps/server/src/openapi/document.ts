@@ -3,6 +3,9 @@ import { z } from 'zod';
 import {
   aiBacklogApplyBodySchema,
   aiChatRequestSchema,
+  aiDocsApplyBodySchema,
+  aiGenerateTestsRequestSchema,
+  aiGenerateTestsResponseSchema,
   aiChatResponseSchema,
   aiConfigUpdateSchema,
   aiConfigViewSchema,
@@ -128,8 +131,12 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
     // backlog fields — they are derived from the same extended zod schemas).
     AiImportConfirmBody: toSchema(aiImportConfirmBodySchema),
     AiBacklogApplyBody: toSchema(aiBacklogApplyBodySchema),
+    // Двухзонная выверка docs-импорта: тело apply для docs-заданий.
+    AiDocsApplyBody: toSchema(aiDocsApplyBodySchema),
     AiModelsView: toSchema(aiModelsViewSchema),
     AiChatRequest: toSchema(aiChatRequestSchema),
+    AiGenerateTestsRequest: toSchema(aiGenerateTestsRequestSchema),
+    AiGenerateTestsResponse: toSchema(aiGenerateTestsResponseSchema),
     AiChatResponse: toSchema(aiChatResponseSchema),
     GenerateDescriptionRequest: toSchema(generateDescriptionRequestSchema),
     GenerateDescriptionResponse: toSchema(generateDescriptionResponseSchema),
@@ -551,6 +558,22 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
         },
       },
     },
+    '/api/ai/generate-tests': {
+      post: {
+        tags: ['ai'],
+        summary: 'AI-генерация тест-кейсов для батча требований',
+        description:
+          'Развилка «Генерации артефактов»: модель-QA пишет кейсы по описаниям требований батча. ' +
+          'Ответ проходит анти-галлюцинационную проверку: кейсы с чужим/выдуманным slug отброшены ' +
+          '(`dropped`), требования без кейса возвращены списком `missing` — клиент достраивает их ' +
+          'детерминированным шаблоном.',
+        requestBody: jsonBody('AiGenerateTestsRequest'),
+        responses: {
+          200: jsonResponse('Валидные кейсы + счётчики проверки.', 'AiGenerateTestsResponse'),
+          400: errorResponse('Ошибка валидации, неизвестные slug или AI-хаб не настроен.'),
+        },
+      },
+    },
     '/api/ai/generate-description': {
       post: {
         tags: ['ai'],
@@ -590,6 +613,14 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
                     type: 'string',
                     enum: ['true', 'false'],
                     description: 'Опциональный шаг простановки связей ФТ↔НФТ (по умолчанию false).',
+                  },
+                  buildTree: {
+                    type: 'string',
+                    enum: ['true', 'false'],
+                    description:
+                      'Логическое дерево «навыка AI Product Owner»: модель проектирует бизнес-таксономию ' +
+                      '(домены → разделы) и раскладывает по ней все ФТ/НФТ; группирующие узлы создаются ' +
+                      'как требования с пометкой ИИ (по умолчанию false — структуризация по документации).',
                   },
                 },
               },
@@ -677,17 +708,29 @@ export function buildOpenApiDocument(): OpenAPIV3.Document {
     '/api/ai-import/{jobId}/apply': {
       post: {
         tags: ['ai'],
-        summary: 'Записать выверенную разметку бэклога в проект (todo_22)',
+        summary: 'Записать выверенный выбор в проект (backlog todo_22 / docs двухзонная выверка)',
         description:
-          'Единственный шаг, который пишет в проект: создаёт новые узлы (родитель→дитя), требования ' +
-          'выбранных строк, связи CHILD_OF и источники типа `BACKLOG` с дефолтным приоритетом словаря. ' +
-          'Идемпотентен: повторный запуск не дублирует уже созданное. Дубли (`duplicateOf`) не создаются. ' +
-          'task25: необязательное поле `overrides` (rowId → правка шага выверки) мерджится в разметку ДО записи: ' +
-          '`businessName` — новое имя требования; `parent` — существующий узел дерева (точное имя, тип строки) ' +
-          'или новый КОРНЕВОЙ узел; `targetQuarter`+`targetYear` — срок реализации (только парой). ' +
-          'Ключи overrides обязаны входить в `rowIds`; отчёт и контрольная точка отражают отредактированные значения.',
+          'Единственный шаг, который пишет в проект. Для `kind: "backlog"` (тело `{rowIds, overrides?}`): ' +
+          'создаёт новые узлы (родитель→дитя), требования выбранных строк, связи CHILD_OF и источники типа ' +
+          '`BACKLOG` с дефолтным приоритетом словаря. Идемпотентен: повторный запуск не дублирует уже созданное. ' +
+          'Дубли (`duplicateOf`) не создаются. task25: необязательное поле `overrides` (rowId → правка шага ' +
+          'выверки) мерджится в разметку ДО записи; ключи overrides обязаны входить в `rowIds`. ' +
+          'Для docs-заданий (тело `{phase, ids}`, двухзонная выверка дублей): `phase: "self"` подтверждает ' +
+          'зону 1 (дубли сгенерированных требований между собой) и открывает зону 2 с детерминированным ' +
+          'анализом дублей против уже существующих в проекте (`duplicateOf`); `phase: "existing"` подтверждает ' +
+          'зону 2 и запускает запись выбранных записей (populate + необязательный relate). Пустой `ids` на зоне 2 ' +
+          'завершает задание без записи.',
         parameters: [jobIdParam],
-        requestBody: jsonBody('AiBacklogApplyBody'),
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                oneOf: [ref('AiBacklogApplyBody'), ref('AiDocsApplyBody')],
+              },
+            },
+          },
+        },
         responses: {
           200: jsonResponse(
             'Запись запущена; прогресс — через `GET /api/ai-import/{jobId}`.',

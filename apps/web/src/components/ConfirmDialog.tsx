@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 import { BusyButton } from './BusyButton';
 
 /**
@@ -102,13 +103,10 @@ export function ConfirmDialog({
   // button is guarded by the name check.
   useFocusTrap(dialogRef, { initialFocus: typeToConfirm ? inputRef : cancelRef });
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  // Esc closes only the TOP overlay (shared stack with Modal): a confirm
+  // stacked over a modal «съедает» Esc — нижняя модалка не закрывается и не
+  // теряет введённые данные (UX-10).
+  useEscapeToClose(onCancel);
 
   // `undefined` = default (Lucide trash can for delete-style danger dialogs);
   // `null` = explicitly no icon; anything else renders as-is.

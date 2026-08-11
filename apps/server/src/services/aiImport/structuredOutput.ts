@@ -125,6 +125,130 @@ export function buildBacklogMatchResponseFormat(): Record<string, unknown> {
   };
 }
 
+/**
+ * Taxonomy-round answer schema (buildTree, PO skill). Mirrors the strict
+ * parser contract `aiStructureNodeSchema`: the model returns the FULL updated
+ * taxonomy as nodes {type,name,parentName|null}. Root is an object
+ * (`{"nodes":[…]}`) — strict json_schema requires an object root;
+ * `extractJsonArray` unwraps the inner array.
+ */
+export function buildPoTaxonomyResponseFormat(): Record<string, unknown> {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'po_taxonomy_nodes',
+      strict: true,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['nodes'],
+        properties: {
+          nodes: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['type', 'name', 'parentName'],
+              properties: {
+                type: { type: 'string', enum: ['FUNCTION', 'NFR'] },
+                name: { type: 'string' },
+                parentName: { type: ['string', 'null'] },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Assignment answer schema (buildTree, PO skill). MUST mirror the strict
+ * parser contract `aiPoAssignmentSchema` — the backlog hotfix precedent: a
+ * schema-honouring model returns exactly what `parsePoAssignResponse` accepts.
+ */
+export function buildPoAssignResponseFormat(): Record<string, unknown> {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'po_tree_assignments',
+      strict: true,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['answers'],
+        properties: {
+          answers: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['type', 'name', 'node'],
+              properties: {
+                type: { type: 'string', enum: ['FUNCTION', 'NFR'] },
+                name: { type: 'string' },
+                node: { type: ['string', 'null'] },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Test-generation answer schema (развилка «Генерации артефактов»). Mirrors the
+ * strict parser contract `aiTestCaseSchema`: root object `{"cases":[…]}`,
+ * optionality выражена nullable-типами (strict json_schema требует все ключи
+ * в required). `slug` — якорь анти-галлюцинационной проверки.
+ */
+export function buildTestGenResponseFormat(): Record<string, unknown> {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'test_cases',
+      strict: true,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['cases'],
+        properties: {
+          cases: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: [
+                'slug',
+                'title',
+                'goal',
+                'precondition',
+                'steps',
+                'expected',
+                'negativeSteps',
+                'negativeExpected',
+              ],
+              properties: {
+                slug: { type: 'string' },
+                title: { type: 'string' },
+                goal: { type: 'string' },
+                precondition: { type: 'string' },
+                steps: { type: 'array', items: { type: 'string' } },
+                expected: { type: 'string' },
+                negativeSteps: {
+                  anyOf: [{ type: 'array', items: { type: 'string' } }, { type: 'null' }],
+                },
+                negativeExpected: { type: ['string', 'null'] },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+}
+
 /** Builds the `response_format` payload for the `json_schema` mode. */
 export type ResponseFormatBuilder = () => Record<string, unknown>;
 

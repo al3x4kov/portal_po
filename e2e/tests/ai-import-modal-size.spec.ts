@@ -1,6 +1,7 @@
 import path from 'node:path';
 import AdmZip from 'adm-zip';
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { approveDocsReviewGates } from './helpers/ai-import.js';
 import { startAiStub, type AiStub } from './helpers/ai-stub.js';
 import { createProject, projectIdFromUrl, uniqueName } from './helpers/app.js';
 
@@ -218,6 +219,8 @@ test.describe('task24 · AI-импорт: модалка ~70% экрана (де
     }
 
     // Report step (success view with the summary table): still 65–80%.
+    // The duplicate-review gate opens first — approve both zones.
+    await approveDocsReviewGates(page);
     await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
     await expect(page.getByTestId('ai-import-summary')).toBeVisible();
     await expectSeventyPercentCard(page, 'report');
@@ -261,7 +264,9 @@ test.describe('task24 · AI-импорт: модалка ~70% экрана (де
     }
 
     // Report: the success view adds the summary above the log — the log may
-    // shrink but never below its 170px floor, and it stays visible.
+    // shrink but never below its 170px floor, and it stays visible. Approve
+    // the duplicate-review gate first.
+    await approveDocsReviewGates(page);
     await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
     const reportBox = await boxOf(page.getByTestId('ai-import-log'), 'ai-import-log (report)');
     expect(reportBox.height, 'report log keeps its 170px floor').toBeGreaterThanOrEqual(169);
@@ -342,6 +347,8 @@ test.describe('task24 · журнал растягивается на свобо
       stub.setExtractionDelay(0);
     }
 
+    // Approve the duplicate-review gate, then the success view closes cleanly.
+    await approveDocsReviewGates(page);
     await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
     await page.getByTestId('ai-import-done').click();
     await expect(page.getByTestId('ai-import')).toHaveCount(0);
@@ -424,6 +431,8 @@ test.describe('task24 · AI-импорт: мобильный вьюпорт 375�
       stub.setExtractionDelay(0);
     }
 
+    // The review gate must be operable on mobile too — approve both zones.
+    await approveDocsReviewGates(page);
     await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
     await page.getByTestId('ai-import-done').click();
     await expect(page.getByTestId('ai-import')).toHaveCount(0);

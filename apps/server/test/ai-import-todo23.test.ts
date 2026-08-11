@@ -27,6 +27,7 @@ import type { AiJobCheckpoint } from '../src/services/aiImport/checkpoint.js';
 import { ReportBuilder } from '../src/services/aiImport/report.js';
 import {
   KIT_PROJECT,
+  approveDocsReview,
   makeImportHarness,
   scriptedClient,
   writeZipArchive,
@@ -496,6 +497,9 @@ describe('M3 — честные счётчики и сообщение оста�
     const service2 = h.makeService(scriptedClient([rec('Функция Б1', 'guide.md'), '[]']));
     await service2.resume(jobId);
     await service2.waitForCompletion(jobId);
+    // Возобновлённый прогон доходит до ревью-гейтов — одобряем обе зоны,
+    // сохранив все записи; только после этого populate создаёт требования.
+    await approveDocsReview(service2, jobId);
     const done = service2.getView(jobId);
     expect(done.status).toBe('succeeded');
     expect(done.result?.createdFunctions).toBe(2);

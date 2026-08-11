@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>Г3 · Генерация — шаг 2: способ «Шаблон»</title>
+    <link rel="stylesheet" href="../tokens.css" />
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+      body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--color-bg); height: 1000px; width: 1600px; overflow: hidden; color: var(--color-text); display: flex; }
+      .sidebar { width: 56px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0; background: var(--color-surface); border-right: 1px solid var(--color-border); }
+      .slogo { width: 36px; height: 36px; border-radius: 10px; background: var(--color-primary); color: #fff; font-size: 13px; font-weight: 700; display: grid; place-items: center; margin-bottom: 8px; }
+      .nav { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: var(--color-text-3); }
+      .nav svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .nav.act { background: var(--color-primary-soft); color: var(--color-primary); }
+      .navdiv { width: 32px; border-top: 1px solid var(--color-border); margin: 10px 0 4px; }
+      .navlbl { font-size: 9px; color: var(--color-text-3); margin-bottom: 2px; }
+      .app { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+      .apphead { display: flex; align-items: center; gap: 16px; padding: 0 24px; height: 58px; background: var(--color-surface); border-bottom: 1px solid var(--color-border); flex: none; }
+      .back { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--color-text-2); }
+      .htitle h1 { font-size: 17px; font-weight: 600; line-height: 1.2; }
+      .hpath { font-family: ui-monospace, monospace; font-size: 11px; color: var(--color-text-3); }
+      .scrn { position: absolute; top: 13px; right: 16px; z-index: 6; background: #0f172a; color: #fff; border-radius: 999px; padding: 6px 14px; font-size: 12.5px; font-weight: 700; box-shadow: 0 4px 12px #0f172a44; }
+      .main { flex: 1; display: flex; min-height: 0; }
+      .foot { display: flex; justify-content: space-between; padding: 14px 24px; border-top: 1px solid var(--color-border); background: var(--color-surface); flex: none; }
+      .rightbtns { display: flex; gap: 10px; }
+      .btn { border-radius: 8px; padding: 10px 18px; font-size: 13.5px; font-weight: 600; border: 1px solid var(--color-border); background: var(--color-surface); }
+      .btn.primary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+      .btn.danger { background: var(--color-danger); border-color: var(--color-danger); color: #fff; }
+      .btn.dis { opacity: 0.45; }
+      .btn.wide { width: 100%; text-align: center; display: block; }
+      .rail { width: 260px; flex: none; border-right: 1px solid var(--color-border); background: var(--color-surface); padding: 26px 20px; }
+      .step { display: flex; gap: 12px; margin-bottom: 26px; font-size: 14px; color: var(--color-text-3); }
+      .dot { width: 26px; height: 26px; border-radius: 50%; background: var(--color-surface-2); display: grid; place-items: center; font-size: 12.5px; font-weight: 700; flex: none; }
+      .step.done .dot { background: var(--color-success-bg); color: var(--color-success-fg); }
+      .step.active { color: var(--color-text); font-weight: 600; }
+      .step.active .dot { background: var(--color-primary); color: #fff; }
+      .sub { font-size: 11.5px; color: var(--color-text-3); font-weight: 400; margin-top: 2px; }
+      .content { flex: 1; display: flex; min-width: 0; }
+      .colL { flex: 1; padding: 18px 24px; display: flex; flex-direction: column; min-width: 0; }
+      .aside { width: 480px; flex: none; border-left: 1px solid var(--color-border); background: var(--color-surface); padding: 24px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
+      h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-3); }
+      .toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+      .search { flex: 1; border: 1px solid var(--color-border); border-radius: 8px; padding: 9px 12px; color: var(--color-text-3); font-size: 13px; background: var(--color-surface); }
+      .chip { border: 1px solid var(--color-border); border-radius: 8px; padding: 9px 12px; font-size: 12.5px; font-weight: 600; background: var(--color-surface); }
+      .selrow { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--color-text-3); margin-bottom: 8px; }
+      .selrow b { color: var(--color-text); }
+      .tree { flex: 1; overflow: auto; border: 1px solid var(--color-border); border-radius: 12px; font-size: 13.5px; background: var(--color-surface); }
+      .trow { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--color-border); }
+      .trow:nth-child(odd) { background: #fbfcfe; }
+      .cb { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--color-border); display: inline-block; flex: none; background: #fff; }
+      .cb.on { background: var(--color-primary); border-color: var(--color-primary); position: relative; }
+      .cb.on::after { content: "✓"; color: #fff; font-size: 10px; position: absolute; top: 0; left: 2px; }
+      .cb.part { background: var(--color-primary-soft); border-color: var(--color-primary); }
+      .indent { width: 22px; flex: none; }
+      .type { font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 8px; flex: none; }
+      .type.ft { background: var(--color-primary-soft); color: var(--color-primary); }
+      .type.nft { background: var(--color-info-bg); color: var(--color-info-fg); }
+      .crit { font-size: 11.5px; font-weight: 700; margin-left: auto; flex: none; }
+      .term { font-size: 11.5px; color: var(--color-text-3); flex: none; width: 70px; text-align: right; }
+      .group { font-weight: 700; }
+      .count { color: var(--color-text-3); font-weight: 400; font-size: 11px; }
+      .fmt { display: flex; flex-direction: column; gap: 8px; }
+      .fcard { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--color-border); border-radius: 10px; padding: 11px 12px; background: var(--color-bg); font-size: 13px; }
+      .fcard.sel { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); background: var(--color-primary-soft); }
+      .radio { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--color-border); margin-top: 2px; flex: none; background: #fff; }
+      .fcard.sel .radio, .mode.sel .radio { border-color: var(--color-primary); border-width: 4.5px; }
+      .fhint { color: var(--color-text-3); font-size: 11.5px; margin-top: 2px; }
+      .sum { border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg); padding: 12px 14px; font-size: 13px; }
+      .sum .row { display: flex; justify-content: space-between; padding: 3.5px 0; }
+      .banner { border-radius: 10px; padding: 10px 13px; font-size: 12.5px; line-height: 1.5; }
+      .banner.warn { background: var(--color-warning-bg); color: var(--color-warning-fg); }
+      .banner.err { background: var(--color-danger-bg); color: var(--color-danger-fg); }
+      .banner.info { background: var(--color-info-bg); color: var(--color-info-fg); }
+      .banner b { font-weight: 700; }
+      .actions { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+      .cards { flex: 1.25; padding: 26px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-content: start; }
+      .card { border: 1px solid var(--color-border); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 10px; background: var(--color-surface); min-height: 160px; }
+      .card.sel { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); background: var(--color-primary-soft); }
+      .card h3 { font-size: 15.5px; display: flex; gap: 9px; align-items: center; }
+      .icn { width: 22px; height: 22px; border-radius: 6px; display: inline-block; flex: none; }
+      .card p { font-size: 13px; color: var(--color-text-3); line-height: 1.5; }
+      .cov { margin-top: auto; font-size: 12px; font-weight: 700; color: var(--color-primary); background: #fff; border: 1px solid var(--color-border); border-radius: 999px; padding: 5px 12px; width: max-content; }
+      .cov.zero { color: var(--color-danger); }
+      .gaside { width: 480px; flex: none; border-left: 1px solid var(--color-border); background: var(--color-surface); padding: 26px; overflow: auto; display: flex; flex-direction: column; gap: 14px; }
+      .rules { font-size: 13px; color: var(--color-text-2); line-height: 1.6; }
+      pre { background: #0f172a; color: #cbd5e1; border-radius: 10px; padding: 16px; font-size: 11.5px; line-height: 1.55; overflow: hidden; }
+      pre .k { color: #7dd3fc; }
+      pre .h { color: #fbbf24; }
+      .modes { flex: 1; padding: 26px; display: flex; flex-direction: column; gap: 16px; }
+      .mode { border: 1px solid var(--color-border); border-radius: 14px; padding: 20px; display: flex; gap: 14px; background: var(--color-surface); }
+      .mode.sel { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); background: var(--color-primary-soft); }
+      .mode.off { opacity: 0.55; }
+      .mode .radio { width: 16px; height: 16px; margin-top: 3px; }
+      .mode h3 { font-size: 15.5px; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
+      .mode p { font-size: 13px; color: var(--color-text-3); line-height: 1.55; }
+      .pl { margin-top: 10px; font-size: 12.5px; color: var(--color-text-2); line-height: 1.65; }
+      .pl span { display: block; }
+      .badge { font-size: 11.5px; font-weight: 700; border-radius: 999px; padding: 5px 11px; }
+      .b-ok { background: var(--color-success-bg); color: var(--color-success-fg); }
+      .b-warn { background: var(--color-warning-bg); color: var(--color-warning-fg); }
+      .b-err { background: var(--color-danger-bg); color: var(--color-danger-fg); }
+      .b-info { background: var(--color-info-bg); color: var(--color-info-fg); }
+      .badges { display: flex; flex-wrap: wrap; gap: 8px; }
+      .frow { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
+      .select { flex: 1; border: 1px solid var(--color-border); border-radius: 8px; padding: 9px 12px; background: var(--color-bg); }
+      .iconbtn { border: 1px solid var(--color-border); border-radius: 8px; padding: 9px 11px; background: var(--color-bg); }
+      .check { display: flex; gap: 10px; font-size: 13.5px; align-items: flex-start; }
+      .check .cb { margin-top: 2px; }
+      .hint { font-size: 12px; color: var(--color-text-3); margin-top: 3px; line-height: 1.5; }
+      .est { border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-bg); padding: 14px; font-size: 13px; }
+      .est .row { display: flex; justify-content: space-between; padding: 3px 0; }
+      .go { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+      .preview { flex: 1.35; padding: 20px 24px; display: flex; flex-direction: column; min-width: 0; }
+      .pvhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 12.5px; color: var(--color-text-3); }
+      .pvhead b { color: var(--color-text); font-size: 14px; }
+      .cases { flex: 1; overflow: auto; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); }
+      .case { border-bottom: 1px solid var(--color-border); padding: 12px 16px; }
+      .chead { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 600; }
+      .tag { font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 8px; }
+      .tag.ai { background: var(--color-primary-soft); color: var(--color-primary); }
+      .tag.tpl { background: var(--color-warning-bg); color: var(--color-warning-fg); }
+      .cid { color: var(--color-text-3); font-weight: 400; font-size: 11.5px; }
+      .cbody { font-size: 12.5px; color: var(--color-text-2); line-height: 1.6; margin-top: 7px; }
+      .chev { margin-left: auto; color: var(--color-text-3); }
+      .skel { height: 13px; border-radius: 6px; background: var(--color-surface-2); }
+      .log { flex: 1; overflow: auto; background: #0f172a; color: #cbd5e1; border-radius: 10px; padding: 14px 16px; font-family: ui-monospace, monospace; font-size: 11.5px; line-height: 1.7; }
+      .log .w { color: #fbbf24; }
+      .log .ok { color: #4ade80; }
+      .log .er { color: #f87171; }
+      .pbar { height: 8px; border-radius: 999px; background: var(--color-surface-2); overflow: hidden; }
+      .pbar span { display: block; height: 100%; width: 66%; background: var(--color-primary); }
+      .overlay { position: absolute; inset: 0; background: #0f172a66; z-index: 8; display: grid; place-items: center; }
+      .dialog { width: 440px; background: var(--color-surface); border-radius: 14px; box-shadow: 0 25px 60px #0f172a66; padding: 22px 24px; }
+      .dialog h3 { font-size: 16px; margin-bottom: 8px; }
+      .dialog p { font-size: 13px; color: var(--color-text-2); line-height: 1.55; margin-bottom: 18px; }
+      .dialog .row { display: flex; justify-content: flex-end; gap: 10px; }
+      .empty { border: 1px dashed var(--color-border); border-radius: 12px; padding: 22px; text-align: center; font-size: 13px; color: var(--color-text-2); line-height: 1.6; }
+      .empty b { display: block; font-size: 14.5px; color: var(--color-text); margin-bottom: 6px; }
+      .note { position: absolute; background: #fff8dc; border: 1px solid #eab308; color: #713f12; border-radius: 10px; padding: 8px 12px; font-size: 12.5px; max-width: 310px; box-shadow: 0 6px 18px #0f172a33; z-index: 5; }
+      .note b { color: #854d0e; }
+    </style>
+  </head>
+  <body>
+    <div class="sidebar">
+      <span class="slogo">PO</span>
+      <span class="nav" title="Требования"><svg viewBox="0 0 24 24"><path d="M21 12h-8" /><path d="M21 6H8" /><path d="M21 18h-8" /><path d="M3 6v4c0 1.1.9 2 2 2h3" /><path d="M3 10v6c0 1.1.9 2 2 2h3" /></svg></span>
+      <span class="nav" title="Дашборд"><svg viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16" /><path d="M18 17V9" /><path d="M13 17V5" /><path d="M8 17v-3" /></svg></span>
+      <span class="nav" title="Справочники"><svg viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" /><path d="M10 2v8l3-3 3 3V2" /></svg></span>
+      <span class="nav" title="Настройка AI"><svg viewBox="0 0 24 24"><path d="M9.9 15.5 8.5 14l-6.1-1.6a.5.5 0 0 1 0-1L8.5 10l1.4-1.5 1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1 1.4 1.5 6.1 1.6a.5.5 0 0 1 0 1L15.5 14l-1.4 1.5-1.6 6.1a.5.5 0 0 1-1 0z" /></svg></span>
+      <span class="nav" title="Граф связей"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span>
+      <span class="navdiv"></span>
+      <span class="navlbl">Действия</span>
+      <span class="nav" title="Экспорт проекта"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /><path d="M12 15V3" /></svg></span>
+      <span class="nav act" title="Генерация задач"><svg viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" /></svg></span>
+    </div>
+    <div class="app">
+    <div class="apphead">
+      <span class="back">← Требования</span>
+      <span class="htitle">
+        <h1>Генерация артефактов · Smoke-модель · Twitter</h1>
+        <div class="hpath">/Users/po/Projects/Twitter</div>
+      </span>
+    </div>
+      <div class="main">
+      <div class="rail">
+        <div class="step done"><span class="dot">✓</span><span>Направление<div class="sub">Smoke-модель</div></span></div>
+        <div class="step active"><span class="dot">2</span><span>Способ и параметры</span></div>
+        <div class="step "><span class="dot">3</span><span>Результат</span></div>
+      </div>
+        <div class="content">
+        <div class="modes">
+          <div class="mode sel"><span class="radio"></span><span>
+            <h3>📄 Детерминированный шаблон</h3>
+            <p>Единая структура кейсов, шаги по общей формуле.</p>
+            <span class="pl"><span>✅ мгновенно, офлайн, воспроизводимо</span><span>➖ шаги общие, без специфики требования</span></span>
+          </span></div>
+          <div class="mode"><span class="radio"></span><span>
+            <h3>✨ AI-генерация по описаниям</h3>
+            <p>Модель-QA пишет конкретные шаги по описаниям требований. Каждый кейс проходит проверку на галлюцинации, пропуски достраиваются шаблоном.</p>
+            <span class="pl"><span>✅ конкретные шаги и негативные сценарии</span><span>➖ нужен настроенный AI, ~1–2 мин на модель</span></span>
+          </span></div>
+        </div>
+        <div class="gaside">
+          <h4>Параметры шаблона</h4>
+          <div class="check"><span class="cb on"></span><span>Включить нереализованные ФТ (3)<div class="hint">Кейсы для запланированных функций помечаются «до реализации».</div></span></div>
+          <div class="est">
+            <div class="row"><span>Требований в модели</span><b>26 из 34 ФТ</b></div>
+            <div class="row"><span>Время</span><b>мгновенно</b></div>
+            <div class="row"><span>AI</span><b>не используется</b></div>
+          </div>
+          <div class="go"><span class="btn primary wide">Сформировать</span></div>
+        </div>
+        </div>
+      </div>
+      <div class="foot"><span class="btn">← Назад</span><span></span></div>
+    </div>
+    <span class="scrn">Г3 · способ: шаблон</span>
+
+    <div class="note" style="top: 560px; left: 430px"><b>Г3</b> Развилка способа, ветка «Шаблон»: справа только релевантные параметры (нереализованные ФТ), без настроек модели. Кнопка ведёт сразу к результату Г10 — без прогона.</div>
+  </body>
+</html>

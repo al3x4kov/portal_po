@@ -85,6 +85,42 @@ describe('T-802 AI routes (integration, mock client)', () => {
     expect(get.body).not.toContain(SECRET);
   });
 
+  // «Задержка при отправке запросов в секундах» — глобальная настройка AI.
+  it('PUT /api/ai/config сохраняет requestDelaySec, 0 удаляет настройку', async () => {
+    await boot(okClient());
+    const put = await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { requestDelaySec: 30 },
+    });
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toMatchObject({ requestDelaySec: 30 });
+
+    const get = await app.inject({ method: 'GET', url: '/api/ai/config' });
+    expect(get.json()).toMatchObject({ requestDelaySec: 30 });
+
+    // 0 = задержка выключена: поле исчезает из view (дефолт не материализуется).
+    const reset = await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { requestDelaySec: 0 },
+    });
+    expect(reset.statusCode).toBe(200);
+    expect(reset.json()).not.toHaveProperty('requestDelaySec');
+  });
+
+  it('PUT /api/ai/config отклоняет невалидную задержку (отрицательную/дробную/сверх лимита) с 422', async () => {
+    await boot(okClient());
+    for (const requestDelaySec of [-1, 2.5, 100500]) {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/api/ai/config',
+        payload: { requestDelaySec },
+      });
+      expect(res.statusCode).toBe(422);
+    }
+  });
+
   it('PUT /api/ai/config rejects an invalid baseURL with 422 (BE-4 unified input validation)', async () => {
     await boot(okClient());
     const res = await app.inject({
@@ -187,6 +223,59 @@ describe('T-802 AI routes (integration, mock client)', () => {
     expect(createMock).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'GigaChat-2-Pro', temperature: 0.7, max_tokens: 1000 }),
     );
+  });
+
+  it('POST /api/ai/chat с useProjectContext=true подмешивает ФТ/НФТ проекта в system-подсказку', async () => {
+    const client = okClient();
+    await boot(client);
+    // Реальный проект с требованием — источник истины контекста.
+    await app.inject({ method: 'POST', url: '/api/projects', payload: { name: 'Demo' } });
+    await app.inject({
+      method: 'POST',
+      url: '/api/projects/Demo/requirements',
+      payload: {
+        type: 'FUNCTION',
+        name: 'Оплата картой',
+        criticality: 'HIGH',
+        implemented: true,
+        description: 'Оплата банковской картой через шлюз.',
+      },
+    });
+    await app.inject({
+      method: 'PUT',
+      url: '/api/ai/config',
+      payload: { apiKey: SECRET, projectId: 'Demo', model: 'GigaChat-2-Pro' },
+    });
+
+    const on = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: {
+        projectId: 'Demo',
+        useProjectContext: true,
+        messages: [{ role: 'user', content: 'Что у нас с оплатой?' }],
+      },
+    });
+    expect(on.statusCode).toBe(200);
+    const createMock = client.chat.completions.create as ReturnType<typeof vi.fn>;
+    const onSystem = (
+      createMock.mock.calls.at(-1)![0] as { messages: Array<{ role: string; content: string }> }
+    ).messages[0]!;
+    expect(onSystem.role).toBe('system');
+    expect(onSystem.content).toContain('«Оплата картой»');
+    expect(onSystem.content).toContain('Оплата банковской картой через шлюз.');
+
+    // Без флага (старые клиенты) system-подсказка остаётся прежней.
+    const off = await app.inject({
+      method: 'POST',
+      url: '/api/ai/chat',
+      payload: { projectId: 'Demo', messages: [{ role: 'user', content: 'Что у нас с оплатой?' }] },
+    });
+    expect(off.statusCode).toBe(200);
+    const offSystem = (
+      createMock.mock.calls.at(-1)![0] as { messages: Array<{ role: string; content: string }> }
+    ).messages[0]!;
+    expect(offSystem.content).not.toContain('Оплата картой');
   });
 
   it('POST /api/ai/chat prefers the model override from the body', async () => {

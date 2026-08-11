@@ -279,6 +279,73 @@ describe('T-209 · callAiWithRetries', () => {
     expect(failures).toBe(0);
   });
 
+  // «Задержка при отправке запросов» (настройка AI): принудительная пауза
+  // после КАЖДОГО запроса к хабу — вне per-call тайм-аута.
+  describe('delayAfterAttemptMs', () => {
+    it('успех: пауза выдерживается после запроса, перед возвратом результата', async () => {
+      const delays: number[] = [];
+      const res = await callAiWithRetries({
+        call: async () => 'ok',
+        timeoutMs: 1000,
+        delayAfterAttemptMs: 4000,
+        sleep: async (ms) => {
+          delays.push(ms);
+        },
+      });
+      expect(res).toEqual({ ok: true, value: 'ok', attempts: 1 });
+      expect(delays).toEqual([4000]);
+    });
+
+    it('ретраи: межпопыточное ожидание не короче задержки, финал тоже с паузой', async () => {
+      let calls = 0;
+      const delays: number[] = [];
+      const res = await callAiWithRetries({
+        call: async () => {
+          calls += 1;
+          if (calls < 3) throw httpError(429);
+          return 'ok';
+        },
+        timeoutMs: 1000,
+        delayAfterAttemptMs: 5000,
+        sleep: async (ms) => {
+          delays.push(ms);
+        },
+        random: () => 0,
+      });
+      expect(res.ok).toBe(true);
+      // backoff 1000/2000 поднят до 5000; после успешного третьего запроса — ещё пауза.
+      expect(delays).toEqual([5000, 5000, 5000]);
+    });
+
+    it('фатальная ошибка (401): пауза перед возвратом ошибки', async () => {
+      const delays: number[] = [];
+      const res = await callAiWithRetries({
+        call: async () => {
+          throw httpError(401);
+        },
+        timeoutMs: 1000,
+        delayAfterAttemptMs: 3000,
+        sleep: async (ms) => {
+          delays.push(ms);
+        },
+      });
+      expect(res).toMatchObject({ ok: false, errorClass: 'auth', attempts: 1 });
+      expect(delays).toEqual([3000]);
+    });
+
+    it('без задержки (0/не задана) поведение прежнее — sleep не вызывается на успехе', async () => {
+      const delays: number[] = [];
+      await callAiWithRetries({
+        call: async () => 'ok',
+        timeoutMs: 1000,
+        sleep: async (ms) => {
+          delays.push(ms);
+        },
+      });
+      expect(delays).toEqual([]);
+    });
+  });
+
   it('shouldStop прерывает ретраи между попытками (cancel)', async () => {
     let calls = 0;
     const res = await callAiWithRetries({

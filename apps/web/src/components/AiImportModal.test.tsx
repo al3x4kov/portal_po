@@ -547,6 +547,32 @@ describe('AiImportModal (Task 11)', () => {
       expect(startImport).toHaveBeenCalledWith('proj-1', archive, undefined, true);
     });
 
+    it('buildTree: чекбокс логического дерева выключен по умолчанию и не меняет форму вызова', async () => {
+      getJob.mockResolvedValue(RUNNING_JOB);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      const checkbox = screen.getByTestId('ai-import-build-tree');
+      expect(checkbox).not.toBeChecked();
+      // Подсказка объясняет, что группирующие узлы создаст модель-PO.
+      expect(
+        screen.getByText('Собрать логическое дерево требований (навык AI Product Owner)'),
+      ).toBeInTheDocument();
+      await startJob(user);
+      expect(startImport).toHaveBeenCalledWith('proj-1', archive, undefined);
+    });
+
+    it('buildTree: включённый чекбокс отправляет buildTree=true пятым аргументом', async () => {
+      getJob.mockResolvedValue(RUNNING_JOB);
+      const user = userEvent.setup();
+      renderModal();
+      await waitForProjectModel();
+      await user.click(screen.getByTestId('ai-import-build-tree'));
+      expect(screen.getByTestId('ai-import-build-tree')).toBeChecked();
+      await startJob(user);
+      expect(startImport).toHaveBeenCalledWith('proj-1', archive, undefined, false, true);
+    });
+
     it('running relate: shows the step as executing; «Этап:» switches to the relate step (Ф6)', async () => {
       getJob.mockResolvedValue({
         ...RUNNING_JOB,

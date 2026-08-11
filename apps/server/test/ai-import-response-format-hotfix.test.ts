@@ -311,7 +311,20 @@ describe('hotfix · response_format по веткам импорта (интег
     });
     expect(started.statusCode).toBe(202);
     const { jobId } = started.json() as { jobId: string };
-    const done = await poll(jobId, (v) => v.status !== 'running');
+    // Двухзонная выверка: после aggregate джоб встаёт на два review-гейта —
+    // одобряем обе зоны целиком (все id), затем ждём финального populate.
+    let done = await poll(jobId, (v) => v.status !== 'running');
+    for (const phase of ['self', 'existing'] as const) {
+      expect(done.status).toBe('awaiting-review');
+      expect(done.docsReview?.phase).toBe(phase);
+      const applied = await app.inject({
+        method: 'POST',
+        url: `/api/ai-import/${jobId}/apply`,
+        payload: { phase, ids: (done.docsReview?.items ?? []).map((i) => i.id) },
+      });
+      expect(applied.statusCode).toBe(200);
+      done = await poll(jobId, (v) => v.status !== 'running');
+    }
     expect(done.status).toBe('succeeded');
 
     const names = schemaNames(calls);

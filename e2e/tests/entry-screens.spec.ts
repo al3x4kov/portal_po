@@ -47,10 +47,10 @@ async function projectByName(page: Page, name: string): Promise<ProjectSummary> 
 /** Export the CURRENT project (main screen) as .zip under a custom filename. */
 async function exportZipAs(page: Page, testInfo: TestInfo, filename: string): Promise<string> {
   await page.getByTestId('sidebar-open-export').click();
-  await page.getByTestId('export-next').click();
+  await page.getByTestId('export-fmt-zip').click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByTestId('export-fmt-zip').click(),
+    page.getByTestId('export-run').click(),
   ]);
   const target = testInfo.outputPath(filename);
   await download.saveAs(target);

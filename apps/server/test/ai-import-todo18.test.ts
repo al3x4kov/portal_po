@@ -17,6 +17,7 @@ import {
   type ServiceContext,
 } from '../src/factory.js';
 import { cleanup, fixedNow, makeTmpRoot } from './helpers.js';
+import { approveDocsReview } from './aiImportKit.js';
 
 const SECRET = 'sk-todo18-secret';
 const PROJECT = 'Demo';
@@ -115,6 +116,9 @@ describe('todo_18: reasoning-strip + смысловые связи в импор
     const archive = await writeZip({ 'docs.md': '# Вход\nВход по email.\n# SLA\nОтклик 200 мс.' });
     const { jobId } = await service.start(PROJECT, archive, undefined, opts.inferLinks);
     await service.waitForCompletion(jobId);
+    // Approve both review gates (zone 1 «self», zone 2 «existing») keeping
+    // every item — populate/relate only run after the zone-2 apply.
+    await approveDocsReview(service, jobId);
     return { service, jobId };
   }
 

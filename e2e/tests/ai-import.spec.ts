@@ -20,7 +20,7 @@ import {
   setTreeMode,
   uniqueName,
 } from './helpers/app.js';
-import { expectAiImportSummary } from './helpers/ai-import.js';
+import { approveDocsReviewGates, expectAiImportSummary } from './helpers/ai-import.js';
 
 /**
  * Task 11 · E2E for «AI подгрузка ФТ и НФТ из документации» (spec §5 matrix).
@@ -400,6 +400,9 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await chooseFile(page, zip);
     await startAnalysis(page);
 
+    // Двухзонная выверка: approve both review zones (select-all → apply).
+    await approveDocsReviewGates(page);
+
     // Job finishes: success view with the 5-row summary TABLE (§2.18.3):
     // 2 ФТ + 1 НФТ, 1 связь в дереве, 0 связей НФТ↔ФТ, 0 пропущено.
     const success = page.getByTestId('ai-import-success');
@@ -485,6 +488,9 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await chooseFile(page, zip);
     await startAnalysis(page);
 
+    // Двухзонная выверка: approve both review zones before the summary.
+    await approveDocsReviewGates(page);
+
     // Success with requirements extracted from the NESTED files too.
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
@@ -556,15 +562,21 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await openAiImport(page);
     await chooseFile(page, zip);
     await startAnalysis(page);
+    await approveDocsReviewGates(page);
     await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
     await page.getByTestId('ai-import-done').click();
     await expect(page.getByTestId('ai-import')).toHaveCount(0);
     expect(await listRequirements(page, id)).toHaveLength(3);
 
-    // Second run of the SAME archive: nothing created, all skipped.
+    // Second run of the SAME archive: nothing created, all skipped. The gate
+    // appears here too; on zone 2 every record is flagged as `duplicateOf` an
+    // existing requirement and DESELECTED by default — the helper select-alls
+    // both zones, so populate sees all 3 records and skips them server-side
+    // (the old skipped=3 counters stay intact).
     await openAiImport(page);
     await chooseFile(page, zip);
     await startAnalysis(page);
+    await approveDocsReviewGates(page);
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
     await expectAiImportSummary(page, {
@@ -752,8 +764,10 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
       await attachShot(page, testInfo, 'stage-error');
 
       // After fixing the upstream, «Продолжить» (resume) actually succeeds.
+      // The resumed run reaches the review gate — approve both zones.
       stub.setChatMode('ok');
       await page.getByTestId('ai-import-resume').click();
+      await approveDocsReviewGates(page);
       await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
     } finally {
       stub.setChatMode('ok');
@@ -805,6 +819,7 @@ test.describe('Task 11 · AI подгрузка ФТ/НФТ из докумен�
     await openAiImport(page);
     await chooseFile(page, archive);
     await startAnalysis(page);
+    await approveDocsReviewGates(page);
 
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
@@ -858,6 +873,7 @@ test.describe('Task 13 · AI-импорт: структура, поля, рет�
       await openAiImport(page);
       await chooseFile(page, zip);
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
 
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
@@ -981,6 +997,7 @@ test.describe('Task 13 · AI-импорт: структура, поля, рет�
     await openAiImport(page);
     await chooseFile(page, zip);
     await startAnalysis(page);
+    await approveDocsReviewGates(page);
     await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
     await page.getByTestId('ai-import-done').click();
     await expect(page.getByTestId('ai-import')).toHaveCount(0);
@@ -1025,6 +1042,7 @@ test.describe('Task 13 · AI-импорт: структура, поля, рет�
       await openAiImport(page);
       await chooseFile(page, zip);
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
 
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
@@ -1077,6 +1095,9 @@ test.describe('Task 13 · AI-импорт: структура, поля, рет�
       );
       await attachShot(page, testInfo, 'structure-stage-visible');
 
+      // The gate opens after the structure/aggregate stages — approve it.
+      await approveDocsReviewGates(page);
+
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
       await expect(page.getByTestId('ai-import-log')).toContainText(
@@ -1104,6 +1125,7 @@ test.describe('Task 13 · AI-импорт: структура, поля, рет�
       await openAiImport(page);
       await chooseFile(page, zip);
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
 
       // Job succeeded несмотря на провал структуризации; связей нет.
       const success = page.getByTestId('ai-import-success');
@@ -1161,6 +1183,7 @@ test.describe('Task 14 · AI-импорт: валидность дерева', (
     await openAiImport(page);
     await chooseFile(page, zip);
     await startAnalysis(page);
+    await approveDocsReviewGates(page);
 
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
@@ -1202,6 +1225,7 @@ test.describe('Task 14 · AI-импорт: валидность дерева', (
       await openAiImport(page);
       await chooseFile(page, zip);
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
 
       // Импорт успешен, счётчики без постороннего узла (2 ФТ, 1 связь).
       const success = page.getByTestId('ai-import-success');
@@ -1302,6 +1326,7 @@ test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
       await openAiImport(page);
       await chooseFile(page, zip);
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
 
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
@@ -1359,6 +1384,7 @@ test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
       await openAiImport(page);
       await chooseFile(page, zip);
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
 
       // Job УСПЕШЕН, несмотря на оба отклонения; связей НФТ→ФТ нет.
       const success = page.getByTestId('ai-import-success');
@@ -1411,15 +1437,19 @@ test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
       await openAiImport(page);
       await chooseFile(page, zip);
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
       await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
       await expect(page.getByTestId('ai-import-relates-links')).toHaveText('1');
       await page.getByTestId('ai-import-done').click();
       await expect(page.getByTestId('ai-import')).toHaveCount(0);
 
       // Второй прогон ТОГО ЖЕ архива: всё пропущено, связь не дублируется.
+      // На зоне 2 обе записи — дубли существующих (deselected by default);
+      // select-all в хелпере сохраняет старую семантику skipped=2.
       await openAiImport(page);
       await chooseFile(page, zip);
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
       await expectAiImportSummary(page, {
@@ -1475,6 +1505,7 @@ test.describe('Task 15 · AI-импорт: связи НФТ→ФТ', () => {
       await openAiImport(page);
       await chooseFile(page, zip);
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
 
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);
@@ -1591,6 +1622,7 @@ test.describe('todo_16 · AI-импорт: обновление списка м�
       await chooseFile(page, zip);
       const callsBefore = stub.extractionRequests.length;
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
       await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
       const calls = stub.extractionRequests.slice(callsBefore);
       expect(calls.length).toBeGreaterThan(0);
@@ -1622,6 +1654,8 @@ test.describe('todo_16 · AI-импорт: обновление списка м�
     // Off-путь прежний: поля inferLinks в multipart нет ВОВСЕ (не 'false').
     expect(Object.keys(fields)).not.toContain('inferLinks');
     expect(fields['file']).toBe('file:docs-rel-off.zip');
+
+    await approveDocsReviewGates(page);
 
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
@@ -1666,6 +1700,9 @@ test.describe('todo_16 · AI-импорт: обновление списка м�
       const { fields } = await startAnalysisCaptured(page);
       // Флаг уходит текстовым multipart-полем со значением 'true'.
       expect(fields['inferLinks']).toBe('true');
+
+      // Гейт выверки идёт ДО populate и relate-шага — одобряем обе зоны.
+      await approveDocsReviewGates(page);
 
       // Пока стаб держит relate-ответ, шаг виден как «выполняется…».
       const relateStatus = page.getByTestId('ai-import-relate-status');
@@ -1738,6 +1775,7 @@ test.describe('todo_16 · AI-импорт: обновление списка м�
       await chooseFile(page, zip);
       await page.getByTestId('ai-import-infer-links').check();
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
 
       // Импорт НЕ падает: success-блок + статус пропуска relate-шага.
       const success = page.getByTestId('ai-import-success');
@@ -1765,5 +1803,74 @@ test.describe('todo_16 · AI-импорт: обновление списка м�
       stub.failNextRelateJson(0);
       stub.setRelateDelay(0);
     }
+  });
+});
+
+/* ══ Двухзонная выверка дублей · выборочная запись ═════════════════════════ */
+
+test.describe('Выверка дублей · снятая в зоне 1 галочка исключает запись', () => {
+  test('зона 1: uncheck одной записи → зона 2 → запись; исключённое требование не создано', async ({
+    page,
+  }, testInfo) => {
+    const id = await projectWithAi(page, 'AiImp-Review');
+
+    const zip = makeZip(testInfo, 'docs-review.zip', {
+      'auth.md': DOCS['auth.md']!,
+      'reports.md': DOCS['reports.md']!,
+    });
+    await openAiImport(page);
+    await chooseFile(page, zip);
+    await startAnalysis(page);
+
+    // Зона 1: групп смысловых дублей нет → все 3 записи выбраны по умолчанию.
+    const step = page.getByTestId('ai-docs-review-step');
+    const banner = page.getByTestId('ai-docs-review-banner');
+    const apply = page.getByTestId('ai-docs-review-apply');
+    await expect(step).toBeVisible(JOB_TIMEOUT);
+    await expect(banner).toContainText('Зона 1');
+    await expect(page.getByTestId('ai-docs-review-table')).toBeVisible();
+    // «До подтверждения в проект ничего не записано» — проверяем API-истиной.
+    expect(await listRequirements(page, id)).toHaveLength(0);
+
+    // Снимаем галочку с RESET (строка ищется по имени — id порядковые).
+    // Тумблер клавиатурный (focus + Space): чекбоксы таблицы выверки живут во
+    // вложенных скролл-контейнерах, где mouse hit-test нестабилен между
+    // сборками браузера; Space шлёт тот же change без hit-теста.
+    const resetCheck = page
+      .locator('[data-testid^="ai-docs-review-row-"]')
+      .filter({ hasText: REQ_RESET })
+      .locator('[data-testid^="ai-docs-review-check-"]');
+    await expect(resetCheck).toBeChecked();
+    await resetCheck.focus();
+    await page.keyboard.press('Space');
+    await expect(resetCheck).not.toBeChecked();
+    await expect(apply).toHaveText('Продолжить: дубли с проектом (2)');
+    await apply.click();
+
+    // Зона 2: дублей с проектом нет — обе оставшиеся записи выбраны.
+    await expect(banner).toContainText('Зона 2', JOB_TIMEOUT);
+    await expect(apply).toHaveText('Записать в проект (2)');
+    await apply.click();
+    await expect(step).toBeHidden(JOB_TIMEOUT);
+
+    // Импорт завершён: 1 ФТ + 1 НФТ; связь дерева RESET→LOGIN не создана,
+    // потому что RESET исключён на зоне 1.
+    await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
+    await expectAiImportSummary(page, {
+      functions: 1,
+      nfrs: 1,
+      treeLinks: 0,
+      relatesLinks: 0,
+      skipped: 0,
+    });
+    await page.getByTestId('ai-import-done').click();
+    await expect(page.getByTestId('ai-import')).toHaveCount(0);
+
+    // API-истина: исключённого требования нет, остальные созданы.
+    const names = (await listRequirements(page, id)).map((r) => r.name).sort();
+    expect(names).toEqual([REQ_LOGIN, REQ_REPORT].sort());
+    await expect(rowByName(page, REQ_LOGIN)).toBeVisible();
+    await expect(rowByName(page, REQ_REPORT)).toBeVisible();
+    await expect(rowByName(page, REQ_RESET)).toHaveCount(0);
   });
 });

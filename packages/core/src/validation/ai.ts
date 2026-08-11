@@ -14,6 +14,14 @@ import { requirementCreateShape } from './contracts.js';
 
 /** Default OpenAI-compatible AI Hub endpoint (PO decision §7). */
 export const AI_DEFAULT_BASE_URL = 'https://api.ai.sbt/openai/v1';
+/**
+ * Верхняя граница глобальной настройки «Задержка при отправке запросов в
+ * секундах»: принудительная пауза ПОСЛЕ каждого запроса к AI Hub (троттлинг
+ * перегруженного хаба — разбор NET-02). `0` = задержка выключена (дефолт).
+ */
+export const AI_REQUEST_DELAY_MAX_SEC = 600;
+/** Валидатор «Задержки при отправке запросов» (целые секунды, 0..600). */
+export const aiRequestDelaySecSchema = z.number().int().min(0).max(AI_REQUEST_DELAY_MAX_SEC);
 /** Sampling temperature for description generation (PO decision §7). */
 export const AI_GEN_TEMPERATURE = 0.4;
 /** Token budget for description generation (PO decision §7). */
@@ -242,6 +250,8 @@ export const aiConfigViewSchema = z.object({
   hasApiKey: z.boolean(),
   model: z.string().optional(),
   modelPresets: z.record(z.string(), aiModelPresetOverrideSchema).optional(),
+  /** «Задержка при отправке запросов», секунд; поле присутствует, когда задержка включена (>0). */
+  requestDelaySec: aiRequestDelaySecSchema.optional(),
 });
 export type AiConfigView = z.infer<typeof aiConfigViewSchema>;
 
@@ -259,6 +269,8 @@ export const aiConfigUpdateSchema = z.object({
   projectId: z.string().min(1).optional(),
   model: z.string().optional(),
   modelPresets: z.record(z.string(), aiModelPresetOverrideSchema).optional(),
+  /** «Задержка при отправке запросов», секунд: `0` выключает задержку, omitted — без изменений. */
+  requestDelaySec: aiRequestDelaySecSchema.optional(),
 });
 export type AiConfigUpdate = z.infer<typeof aiConfigUpdateSchema>;
 
@@ -309,15 +321,34 @@ export const aiChatMessageSchema = z.object({
 });
 export type AiChatMessage = z.infer<typeof aiChatMessageSchema>;
 
+/*
+ * ── Чат с учётом требований проекта (переключатель в виджете) ──────────────
+ * При `useProjectContext=true` сервер добавляет в system-подсказку блок с
+ * ФТ/НФТ проекта. Проект может держать и 10–15, и 1000–2000 требований,
+ * поэтому блок строится детерминированно под символьный бюджет: маленький
+ * проект уезжает целиком (режим full), большой — как релевантная вопросу
+ * выборка с полными деталями + обзор дерева имён (режим partial). Без
+ * дополнительных AI-вызовов и эмбеддингов.
+ */
+
+/** Символьный бюджет контекстного блока требований (≈6–8 тыс. токенов). */
+export const AI_CHAT_CONTEXT_CHAR_BUDGET = 24_000;
+/** Сколько релевантных требований уходит с полными деталями в режиме partial. */
+export const AI_CHAT_CONTEXT_TOP_K = 12;
+/** Лимит описания одного требования в контекстном блоке. */
+export const AI_CHAT_CONTEXT_DESC_CHARS = 600;
+
 /**
  * Body of `POST /api/ai/chat`. `model` is the widget override and wins over the
  * per-project model resolved via optional `projectId`; without either the
- * server answers 400.
+ * server answers 400. `useProjectContext` включает учёт ФТ/НФТ проекта
+ * (осмыслен только вместе с `projectId`; старые клиенты без поля валидны).
  */
 export const aiChatRequestSchema = z.object({
   projectId: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
   messages: z.array(aiChatMessageSchema).min(1).max(AI_CHAT_HISTORY_LIMIT),
+  useProjectContext: z.boolean().optional(),
 });
 export type AiChatRequest = z.infer<typeof aiChatRequestSchema>;
 
@@ -954,6 +985,99 @@ export const aiBacklogMatchAnswerSchema = z.object({
 });
 export type AiBacklogMatchAnswer = z.infer<typeof aiBacklogMatchAnswerSchema>;
 
+/**
+ * One requirement extracted by the model from a documentation chunk. `source`
+ * (file + section provenance) is MANDATORY — a record without it is dropped
+ * (golden rule of the extraction skill: no provenance → no requirement).
+ * `targetYear` reuses the EXACT validator of the creation contract
+ * ({@link requirementCreateShape}), so a record the contract would reject
+ * (e.g. year 2019) is dropped at parsing time and never reaches populate.
+ */
+export const aiExtractedRequirementSchema = z.object({
+  type: z.enum(REQUIREMENT_TYPES),
+  name: z.string().min(1).max(200),
+  description: z.string().min(1).max(5000),
+  source: z.string().min(1).max(300),
+  criticality: z.enum(CRITICALITIES).optional(),
+  implemented: z.boolean().optional(),
+  targetQuarter: z.enum(TARGET_QUARTERS).optional(),
+  targetYear: requirementCreateShape.targetYear,
+  parentName: z.string().optional(),
+  /**
+   * Task 15: names of the FUNCTION requirements this NFR explicitly constrains
+   * (extraction-stage evidence only — the model sees the chunk text). Meaningful
+   * for `type='NFR'` only; the server ignores it on FUNCTION records with a warn
+   * instead of failing validation. Resolved case-insensitively into RELATES_TO
+   * links at populate time.
+   */
+  relatedFunctions: z.array(z.string().min(1).max(200)).max(20).optional(),
+});
+export type AiExtractedRequirement = z.infer<typeof aiExtractedRequirementSchema>;
+
+/*
+ * ── Двухзонная ручная выверка дублей docs-импорта ──────────────────────────
+ * Жалоба PO: AI-анализ документации приносит много смысловых дублей, а запись
+ * в проект была автоматической. Теперь docs-прогон останавливается на REST-гейте
+ * `awaiting-review` (тот же контракт, что у backlog) ДВАЖДЫ:
+ *   Зона 1 (`phase: 'self'`) — дубли сгенерированных требований МЕЖДУ СОБОЙ:
+ *   спорные пары больше не сливаются молча — они собраны в группы `groupId`,
+ *   каждая запись показана с предполагаемым местом в дереве (`parentName`) и
+ *   связями (`relatedFunctions`), пользователь выбирает что оставить.
+ *   Зона 2 (`phase: 'existing'`) — после апрува зоны 1: дубли выбранного
+ *   набора с УЖЕ существующими в проекте требованиями (`duplicateOf`), тоже
+ *   ручной разбор. Только после апрува зоны 2 начинается запись (populate).
+ */
+
+/** Review phases of a docs import: gen-vs-gen first, gen-vs-project second. */
+export const AI_DOCS_REVIEW_PHASES = ['self', 'existing'] as const;
+export type AiDocsReviewPhase = (typeof AI_DOCS_REVIEW_PHASES)[number];
+
+/**
+ * One reviewable generated requirement. Carries the FULL extracted record so
+ * the checkpoint alone is enough to resume the apply after a restart; the
+ * resolved `parentName` (aggregate output, null = root) shows the proposed
+ * tree placement to the reviewer.
+ */
+export const aiDocsReviewItemSchema = z.object({
+  /** Stable item id within the job (`d1`, `d2`, …). */
+  id: z.string().min(1),
+  record: aiExtractedRequirementSchema,
+  /** Resolved proposed parent (aggregate stage); null = root. */
+  parentName: z.string().nullable(),
+  /** Zone 1: id of the semantic-duplicate group this item belongs to. */
+  groupId: z.string().optional(),
+  /** Zone 2: name of the EXISTING project requirement this item duplicates. */
+  duplicateOf: z.string().optional(),
+  /** Zone 2: name similarity to `duplicateOf` in [0..1] (1 = exact match). */
+  duplicateSimilarity: z.number().min(0).max(1).optional(),
+});
+export type AiDocsReviewItem = z.infer<typeof aiDocsReviewItemSchema>;
+
+/** The docs review payload shown while the job is `awaiting-review`. */
+export const aiDocsReviewSchema = z.object({
+  phase: z.enum(AI_DOCS_REVIEW_PHASES),
+  items: z.array(aiDocsReviewItemSchema),
+  /** Names auto-merged by the exact normalized-name pass (info only). */
+  autoMerged: z.array(z.string()),
+  /** Zone 1: number of semantic-duplicate groups. */
+  groupCount: z.number().int().min(0),
+  /** Zone 2: number of items flagged as duplicates of existing requirements. */
+  duplicateCount: z.number().int().min(0),
+});
+export type AiDocsReview = z.infer<typeof aiDocsReviewSchema>;
+
+/**
+ * Docs variant of the `POST /api/ai-import/:jobId/apply` body. `phase` guards
+ * against double-submits/races (409 when it does not match the gate); `ids`
+ * may be EMPTY on the `existing` phase — «всё оказалось дублями» finishes the
+ * job with created=0 instead of forcing a cancel.
+ */
+export const aiDocsApplyBodySchema = z.object({
+  phase: z.enum(AI_DOCS_REVIEW_PHASES),
+  ids: z.array(z.string().min(1)).max(10000),
+});
+export type AiDocsApplyBody = z.infer<typeof aiDocsApplyBodySchema>;
+
 /** Response of `GET /api/ai-import/:jobId` (polled by the modal). */
 export const aiImportJobViewSchema = z.object({
   jobId: z.string(),
@@ -1001,6 +1125,11 @@ export const aiImportJobViewSchema = z.object({
   backlogReview: aiBacklogReviewSchema.optional(),
   /** Present when a backlog job finished (also partial on failure). */
   backlogReport: aiBacklogReportSchema.optional(),
+  /**
+   * Двухзонная выверка docs-импорта: present from the zone-1 `awaiting-review`
+   * gate on docs jobs (nothing written yet). Absent on backlog jobs.
+   */
+  docsReview: aiDocsReviewSchema.optional(),
 });
 export type AiImportJobView = z.infer<typeof aiImportJobViewSchema>;
 
@@ -1035,35 +1164,6 @@ export const aiImportStartResponseSchema = z.object({ jobId: z.string() });
 export type AiImportStartResponse = z.infer<typeof aiImportStartResponseSchema>;
 
 /**
- * One requirement extracted by the model from a documentation chunk. `source`
- * (file + section provenance) is MANDATORY — a record without it is dropped
- * (golden rule of the extraction skill: no provenance → no requirement).
- * `targetYear` reuses the EXACT validator of the creation contract
- * ({@link requirementCreateShape}), so a record the contract would reject
- * (e.g. year 2019) is dropped at parsing time and never reaches populate.
- */
-export const aiExtractedRequirementSchema = z.object({
-  type: z.enum(REQUIREMENT_TYPES),
-  name: z.string().min(1).max(200),
-  description: z.string().min(1).max(5000),
-  source: z.string().min(1).max(300),
-  criticality: z.enum(CRITICALITIES).optional(),
-  implemented: z.boolean().optional(),
-  targetQuarter: z.enum(TARGET_QUARTERS).optional(),
-  targetYear: requirementCreateShape.targetYear,
-  parentName: z.string().optional(),
-  /**
-   * Task 15: names of the FUNCTION requirements this NFR explicitly constrains
-   * (extraction-stage evidence only — the model sees the chunk text). Meaningful
-   * for `type='NFR'` only; the server ignores it on FUNCTION records with a warn
-   * instead of failing validation. Resolved case-insensitively into RELATES_TO
-   * links at populate time.
-   */
-  relatedFunctions: z.array(z.string().min(1).max(200)).max(20).optional(),
-});
-export type AiExtractedRequirement = z.infer<typeof aiExtractedRequirementSchema>;
-
-/**
  * One node of the structure-stage answer (Task 13 B2): the model receives the
  * FULL list of extracted requirements (type + name) plus the archive map and
  * returns exactly one node per requirement, assembling a tree that mirrors the
@@ -1078,3 +1178,158 @@ export const aiStructureNodeSchema = z.object({
   parentName: z.string().nullable(),
 });
 export type AiStructureNode = z.infer<typeof aiStructureNodeSchema>;
+
+/*
+ * ── Логическое дерево «навык AI Product Owner» (buildTree) ─────────────────
+ * Opt-in замена этапа structure для больших импортов: модель-«PO» сначала
+ * проектирует бизнес-таксономию (домены → разделы, map-reduce по батчам имён),
+ * затем раскладывает по ней ВСЕ извлечённые требования; портал создаёт
+ * группирующие узлы как обычные требования (origin AI_DOCS). Прежний режим
+ * (structure по структуре документации) не мог создавать группы и поэтому
+ * деградировал в плоский список на сотнях требований.
+ */
+
+/**
+ * Multipart text field `buildTree` of `POST /api/projects/:id/ai-import`
+ * (same style as `inferLinks`). Default: absent = false — the legacy
+ * documentation-mirror structure stage keeps running unchanged.
+ */
+export const aiImportBuildTreeFieldSchema = z
+  .enum(['true', 'false'])
+  .transform((value) => value === 'true');
+
+/**
+ * Requirement names per taxonomy-design round. Names-only lines are short
+ * (~60 chars), so a round of 150 stays well inside a small context window
+ * while keeping the number of rounds low even for ~1000 requirements.
+ */
+export const AI_IMPORT_PO_TAXONOMY_BATCH = 150;
+/**
+ * Requirements per assignment call. One answer element is ~30–50 tokens; a
+ * batch of 40 fits the default answer budgets of weak models with head-room.
+ */
+export const AI_IMPORT_PO_ASSIGN_BATCH = 40;
+/** Max root domains per requirement type — a PO tree wider than this is unreadable. */
+export const AI_IMPORT_PO_MAX_ROOTS = 16;
+/** Max subgroups under one root domain. */
+export const AI_IMPORT_PO_MAX_CHILDREN = 20;
+/**
+ * Max length of a group-node name. Requirement names allow 200 chars, but a
+ * grouping section longer than this is a model failure — it is truncated.
+ */
+export const AI_IMPORT_PO_GROUP_NAME_MAX = 120;
+
+/**
+ * One element of the assignment answer: a requirement of the batch (echoed
+ * type + name) placed into a taxonomy node by its short id («F1», «F1.2»,
+ * «N3»…). `node: null` — the model leaves the requirement at the root.
+ * Unknown ids are dropped by the server with a warn (the requirement stays a
+ * root) — exactly like unknown parents of the legacy structure stage.
+ */
+export const aiPoAssignmentSchema = z.object({
+  type: z.enum(REQUIREMENT_TYPES),
+  name: z.string().min(1).max(200),
+  node: z.string().max(20).nullable(),
+});
+export type AiPoAssignment = z.infer<typeof aiPoAssignmentSchema>;
+
+/*
+ * ── AI-генерация тестовых моделей (смок / крит-регресс / полная) ───────────
+ * Развилка «Генерации артефактов»: вместо детерминированного шаблона md-файл
+ * тест-кейсов пишет модель-«QA» по описаниям требований. Оркестрация — на
+ * клиенте (батчи выбранных требований → синхронный POST /api/ai/generate-tests
+ * на батч → живой лог в модалке); сервер на каждый батч делает ОДИН вызов хаба
+ * и детерминированно проверяет ответ на галлюцинации: кейс обязан ссылаться на
+ * slug требования ИЗ ЭТОГО батча — чужие/выдуманные и невалидные отбрасываются,
+ * требования без кейса возвращаются списком `missing` (клиент достраивает их
+ * детерминированным шаблоном, чтобы покрытие не терялось).
+ */
+
+/** Виды тестовых моделей «Генерации артефактов» (совпадают с направлениями UI). */
+export const TEST_MODEL_KINDS = ['smoke', 'crit-regression', 'full'] as const;
+export type TestModelKind = (typeof TEST_MODEL_KINDS)[number];
+
+/** Требований в одном AI-вызове тест-генерации (клиент режет выбор на батчи). */
+export const AI_TESTGEN_BATCH = 6;
+/** Верхний предел размера батча, который принимает сервер (защита контракта). */
+export const AI_TESTGEN_MAX_SLUGS = 30;
+/** Sampling temperature тест-генерации: ниже чата — кейсы должны быть фактичными. */
+export const AI_TESTGEN_TEMPERATURE = 0.3;
+
+/*
+ * ── Бюджет ответа ───────────────────────────────────────────────────────────
+ * Раньше бюджет был фиксированным (3000 токенов на батч любой величины), и на
+ * батче из 10 требований ответ обрывался на середине JSON: массив не парсился,
+ * и падал ПЕРВЫЙ же батч — особенно у крит- и полного регресса, где негативный
+ * сценарий обязателен и удваивает объём кейса. Теперь бюджет считается от
+ * размера батча, как смета токенов в AI-импорте документации.
+ */
+
+/** Оценка ответа на один кейс без негативного сценария, токенов. */
+export const AI_TESTGEN_TOKENS_PER_CASE = 380;
+/** То же с негативным сценарием (крит/полный регресс — всегда). */
+export const AI_TESTGEN_TOKENS_PER_CASE_NEGATIVE = 620;
+/** Постоянные расходы ответа: обрамление массива, разметка JSON. */
+export const AI_TESTGEN_TOKENS_OVERHEAD = 400;
+/** Нижняя граница бюджета: даже один кейс должен помещаться с запасом. */
+export const AI_TESTGEN_MIN_TOKENS = 1200;
+
+/**
+ * Бюджет ответа для батча из `count` требований. Клампится пресетом модели
+ * вызывающей стороной (`Math.min(..., preset.maxOutputTokens)`), поэтому здесь
+ * только нижняя граница — верхнюю знает пресет.
+ */
+export function testGenMaxTokens(count: number, negatives: boolean): number {
+  const perCase = negatives ? AI_TESTGEN_TOKENS_PER_CASE_NEGATIVE : AI_TESTGEN_TOKENS_PER_CASE;
+  const estimate = AI_TESTGEN_TOKENS_OVERHEAD + perCase * Math.max(1, count);
+  return Math.max(AI_TESTGEN_MIN_TOKENS, estimate);
+}
+
+/**
+ * Сколько требований влезает в один вызов при бюджете модели `maxOutputTokens`.
+ * Батч больше этого числа заведомо обрывается по лимиту ответа — сервер режет
+ * его на части ещё до обращения к модели.
+ */
+export function testGenFittingBatch(maxOutputTokens: number, negatives: boolean): number {
+  const perCase = negatives ? AI_TESTGEN_TOKENS_PER_CASE_NEGATIVE : AI_TESTGEN_TOKENS_PER_CASE;
+  const room = maxOutputTokens - AI_TESTGEN_TOKENS_OVERHEAD;
+  return Math.max(1, Math.floor(room / perCase));
+}
+
+/**
+ * Один тест-кейс из ответа модели. `slug` — якорь анти-галлюцинационной
+ * проверки: обязан совпадать со slug'ом требования из батча запроса.
+ */
+export const aiTestCaseSchema = z.object({
+  slug: z.string().min(1).max(200),
+  title: z.string().trim().min(1).max(200),
+  goal: z.string().trim().min(1).max(500),
+  precondition: z.string().trim().min(1).max(500),
+  steps: z.array(z.string().trim().min(1).max(500)).min(1).max(15),
+  expected: z.string().trim().min(1).max(1000),
+  /** Негативный сценарий: для смок — только по чекбоксу, для крит/полной всегда. */
+  negativeSteps: z.array(z.string().trim().min(1).max(500)).max(15).optional(),
+  negativeExpected: z.string().trim().max(1000).optional(),
+});
+export type AiTestCase = z.infer<typeof aiTestCaseSchema>;
+
+/** Тело POST /api/ai/generate-tests — один батч выбранных требований. */
+export const aiGenerateTestsRequestSchema = z.object({
+  projectId: z.string().min(1),
+  kind: z.enum(TEST_MODEL_KINDS),
+  slugs: z.array(z.string().min(1)).min(1).max(AI_TESTGEN_MAX_SLUGS),
+  model: z.string().min(1).optional(),
+  /** Смок-чекбокс «добавлять негативные сценарии» (крит/полная — всегда true). */
+  negatives: z.boolean().optional(),
+});
+export type AiGenerateTestsRequest = z.infer<typeof aiGenerateTestsRequestSchema>;
+
+/** Ответ на батч: валидные кейсы + счётчики анти-галлюцинационной проверки. */
+export const aiGenerateTestsResponseSchema = z.object({
+  cases: z.array(aiTestCaseSchema),
+  /** Отброшено ответов: чужой/выдуманный slug, повтор по slug, невалидная форма. */
+  dropped: z.number().int().min(0),
+  /** Slug'и батча, для которых модель не вернула кейс (клиент достроит шаблоном). */
+  missing: z.array(z.string()),
+});
+export type AiGenerateTestsResponse = z.infer<typeof aiGenerateTestsResponseSchema>;

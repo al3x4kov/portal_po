@@ -108,6 +108,26 @@ export interface DeleteRequirementResult {
   slugs: string[];
 }
 
+/**
+ * Body of PUT /api/projects/:id/requirements/:rid/parent — «move a row».
+ * `parentSlug: null` lifts the requirement to the root of its type.
+ * `expectedParentSlug` is the parent the screen believed was current: a
+ * mismatch answers 409 STALE_PARENT instead of overwriting someone else's edit.
+ */
+export interface MoveRequirementInput {
+  parentSlug: string | null;
+  expectedParentSlug?: string | null;
+}
+
+/** Response of the move endpoint: what actually changed on disk. */
+export interface MoveRequirementResult {
+  childSlug: string;
+  oldParentSlug: string | null;
+  newParentSlug: string | null;
+  movedDescendants: number;
+  changed: boolean;
+}
+
 /** Body for POST/DELETE /api/projects/:id/links. */
 export interface LinkInput {
   sourceSlug: string;

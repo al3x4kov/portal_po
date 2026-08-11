@@ -180,6 +180,23 @@ describe('T11 parseExtractionResponse', () => {
     expect(parseExtractionResponse('')).toBeNull();
   });
 
+  it('чистит мусорные имена от модели и отбраковывает запись без имени', () => {
+    const parsed = parseExtractionResponse(
+      JSON.stringify([
+        { ...record, name: 'null' },
+        { ...record, name: 'Доступность и надежность → null}, {' },
+        { ...record, name: 'Каталоги и шаблоны', parentName: 'null' },
+      ]),
+    );
+    expect(parsed?.items.map((i) => i.name)).toEqual([
+      'Доступность и надежность',
+      'Каталоги и шаблоны',
+    ]);
+    // Строковый «null» в родителе — это отсутствие родителя, а не имя.
+    expect(parsed?.items[1]?.parentName).toBeUndefined();
+    expect(parsed?.droppedInvalid).toBe(1);
+  });
+
   it('accepts an empty array (no requirements in the chunk)', () => {
     const parsed = parseExtractionResponse('[]');
     expect(parsed).not.toBeNull();

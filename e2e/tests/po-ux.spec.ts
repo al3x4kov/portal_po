@@ -256,10 +256,10 @@ test.describe('T-1502 · E15 PO UX', () => {
     await addRequirement(page, { kind: 'nfr', name: uniqueName('N-x'), criticality: 'MEDIUM' });
 
     await page.getByTestId('sidebar-open-export').click();
-    await page.getByTestId('export-next').click();
+    await page.getByTestId('export-fmt-xlsx').click();
     const [download] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByTestId('export-fmt-xlsx').click(),
+      page.getByTestId('export-run').click(),
     ]);
     expect(download.suggestedFilename()).toMatch(/\.xlsx$/);
     const savedPath = testInfo.outputPath(download.suggestedFilename());
@@ -283,7 +283,7 @@ test.describe('T-1502 · E15 PO UX', () => {
 });
 
 /**
- * Wave 1-2 UX-фичи: Sidebar-навигация, Inline add child, ExportTasksModal.
+ * Wave 1-2 UX-фичи: Sidebar-навигация, Inline add child, генерация артефактов.
  */
 test.describe('Wave 1-2 UX', () => {
   // ── UX-4 · Sidebar-навигация между вкладками ────────────────────────────────
@@ -350,22 +350,27 @@ test.describe('Wave 1-2 UX', () => {
     await expect(page.locator(`tr[data-req-name="${cancelledName}"]`)).toBeHidden();
   });
 
-  // ── ExportTasksModal · smoke ─────────────────────────────────────────────────
-  test('ExportTasksModal: открывается, smoke-экспорт генерирует MD', async ({ page }) => {
+  // ── Генерация артефактов · smoke ───────────────────────────────────────────
+  test('Генерация артефактов: открывается, smoke по шаблону собирает MD', async ({ page }) => {
     await createProject(page, uniqueName('tasks-modal-proj'));
     await addRequirement(page, { kind: 'function', name: uniqueName('F-t'), criticality: 'HIGH' });
     await addRequirement(page, { kind: 'nfr', name: uniqueName('N-t'), criticality: 'MEDIUM' });
 
-    // Открыть ExportTasksModal через кнопку в Sidebar.
+    // Открыть полноэкранный мастер через кнопку в Sidebar.
     await page.getByTestId('sidebar-open-tasks').click();
-    const modal = page.getByTestId('export-tasks-modal');
-    await expect(modal).toBeVisible();
+    const screen = page.getByTestId('export-tasks-modal');
+    await expect(screen).toBeVisible();
 
-    // Выбрать направление «smoke» — перейти к предпросмотру (нет вопроса об unimpl).
+    // Направление «smoke» → способ «Шаблон» → сборка.
     await page.getByTestId('export-tasks-dir-smoke').click();
+    await page.getByTestId('gen-direction-next').click();
+    // Смок: промежуточный шаг «Состав модели» — подтверждаем отбор целиком.
+    await page.getByTestId('gen-compose-next').click();
+    await page.getByTestId('export-mode-template').click();
+    await page.getByTestId('gen-template-start').click();
 
-    // Предпросмотр MD должен появиться.
-    await expect(page.getByTestId('export-tasks-preview')).toBeVisible();
+    // Карточки кейсов должны появиться.
+    await expect(page.getByTestId('gen-cases')).toBeVisible();
 
     // Кнопка «Скачать MD» активна.
     await expect(page.getByTestId('export-tasks-download')).toBeEnabled();

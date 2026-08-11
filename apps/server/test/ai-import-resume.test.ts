@@ -13,6 +13,7 @@ import {
   KIT_MODEL,
   KIT_PROJECT,
   KIT_SECRET,
+  approveDocsReview,
   makeImportHarness,
   scriptedClient,
   writeZipArchive,
@@ -100,6 +101,8 @@ describe('T-212 · resume с чекпоинта (сервис)', () => {
     const resumed = await service2.resume(jobId);
     expect(resumed.jobId).toBe(jobId); // тот же jobId — клиент продолжает поллинг
     await service2.waitForCompletion(jobId);
+    // Двухзонная выверка: подтверждаем оба гейта (никаких новых AI-вызовов).
+    await approveDocsReview(service2, jobId);
 
     const done = service2.getView(jobId);
     expect(done.status).toBe('succeeded');
@@ -124,11 +127,13 @@ describe('T-212 · resume с чекпоинта (сервис)', () => {
     const service = h.makeService(scriptedClient(answers));
     const first = await service.start(KIT_PROJECT, await zip({ 'doc.md': '# Что нового\nТекст.' }));
     await service.waitForCompletion(first.jobId);
+    await approveDocsReview(service, first.jobId);
     expect(service.getView(first.jobId).result?.createdFunctions).toBe(2);
 
     const again = h.makeService(scriptedClient(answers));
     const second = await again.start(KIT_PROJECT, await zip({ 'doc.md': '# Что нового\nТекст.' }));
     await again.waitForCompletion(second.jobId);
+    await approveDocsReview(again, second.jobId);
     const view = again.getView(second.jobId);
     expect(view.status).toBe('succeeded');
     expect(view.result).toMatchObject({ createdFunctions: 0, skippedExisting: 2 });
@@ -141,6 +146,7 @@ describe('T-212 · resume с чекпоинта (сервис)', () => {
       await zip({ 'doc.md': '# Что нового\nТекст.' }),
     );
     await service.waitForCompletion(jobId);
+    await approveDocsReview(service, jobId);
     expect(service.getView(jobId).status).toBe('succeeded');
     await expect(service.resume(jobId)).rejects.toThrow(ConflictError);
     await expect(service.resume('ghost')).rejects.toThrow(NotFoundError);
@@ -174,6 +180,7 @@ describe('T-212 · resume с чекпоинта (сервис)', () => {
 
     await fresh.resume(jobId);
     await fresh.waitForCompletion(jobId);
+    await approveDocsReview(fresh, jobId);
     expect(fresh.getView(jobId).status).toBe('succeeded');
     const { requirements } = await createRequirementService(h.ctx, KIT_PROJECT).list();
     const names = requirements.map((r) => r.name);
@@ -292,14 +299,40 @@ describe('T-212 · роуты resume/история/лог (integration, mock cl
     expect(res.statusCode).toBe(202);
     expect(res.json()).toEqual({ jobId: 'resume0001' });
 
-    let status = '';
-    const started = Date.now();
-    while (status !== 'succeeded') {
-      if (Date.now() - started > 5000) throw new Error(`stuck in status "${status}"`);
-      const poll = await app.inject({ url: '/api/ai-import/resume0001' });
-      status = (poll.json() as { status: string }).status;
-      await new Promise((r) => setTimeout(r, 10));
-    }
+    type View = {
+      status: string;
+      docsReview?: { phase: string; items: Array<{ id: string }> };
+    };
+    const poll = async (until: (v: View) => boolean): Promise<View> => {
+      const started = Date.now();
+      for (;;) {
+        const r = await app.inject({ url: '/api/ai-import/resume0001' });
+        const view = r.json() as View;
+        if (until(view)) return view;
+        if (Date.now() - started > 5000) throw new Error(`stuck in status "${view.status}"`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    };
+    // Двухзонная выверка: анализ ставит джобу на паузу — подтверждаем обе зоны
+    // по REST (тот же /apply, что у backlog), затем populate доводит до конца.
+    const zone1 = await poll((v) => v.status === 'awaiting-review');
+    expect(zone1.docsReview?.phase).toBe('self');
+    const applied1 = await app.inject({
+      method: 'POST',
+      url: '/api/ai-import/resume0001/apply',
+      payload: { phase: 'self', ids: zone1.docsReview!.items.map((i) => i.id) },
+    });
+    expect(applied1.statusCode).toBe(200);
+    const zone2 = applied1.json() as View;
+    expect(zone2.status).toBe('awaiting-review');
+    expect(zone2.docsReview?.phase).toBe('existing');
+    const applied2 = await app.inject({
+      method: 'POST',
+      url: '/api/ai-import/resume0001/apply',
+      payload: { phase: 'existing', ids: zone2.docsReview!.items.map((i) => i.id) },
+    });
+    expect(applied2.statusCode).toBe(200);
+    await poll((v) => v.status === 'succeeded');
     const reqs = await app.inject({ url: `/api/projects/${KIT_PROJECT}/requirements` });
     const names = (reqs.json() as { requirements: Array<{ name: string }> }).requirements.map(
       (r) => r.name,

@@ -280,12 +280,12 @@ export async function exportArchive(
   format: 'zip' | 'targz',
   testInfo: TestInfo,
 ): Promise<string> {
-  // Open the ExportModal (footer button), skip selection step, pick the format.
+  // Полноэкранный экспорт: формат выбирается на том же экране, что и дерево.
   await page.getByTestId('sidebar-open-export').click();
-  await page.getByTestId('export-next').click();
+  await page.getByTestId(format === 'zip' ? 'export-fmt-zip' : 'export-fmt-targz').click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByTestId(format === 'zip' ? 'export-fmt-zip' : 'export-fmt-targz').click(),
+    page.getByTestId('export-run').click(),
   ]);
   const target = testInfo.outputPath(download.suggestedFilename());
   await download.saveAs(target);

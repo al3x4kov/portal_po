@@ -4,6 +4,7 @@ import type {
   AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
+  AiDocsApplyBody,
   AiImportConfirmBody,
   AiImportJobList,
   AiImportJobView,
@@ -11,6 +12,8 @@ import type {
   AiModelsView,
   ExportOptionalField,
   GenerateDescriptionRequest,
+  AiGenerateTestsRequest,
+  AiGenerateTestsResponse,
   GenerateDescriptionResponse,
   ProjectDictionaries,
   Requirement,
@@ -25,6 +28,8 @@ import type {
   CheckNameResult,
   DeleteRequirementResult,
   LinkInput,
+  MoveRequirementInput,
+  MoveRequirementResult,
   ProjectSummary,
   RequirementCreateInput,
   RequirementListResult,
@@ -153,6 +158,20 @@ export const requirementsApi = {
         method: 'DELETE',
       },
     ),
+  /**
+   * Move a row in the tree: replace its single CHILD_OF link. This is the whole
+   * of «переместить строку» — sibling order is not stored, so the payload names
+   * a parent, never a position.
+   */
+  move: (
+    projectId: string,
+    slug: string,
+    input: MoveRequirementInput,
+  ): Promise<MoveRequirementResult> =>
+    apiRequest(
+      `/projects/${encodeURIComponent(projectId)}/requirements/${encodeURIComponent(slug)}/parent`,
+      { method: 'PUT', body: input },
+    ),
 };
 
 /**
@@ -171,6 +190,9 @@ export const aiApi = {
   listModels: (): Promise<AiModelsView> => apiRequest('/ai/models'),
   generateDescription: (input: GenerateDescriptionRequest): Promise<GenerateDescriptionResponse> =>
     apiRequest('/ai/generate-description', { method: 'POST', body: input }),
+  /** Развилка «Генерации артефактов»: AI-кейсы для одного батча требований. */
+  generateTests: (input: AiGenerateTestsRequest): Promise<AiGenerateTestsResponse> =>
+    apiRequest('/ai/generate-tests', { method: 'POST', body: input }),
   /** Task 9: one chat turn — sends the trailing history, gets one assistant reply. */
   chat: (input: AiChatRequest): Promise<AiChatResponse> =>
     apiRequest('/ai/chat', { method: 'POST', body: input }),
@@ -191,10 +213,13 @@ export const aiImportApi = {
     file: File,
     model?: string,
     inferLinks?: boolean,
+    buildTree?: boolean,
   ): Promise<AiImportStartResponse> => {
     const fd = new FormData();
     if (model) fd.append('model', model);
     if (inferLinks) fd.append('inferLinks', 'true');
+    // Логическое дерево «навыка AI PO»: то же правило — поле только при включении.
+    if (buildTree) fd.append('buildTree', 'true');
     fd.append('file', file);
     return apiRequest(`/projects/${encodeURIComponent(projectId)}/ai-import`, {
       method: 'POST',
@@ -239,6 +264,16 @@ export const aiImportApi = {
    * `rowIds` — invalid edits come back as 400 with a russian message.
    */
   apply: (jobId: string, body: AiBacklogApplyBody): Promise<AiImportJobView> =>
+    apiRequest(`/ai-import/${encodeURIComponent(jobId)}/apply`, {
+      method: 'POST',
+      body,
+    }),
+  /**
+   * Двухзонная выверка docs-импорта: apply one review zone. `phase:'self'`
+   * confirms zone 1 (gen-vs-gen duplicates) and opens zone 2; `phase:'existing'`
+   * confirms zone 2 (gen-vs-project duplicates) and starts the actual write.
+   */
+  applyDocs: (jobId: string, body: AiDocsApplyBody): Promise<AiImportJobView> =>
     apiRequest(`/ai-import/${encodeURIComponent(jobId)}/apply`, {
       method: 'POST',
       body,

@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { useState } from 'react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Modal } from './Modal';
+import { ConfirmDialog } from './ConfirmDialog';
 import { renderWithProviders } from '../test/utils';
 
 describe('Modal scrim policy (UX-10)', () => {
@@ -28,6 +30,69 @@ describe('Modal scrim policy (UX-10)', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     await user.click(screen.getByTestId('modal-close'));
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('Esc-стек оверлеев (единый механизм Modal + ConfirmDialog, UX-10)', () => {
+  /** Модалка с вложенным confirm — БЕЗ ручной заглушки `if (confirmOpen) return`. */
+  function ModalWithConfirm({ onClose }: { onClose: () => void }): React.ReactElement {
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    return (
+      <Modal title="Форма" onClose={onClose} testid="modal">
+        <input aria-label="field" />
+        <button type="button" data-testid="open-confirm" onClick={() => setConfirmOpen(true)}>
+          Удалить
+        </button>
+        {confirmOpen ? (
+          <ConfirmDialog
+            testid="inner-confirm"
+            title="Удалить запись?"
+            message="Действие необратимо."
+            confirmLabel="Удалить"
+            onCancel={() => setConfirmOpen(false)}
+            onConfirm={() => setConfirmOpen(false)}
+          />
+        ) : null}
+      </Modal>
+    );
+  }
+
+  it('Esc с открытым confirm закрывает ТОЛЬКО confirm — модалка и её данные живы', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(<ModalWithConfirm onClose={onClose} />);
+    await user.type(screen.getByLabelText('field'), 'набранный текст');
+    await user.click(screen.getByTestId('open-confirm'));
+    expect(screen.getByTestId('inner-confirm')).toBeInTheDocument();
+
+    // Первый Esc: гасит только верхний confirm, модалка не тронута.
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByTestId('inner-confirm')).not.toBeInTheDocument());
+    expect(onClose).not.toHaveBeenCalled();
+    expect((screen.getByLabelText('field') as HTMLInputElement).value).toBe('набранный текст');
+
+    // Второй Esc: теперь верхняя — сама модалка.
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('LinkModal-паттерн: вторая модалка поверх первой перехватывает Esc', async () => {
+    const onCloseBottom = vi.fn();
+    const onCloseTop = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <Modal title="Нижняя" onClose={onCloseBottom} testid="modal-bottom">
+          <p>низ</p>
+        </Modal>
+        <Modal title="Верхняя" onClose={onCloseTop} testid="modal-top">
+          <p>верх</p>
+        </Modal>
+      </>,
+    );
+    await user.keyboard('{Escape}');
+    expect(onCloseTop).toHaveBeenCalledTimes(1);
+    expect(onCloseBottom).not.toHaveBeenCalled();
   });
 });
 

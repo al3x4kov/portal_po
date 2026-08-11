@@ -7,6 +7,8 @@ import {
   AI_DEDUPE_PAIR_BATCH,
   AI_DEDUPE_SIMILARITY,
   dedupeExtracted,
+  detectExistingDuplicates,
+  groupDuplicatePairs,
   nameSimilarity,
   normalizeRequirementName,
   runDedupeStage,
@@ -15,6 +17,7 @@ import { createRequirementService } from '../src/factory.js';
 import { cleanup, makeTmpRoot } from './helpers.js';
 import {
   KIT_PROJECT,
+  approveDocsReview,
   makeImportHarness,
   scriptedClient,
   writeZipArchive,
@@ -124,7 +127,7 @@ describe('T-207 · нормализация и похожесть имён (unit
 });
 
 describe('T-207 · runDedupeStage (изолированно)', () => {
-  it('модель подтверждает дубль → слито; ответ не распознан → обе записи сохранены', async () => {
+  it('двухзонная выверка: подтверждённая пара НЕ сливается — образует группу дублей; неподтверждённая — нет', async () => {
     const extracted = [
       rec({ name: 'Быстрый фильтр по статусу' }),
       rec({ name: 'Быстрый фильтр по статусам', description: 'Более подробное описание фильтра.' }),
@@ -158,15 +161,57 @@ describe('T-207 · runDedupeStage (изолированно)', () => {
     });
     expect(out.ok).toBe(true);
     if (!out.ok) return;
-    const names = out.extracted.map((r) => r.name);
-    expect(names).toEqual([
+    // Все четыре записи сохранены: решение «что оставить» уходит на зону 1.
+    expect(out.extracted.map((r) => r.name)).toEqual([
       'Быстрый фильтр по статусу',
+      'Быстрый фильтр по статусам',
       'Экспорт отчёта в PDF',
       'Экспорт отчётов в PDF',
     ]);
-    // Слитая запись получила более длинное описание кандидата.
-    expect(out.extracted[0]!.description).toContain('подробное');
-    expect(job.log.some((l) => l.message.includes('подтверждено моделью'))).toBe(true);
+    // Подтверждённая пара стала группой; неподтверждённая (pair 2) — нет.
+    expect(out.duplicateGroups).toHaveLength(1);
+    expect(out.duplicateGroups[0]!.map((r) => r.name)).toEqual([
+      'Быстрый фильтр по статусу',
+      'Быстрый фильтр по статусам',
+    ]);
+    expect(job.log.some((l) => l.message.includes('ручную выверку'))).toBe(true);
+  });
+
+  it('groupDuplicatePairs: цепочка A~B, B~C складывается в одну группу', () => {
+    const a = rec({ name: 'Импорт бэклога' });
+    const b = rec({ name: 'Импорт бэклога!' });
+    const c = rec({ name: 'Импорт бэклога?' });
+    const d = rec({ name: 'Экспорт проекта' });
+    const groups = groupDuplicatePairs(
+      [a, b, c, d],
+      [
+        { kept: a, candidate: b },
+        { kept: b, candidate: c },
+      ],
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toEqual([a, b, c]);
+  });
+
+  it('detectExistingDuplicates (зона 2): точное имя = 1, fuzzy ≥ порога, чужой тип не сравнивается', () => {
+    const generated = [
+      rec({ name: 'Вход по паролю' }),
+      rec({ name: 'Экспорт отчёта в PDF' }),
+      rec({ name: 'Совсем новая функция' }),
+      rec({ type: 'NFR', name: 'Вход по паролю' }), // НФТ против ФТ — не дубль
+    ];
+    const existing = [
+      { type: 'FUNCTION' as const, name: '«Вход по паролю»' },
+      { type: 'FUNCTION' as const, name: 'Экспорт отчётов в PDF' },
+    ];
+    const dup = detectExistingDuplicates(generated, existing);
+    expect(dup.get(generated[0]!)).toEqual({ name: '«Вход по паролю»', similarity: 1 });
+    const fuzzy = dup.get(generated[1]!);
+    expect(fuzzy?.name).toBe('Экспорт отчётов в PDF');
+    expect(fuzzy?.similarity).toBeGreaterThanOrEqual(AI_DEDUPE_SIMILARITY);
+    expect(fuzzy?.similarity).toBeLessThan(1);
+    expect(dup.has(generated[2]!)).toBe(false);
+    expect(dup.has(generated[3]!)).toBe(false);
   });
 
   it('сбой модели на спорных парах не роняет джобу — записи сохраняются раздельно', async () => {
@@ -238,6 +283,8 @@ describe('T-207 · контроль полноты (интеграция чер�
     archives.push(archive);
     const { jobId } = await service.start(KIT_PROJECT, archive);
     await service.waitForCompletion(jobId);
+    // Двухзонная выверка: подтверждаем обе зоны целиком (прежний исход).
+    await approveDocsReview(service, jobId);
 
     const view = service.getView(jobId);
     expect(view.status).toBe('succeeded');
@@ -272,6 +319,8 @@ describe('T-207 · контроль полноты (интеграция чер�
     archives.push(archive);
     const { jobId } = await service.start(KIT_PROJECT, archive);
     await service.waitForCompletion(jobId);
+    // Двухзонная выверка: подтверждаем обе зоны целиком (прежний исход).
+    await approveDocsReview(service, jobId);
 
     const view = service.getView(jobId);
     expect(view.status).toBe('succeeded');

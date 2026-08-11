@@ -22,6 +22,7 @@ import {
   type ServiceContext,
 } from '../src/factory.js';
 import { cleanup, fixedNow, makeTmpRoot } from './helpers.js';
+import { approveDocsReview } from './aiImportKit.js';
 
 const SECRET = 'sk-import-secret';
 const PROJECT = 'Demo';
@@ -126,6 +127,9 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
   async function runToEnd(service: AiImportService, archive: string): Promise<string> {
     const { jobId } = await service.start(PROJECT, archive);
     await service.waitForCompletion(jobId);
+    // Двухзонная выверка: подтверждаем оба гейта — populate (единственный шаг
+    // записи, где и живут инжектированные сбои) запускается только после них.
+    await approveDocsReview(service, jobId);
     return jobId;
   }
 
@@ -265,12 +269,15 @@ describe('PO-T2 · AI import survives an injected mid-pipeline crash', () => {
   });
 
   it('todo_16 Ф4: a crash message carrying the API key is sanitized in the log and never shown as the user-facing error', async () => {
-    const failingLinks = (pid: string): LinkService => {
-      const real = createLinkService(ctx, pid);
-      real.create = () => Promise.reject(new Error(`boom ${SECRET} exploded`));
+    // Двухзонная выверка: шаг записи стартует из /apply (без ключа в контексте
+    // рана), поэтому краш с ключом внутри инжектируем в стадию АНАЛИЗА —
+    // aggregate читает проект через requirementService.list().
+    const failingList = (pid: string): RequirementService => {
+      const real = createRequirementService(ctx, pid);
+      real.list = () => Promise.reject(new Error(`boom ${SECRET} exploded`));
       return real;
     };
-    const service = makeService(fixedClient(), { makeLinkService: failingLinks });
+    const service = makeService(fixedClient(), { makeRequirementService: failingList });
     const jobId = await runToEnd(service, await writeZip({ 'auth.md': 'Документация.' }));
 
     const view = service.getView(jobId);

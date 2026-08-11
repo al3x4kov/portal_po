@@ -12,9 +12,17 @@ import { useUiStore } from '../store/ui';
 
 export interface SidebarProps {
   projectId: string;
-  activePage: 'requirements' | 'dashboard' | 'ai' | 'dictionaries';
+  /** `none` — полноэкранные режимы действий (экспорт/генерация): навигация не подсвечена. */
+  activePage: 'requirements' | 'dashboard' | 'ai' | 'dictionaries' | 'none';
+  /** Подсвеченное действие: экспорт или генерация занимают весь экран (не модалка). */
+  activeAction?: 'export' | 'tasks';
   onOpenExport: () => void;
   onOpenTasks: () => void;
+  /**
+   * Перехват навигации: вернуть `false`, чтобы отменить переход (экран покажет
+   * подтверждение — например, идёт AI-генерация, макет Г11).
+   */
+  guard?: () => boolean;
 }
 
 /* ── Nav item: icon + tooltip on hover AND :focus-visible (new_design §2.8) ── */
@@ -58,10 +66,16 @@ function NavBtn({
 export function Sidebar({
   projectId,
   activePage,
+  activeAction,
   onOpenExport,
   onOpenTasks,
+  guard,
 }: SidebarProps): React.ReactElement {
-  const navigate = useNavigate();
+  const navigateRaw = useNavigate();
+  const navigate = (path: string): void => {
+    if (guard && !guard()) return;
+    navigateRaw(path);
+  };
   const graphView = useUiStore((s) => s.graphView);
   const setGraphView = useUiStore((s) => s.setGraphView);
 
@@ -152,10 +166,20 @@ export function Sidebar({
         Действия
       </span>
 
-      <NavBtn label="Экспорт проекта" testId="sidebar-open-export" onClick={onOpenExport}>
+      <NavBtn
+        label="Экспорт проекта"
+        testId="sidebar-open-export"
+        active={activeAction === 'export'}
+        onClick={onOpenExport}
+      >
         <Download className="icon" aria-hidden="true" />
       </NavBtn>
-      <NavBtn label="Генерация задач" testId="sidebar-open-tasks" onClick={onOpenTasks}>
+      <NavBtn
+        label="Генерация задач"
+        testId="sidebar-open-tasks"
+        active={activeAction === 'tasks'}
+        onClick={onOpenTasks}
+      >
         <ClipboardList className="icon" aria-hidden="true" />
       </NavBtn>
     </nav>

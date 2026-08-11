@@ -239,6 +239,17 @@ describe('T-901 aiChatRequestSchema', () => {
     expect(aiChatRequestSchema.safeParse({ model: '', messages: [msg] }).success).toBe(false);
   });
 
+  it('useProjectContext: опционален (старые клиенты валидны), принимает только boolean', () => {
+    expect(aiChatRequestSchema.parse({ messages: [msg] }).useProjectContext).toBeUndefined();
+    expect(
+      aiChatRequestSchema.parse({ projectId: 'Demo', useProjectContext: true, messages: [msg] })
+        .useProjectContext,
+    ).toBe(true);
+    expect(
+      aiChatRequestSchema.safeParse({ useProjectContext: 'да', messages: [msg] }).success,
+    ).toBe(false);
+  });
+
   it('rejects an empty messages array', () => {
     expect(aiChatRequestSchema.safeParse({ messages: [] }).success).toBe(false);
   });
@@ -277,11 +288,24 @@ import {
   AI_IMPORT_STRUCTURE_BATCH,
   AI_IMPORT_STRUCTURE_MAX_TOKENS,
   AI_IMPORT_TEMPERATURE,
+  AI_IMPORT_PO_ASSIGN_BATCH,
+  AI_IMPORT_PO_GROUP_NAME_MAX,
+  AI_IMPORT_PO_MAX_CHILDREN,
+  AI_IMPORT_PO_MAX_ROOTS,
+  AI_IMPORT_PO_TAXONOMY_BATCH,
+  AI_TESTGEN_BATCH,
+  AI_TESTGEN_MAX_SLUGS,
+  TEST_MODEL_KINDS,
   aiExtractedRequirementSchema,
+  aiGenerateTestsRequestSchema,
+  aiGenerateTestsResponseSchema,
+  aiTestCaseSchema,
+  aiImportBuildTreeFieldSchema,
   aiImportJobViewSchema,
   aiImportLogEntrySchema,
   aiImportResultSchema,
   aiImportStartResponseSchema,
+  aiPoAssignmentSchema,
   aiStructureNodeSchema,
 } from './ai.js';
 import { requirementCreateShape } from './contracts.js';
@@ -376,6 +400,80 @@ describe('T13 aiStructureNodeSchema (structure-stage answer contract)', () => {
       source: 'a.md § 1',
     });
     expect(node).toEqual({ type: 'FUNCTION', name: 'Вход', parentName: null });
+  });
+});
+
+describe('buildTree: логическое дерево «навык AI PO» — контракт', () => {
+  it('aiImportBuildTreeFieldSchema принимает только "true"/"false" и превращает в boolean', () => {
+    expect(aiImportBuildTreeFieldSchema.parse('true')).toBe(true);
+    expect(aiImportBuildTreeFieldSchema.parse('false')).toBe(false);
+    expect(aiImportBuildTreeFieldSchema.safeParse('1').success).toBe(false);
+    expect(aiImportBuildTreeFieldSchema.safeParse('').success).toBe(false);
+  });
+
+  it('константы PO-этапа: батчи и капы дерева', () => {
+    expect(AI_IMPORT_PO_TAXONOMY_BATCH).toBe(150);
+    expect(AI_IMPORT_PO_ASSIGN_BATCH).toBe(40);
+    expect(AI_IMPORT_PO_MAX_ROOTS).toBe(16);
+    expect(AI_IMPORT_PO_MAX_CHILDREN).toBe(20);
+    expect(AI_IMPORT_PO_GROUP_NAME_MAX).toBe(120);
+  });
+
+  it('тест-генерация: контракт запроса/ответа и константы', () => {
+    expect(TEST_MODEL_KINDS).toEqual(['smoke', 'crit-regression', 'full']);
+    // Батч уменьшен с 10 до 6: на десяти требованиях ответ не помещался в
+    // бюджет модели и обрывался на середине JSON (падал первый же батч).
+    expect(AI_TESTGEN_BATCH).toBe(6);
+    expect(AI_TESTGEN_MAX_SLUGS).toBe(30);
+    expect(AI_TESTGEN_BATCH).toBeLessThanOrEqual(AI_TESTGEN_MAX_SLUGS);
+    const req = aiGenerateTestsRequestSchema.parse({
+      projectId: 'Demo',
+      kind: 'smoke',
+      slugs: ['vhod'],
+      negatives: true,
+    });
+    expect(req.kind).toBe('smoke');
+    // Пустой батч и превышение лимита отвергаются.
+    expect(
+      aiGenerateTestsRequestSchema.safeParse({ projectId: 'Demo', kind: 'full', slugs: [] })
+        .success,
+    ).toBe(false);
+    expect(
+      aiGenerateTestsRequestSchema.safeParse({
+        projectId: 'Demo',
+        kind: 'full',
+        slugs: Array.from({ length: AI_TESTGEN_MAX_SLUGS + 1 }, (_, i) => `s${i}`),
+      }).success,
+    ).toBe(false);
+
+    const kase = aiTestCaseSchema.parse({
+      slug: 'vhod',
+      title: 'Вход по паролю',
+      goal: 'Проверить базовый вход',
+      precondition: 'Пользователь зарегистрирован',
+      steps: ['Открыть форму', 'Ввести пароль'],
+      expected: 'Пользователь вошёл',
+    });
+    expect(kase.negativeSteps).toBeUndefined();
+    // Кейс без шагов невалиден.
+    expect(aiTestCaseSchema.safeParse({ ...kase, steps: [] }).success).toBe(false);
+    const res = aiGenerateTestsResponseSchema.parse({ cases: [kase], dropped: 1, missing: ['x'] });
+    expect(res.dropped).toBe(1);
+  });
+
+  it('aiPoAssignmentSchema: узел по id либо явный null (корень)', () => {
+    expect(aiPoAssignmentSchema.parse({ type: 'FUNCTION', name: 'Вход', node: 'F1.2' })).toEqual({
+      type: 'FUNCTION',
+      name: 'Вход',
+      node: 'F1.2',
+    });
+    expect(aiPoAssignmentSchema.parse({ type: 'NFR', name: 'SLA', node: null }).node).toBeNull();
+    // node обязателен (опущенное поле — невалидный ответ, батч ретраится).
+    expect(aiPoAssignmentSchema.safeParse({ type: 'NFR', name: 'SLA' }).success).toBe(false);
+    // Длинный «id» — галлюцинация, не узел таксономии.
+    expect(
+      aiPoAssignmentSchema.safeParse({ type: 'NFR', name: 'SLA', node: 'x'.repeat(21) }).success,
+    ).toBe(false);
   });
 });
 

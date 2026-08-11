@@ -8,7 +8,7 @@ import {
   type AiStub,
 } from './helpers/ai-stub.js';
 import { createProject, projectIdFromUrl, rowByName, uniqueName } from './helpers/app.js';
-import { expectAiImportSummary } from './helpers/ai-import.js';
+import { approveDocsReviewGates, expectAiImportSummary } from './helpers/ai-import.js';
 
 /**
  * todo_23 · E2E «Экономика вызовов AI-импорта» — видимые пользователю эффекты
@@ -221,6 +221,7 @@ test.describe('todo_23 · AI-импорт: батчинг, счётчики, п�
     await openAiImport(page);
     await chooseFile(page, zip);
     await startAnalysis(page);
+    await approveDocsReviewGates(page);
 
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
@@ -347,9 +348,11 @@ test.describe('todo_23 · AI-импорт: батчинг, счётчики, п�
       await expect(resume).toBeVisible();
       await attachShot(page, testInfo, 'cancelled-checkpoint');
 
-      // «Продолжить» из панели «Остановлено» доводит извлечённое до создания…
+      // «Продолжить» из панели «Остановлено» доводит извлечённое до создания
+      // (через гейт выверки — одобряем обе зоны)…
       stub.setExtractionDelay(0);
       await resume.click();
+      await approveDocsReviewGates(page);
       await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
 
       // …ровно по одному экземпляру каждого требования — без дублей.
@@ -404,9 +407,11 @@ test.describe('todo_23 · AI-импорт: батчинг, счётчики, п�
       );
       await attachShot(page, testInfo, 'failed-checkpoint');
 
-      // Починка апстрима → «Продолжить» доводит до создания обеих записей.
+      // Починка апстрима → «Продолжить» доводит до создания обеих записей
+      // (гейт выверки на возобновлённом прогоне одобряем).
       stub.failExtractionAfterCalls(null);
       await page.getByTestId('ai-import-resume').click();
+      await approveDocsReviewGates(page);
       await expect(page.getByTestId('ai-import-success')).toBeVisible(JOB_TIMEOUT);
       await expectAiImportSummary(page, {
         functions: 1,
@@ -449,6 +454,7 @@ test.describe('todo_23 · AI-импорт: батчинг, счётчики, п�
     await openAiImport(page);
     await chooseFile(page, zip);
     await startAnalysis(page);
+    await approveDocsReviewGates(page);
 
     const success = page.getByTestId('ai-import-success');
     await expect(success).toBeVisible(JOB_TIMEOUT);
@@ -494,6 +500,7 @@ test.describe('todo_23 · AI-импорт: батчинг, счётчики, п�
       await openAiImport(page);
       await chooseFile(page, zip);
       await startAnalysis(page);
+      await approveDocsReviewGates(page);
 
       const success = page.getByTestId('ai-import-success');
       await expect(success).toBeVisible(JOB_TIMEOUT);

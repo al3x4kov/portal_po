@@ -1,11 +1,16 @@
 import { useState } from 'react';
 import {
+  ArrowDown,
   ArrowDownWideNarrow,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
   ArrowUpNarrowWide,
   ArrowUpDown,
   ChevronDown,
   ChevronRight,
   GitBranchPlus,
+  GripVertical,
   Link2,
   ShieldPlus,
   Sparkles,
@@ -25,6 +30,7 @@ import { buildLineGuides, type LineGuide } from '../lib/treeLines';
 import { nestedLabel } from '../lib/plural';
 import { LINK_TYPE_LABEL, describeLink } from '../lib/linkTypes';
 import { SOURCE_TYPE_ICON, SOURCE_TYPE_LABEL } from '../lib/sourceTypes';
+import { MOVE_OP_HOTKEY, MOVE_OP_LABEL, type MoveOp, type MoveOption } from '../lib/structureMoves';
 import { CriticalityBadge } from './badges';
 import { PriorityBadge } from './PriorityBadge';
 
@@ -131,7 +137,36 @@ interface TreeTableProps {
    * mode toggles a point collapse override.
    */
   onToggleNode?: (slug: string) => void;
+
+  /* ── Режим структуры (перемещение строк) ─────────────────────────────── */
+  /** Включён ли режим: появляются ручки, а зона иконок отдаётся стрелкам. */
+  structureMode?: boolean;
+  /** Строка, выбранная для перемещения. */
+  selectedSlug?: string | null;
+  onSelectRow?: (slug: string) => void;
+  /** Операции выбранной строки: доступные и с причиной недоступности. */
+  moveOptions?: MoveOption[];
+  /** Применить операцию к выбранной строке. */
+  onMoveOp?: (op: MoveOp) => void;
+  /** Строка, которую сейчас тащат (для «побледнения» исходной строки). */
+  draggingSlug?: string | null;
+  onDragStartRow?: (slug: string) => void;
+  onDragEndRow?: () => void;
+  /** Навести на строку-цель: вернуть причину запрета или undefined. */
+  dropReasonFor?: (targetSlug: string | null) => string | undefined;
+  /** Бросок на строку (или в пустое поле, когда slug === null). */
+  onDropOnRow?: (targetSlug: string | null) => void;
+  /** Строка, чьё перемещение не сохранилось (конфликт/сеть) — держим красной. */
+  failedSlug?: string | null;
 }
+
+/** Иконка стрелки для каждой операции перемещения. */
+const MOVE_OP_ICON: Record<MoveOp, typeof ArrowUp> = {
+  up: ArrowUp,
+  down: ArrowDown,
+  indent: ArrowRight,
+  outdent: ArrowLeft,
+};
 
 function Row({
   row,
@@ -147,6 +182,17 @@ function Row({
   onAddDesc,
   onExpandNode,
   onToggleNode,
+  structureMode = false,
+  selected = false,
+  onSelectRow,
+  moveOptions,
+  onMoveOp,
+  dragging = false,
+  onDragStartRow,
+  onDragEndRow,
+  dropReasonFor,
+  onDropOnRow,
+  failed = false,
 }: {
   row: VisibleRow;
   lineGuides: LineGuide[];
@@ -161,6 +207,17 @@ function Row({
   onAddDesc?: (r: Requirement) => void;
   onExpandNode: (slug: string) => void;
   onToggleNode?: (slug: string) => void;
+  structureMode?: boolean;
+  selected?: boolean;
+  onSelectRow?: (slug: string) => void;
+  moveOptions?: MoveOption[];
+  onMoveOp?: (op: MoveOp) => void;
+  dragging?: boolean;
+  onDragStartRow?: (slug: string) => void;
+  onDragEndRow?: () => void;
+  dropReasonFor?: (targetSlug: string | null) => string | undefined;
+  onDropOnRow?: (targetSlug: string | null) => void;
+  failed?: boolean;
 }): React.ReactElement {
   const req = row.requirement;
   const isContext = row.kind === 'context';
@@ -192,23 +249,97 @@ function Row({
     })
     .join(' · ');
 
+  // Причина, по которой строку нельзя сделать новым родителем перетаскиваемой.
+  // Считается на каждый рендер во время перетаскивания — цель краснеет ДО
+  // отпускания, а не отвечает ошибкой после запроса (макет П4).
+  const denyReason = structureMode && dropReasonFor ? dropReasonFor(req.slug) : undefined;
+  const isDropTarget = structureMode && Boolean(dropReasonFor) && !dragging && !denyReason;
+
+  const rowBackground = ((): string | undefined => {
+    if (failed) return 'var(--color-danger-bg)';
+    if (structureMode && dropReasonFor && !dragging) {
+      return denyReason ? 'var(--color-danger-bg)' : 'var(--color-success-bg)';
+    }
+    if (selected) return 'var(--color-primary-soft)';
+    if (aiPending) return 'var(--color-warning-bg)';
+    return undefined;
+  })();
+
   return (
     <tr
       className="group border-b"
       style={{
         borderColor: 'var(--color-border)',
-        opacity: isContext ? 0.6 : 1,
-        // Мягкая заливка — существующий токен предупреждения, читаемый в обеих
-        // темах (light: пастельный янтарь, dark: глубокий коричневый).
-        ...(aiPending ? { background: 'var(--color-warning-bg)' } : null),
+        // Перетаскиваемая строка бледнеет на месте, но не исчезает: все её
+        // колонки остаются на экране, ничего не «прыгает» (макет П2).
+        opacity: dragging ? 0.42 : isContext ? 0.6 : 1,
+        ...(rowBackground ? { background: rowBackground } : null),
+        ...(failed || denyReason
+          ? { boxShadow: 'inset 3px 0 0 var(--color-danger)' }
+          : isDropTarget
+            ? { boxShadow: 'inset 3px 0 0 var(--color-success)' }
+            : selected
+              ? { boxShadow: 'inset 3px 0 0 var(--color-primary)' }
+              : null),
       }}
       data-testid={`tree-row-${req.slug}`}
       data-req-name={req.name}
       data-row-kind={row.kind}
       data-ai-pending={aiPending ? 'true' : undefined}
+      data-move-selected={selected ? 'true' : undefined}
+      data-drop-state={
+        structureMode && dropReasonFor && !dragging
+          ? denyReason
+            ? 'deny'
+            : 'allow'
+          : failed
+            ? 'failed'
+            : undefined
+      }
+      title={denyReason}
+      onDragOver={
+        structureMode && dropReasonFor
+          ? (e) => {
+              // Разрешаем бросок только туда, где он законен: курсор сам
+              // показывает «нельзя» над запрещённой строкой.
+              if (denyReason || dragging) return;
+              e.preventDefault();
+            }
+          : undefined
+      }
+      onDrop={
+        structureMode && onDropOnRow
+          ? (e) => {
+              e.preventDefault();
+              if (denyReason || dragging) return;
+              onDropOnRow(req.slug);
+            }
+          : undefined
+      }
     >
-      <td className="py-2.5 pr-3 align-middle">
+      {/* pl-4 — тот же отступ, что у заголовка «Требование» (th px-4). Без него
+          корневой узел (нулевой отступ дерева) вставал вплотную к краю карточки
+          и не совпадал с собственной шапкой колонки. */}
+      <td className="py-2.5 pr-3 pl-4 align-middle">
         <div className="flex min-w-0 items-center gap-1.5">
+          {/* Ручка перемещения: встаёт ПЕРЕД отступом дерева, не отнимая колонку. */}
+          {structureMode ? (
+            <button
+              type="button"
+              className="shrink-0 cursor-grab rounded p-0.5"
+              style={{ color: selected ? 'var(--color-primary)' : 'var(--color-text-3)' }}
+              draggable
+              data-testid="move-grip"
+              data-slug={req.slug}
+              title={`Переместить «${req.name}»`}
+              aria-label={`Переместить «${req.name}»`}
+              onDragStart={() => onDragStartRow?.(req.slug)}
+              onDragEnd={() => onDragEndRow?.()}
+              onClick={() => onSelectRow?.(req.slug)}
+            >
+              <GripVertical className="icon-sm" aria-hidden="true" />
+            </button>
+          ) : null}
           {/* T-507: CSS tree line guides — wrapped in a zero-gap div so vertical lines connect */}
           {lineGuides.length > 0 && (
             <div
@@ -422,63 +553,104 @@ function Row({
           </button>
         )}
       </td>
-      {/* §2.5.1: row-actions видимы всегда (приглушены), ярче по hover/focus-within */}
+      {/* §2.5.1: row-actions видимы всегда (приглушены), ярче по hover/focus-within.
+          В режиме структуры выбранная строка отдаёт эту же зону стрелкам
+          перемещения — ширина та же, поэтому таблица не сдвигается (макет П1). */}
       <td className="w-[140px] py-2.5 pr-4 align-middle text-right">
-        <div
-          className="row-actions inline-flex flex-nowrap justify-end gap-0.5 whitespace-nowrap"
-          data-testid={`row-actions-${req.slug}`}
-        >
-          {/* ФТ-only: добавить дочернее требование (git-branch-plus) */}
-          {canAddChild ? (
+        {structureMode && selected && moveOptions ? (
+          <div
+            className="inline-flex flex-nowrap justify-end gap-0.5 whitespace-nowrap"
+            role="group"
+            aria-label={`Переместить «${req.name}»`}
+            data-testid={`move-ops-${req.slug}`}
+          >
+            {moveOptions.map((option) => {
+              const Icon = MOVE_OP_ICON[option.op];
+              const blocked = Boolean(option.disabledReason);
+              const hint = blocked
+                ? `Недоступно: ${option.disabledReason}`
+                : `${MOVE_OP_LABEL[option.op]} — ${option.parentName} (${MOVE_OP_HOTKEY[option.op]})`;
+              return (
+                <button
+                  key={option.op}
+                  type="button"
+                  className="row-icon-btn"
+                  style={blocked ? { opacity: 0.35 } : { color: 'var(--color-primary)' }}
+                  data-testid={`move-op-${option.op}`}
+                  data-slug={req.slug}
+                  data-blocked={blocked ? 'true' : undefined}
+                  // Погашенная стрелка не исчезает и не молчит: причина видна и в
+                  // подсказке, и скринридеру (aria-disabled + описание, макет П3).
+                  aria-disabled={blocked}
+                  aria-label={hint}
+                  title={hint}
+                  onClick={() => {
+                    if (blocked) return;
+                    onMoveOp?.(option.op);
+                  }}
+                >
+                  <Icon className="icon-sm" aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div
+            className="row-actions inline-flex flex-nowrap justify-end gap-0.5 whitespace-nowrap"
+            data-testid={`row-actions-${req.slug}`}
+          >
+            {/* ФТ-only: добавить дочернее требование (git-branch-plus) */}
+            {canAddChild ? (
+              <button
+                type="button"
+                className="row-icon-btn"
+                data-testid="row-add-child"
+                data-slug={req.slug}
+                title="Добавить дочернее требование"
+                aria-label="Добавить дочернее требование"
+                onClick={() => onAddChild?.(req)}
+              >
+                <GitBranchPlus className="icon-sm" aria-hidden="true" />
+              </button>
+            ) : null}
+            {/* ФТ-only: добавить связанное НФТ (shield-plus) */}
+            {canAddNfr ? (
+              <button
+                type="button"
+                className="row-icon-btn"
+                data-testid="row-add-nfr"
+                data-slug={req.slug}
+                title="Добавить НФТ"
+                aria-label="Добавить НФТ"
+                onClick={() => onAddNfr?.(req)}
+              >
+                <ShieldPlus className="icon-sm" aria-hidden="true" />
+              </button>
+            ) : null}
+            {/* Связать — все строки */}
             <button
               type="button"
-              className="row-icon-btn"
-              data-testid="row-add-child"
-              data-slug={req.slug}
-              title="Добавить дочернее требование"
-              aria-label="Добавить дочернее требование"
-              onClick={() => onAddChild?.(req)}
+              className="row-icon-btn hover:text-[var(--color-primary)]"
+              data-testid={`link-btn-${req.slug}`}
+              title="Связать"
+              aria-label="Связать"
+              onClick={() => onLink(req)}
             >
-              <GitBranchPlus className="icon-sm" aria-hidden="true" />
+              <Link2 className="icon-sm" aria-hidden="true" />
             </button>
-          ) : null}
-          {/* ФТ-only: добавить связанное НФТ (shield-plus) */}
-          {canAddNfr ? (
+            {/* Удалить — все строки; узел с детьми удаляется каскадом (UX-2) */}
             <button
               type="button"
-              className="row-icon-btn"
-              data-testid="row-add-nfr"
-              data-slug={req.slug}
-              title="Добавить НФТ"
-              aria-label="Добавить НФТ"
-              onClick={() => onAddNfr?.(req)}
+              className="row-icon-btn hover:text-[var(--color-danger)]"
+              data-testid={`delete-btn-${req.slug}`}
+              title={cascadeDelete ? 'Удалить требование со вложенными' : 'Удалить'}
+              aria-label={cascadeDelete ? 'Удалить требование со вложенными' : 'Удалить требование'}
+              onClick={() => onDelete(req)}
             >
-              <ShieldPlus className="icon-sm" aria-hidden="true" />
+              <Trash2 className="icon-sm" aria-hidden="true" />
             </button>
-          ) : null}
-          {/* Связать — все строки */}
-          <button
-            type="button"
-            className="row-icon-btn hover:text-[var(--color-primary)]"
-            data-testid={`link-btn-${req.slug}`}
-            title="Связать"
-            aria-label="Связать"
-            onClick={() => onLink(req)}
-          >
-            <Link2 className="icon-sm" aria-hidden="true" />
-          </button>
-          {/* Удалить — все строки; узел с детьми удаляется каскадом (UX-2) */}
-          <button
-            type="button"
-            className="row-icon-btn hover:text-[var(--color-danger)]"
-            data-testid={`delete-btn-${req.slug}`}
-            title={cascadeDelete ? 'Удалить требование со вложенными' : 'Удалить'}
-            aria-label={cascadeDelete ? 'Удалить требование со вложенными' : 'Удалить требование'}
-            onClick={() => onDelete(req)}
-          >
-            <Trash2 className="icon-sm" aria-hidden="true" />
-          </button>
-        </div>
+          </div>
+        )}
       </td>
     </tr>
   );
@@ -502,6 +674,17 @@ export function TreeTable({
   onAddDesc,
   onExpandNode,
   onToggleNode,
+  structureMode = false,
+  selectedSlug = null,
+  onSelectRow,
+  moveOptions,
+  onMoveOp,
+  draggingSlug = null,
+  onDragStartRow,
+  onDragEndRow,
+  dropReasonFor,
+  onDropOnRow,
+  failedSlug = null,
 }: TreeTableProps): React.ReactElement {
   // todo_19 (T-207): optional RICE sort. Default keeps the tree order + line
   // guides; sorting flattens to a RICE-ranked list (undefined scores last) and
@@ -619,10 +802,45 @@ export function TreeTable({
                   onAddDesc={onAddDesc}
                   onExpandNode={onExpandNode}
                   onToggleNode={onToggleNode}
+                  structureMode={structureMode}
+                  selected={selectedSlug === row.requirement.slug}
+                  onSelectRow={onSelectRow}
+                  moveOptions={moveOptions}
+                  onMoveOp={onMoveOp}
+                  dragging={draggingSlug === row.requirement.slug}
+                  onDragStartRow={onDragStartRow}
+                  onDragEndRow={onDragEndRow}
+                  dropReasonFor={draggingSlug ? dropReasonFor : undefined}
+                  onDropOnRow={onDropOnRow}
+                  failed={failedSlug === row.requirement.slug}
                 />
               ))}
             </tbody>
           </table>
+          {/* Бросок в пустое поле под таблицей выносит строку в корень раздела
+              (макет П2). Появляется только во время перетаскивания. */}
+          {structureMode && draggingSlug && onDropOnRow ? (
+            <div
+              className="m-3 rounded-lg border-2 border-dashed px-4 py-3 text-center text-sm"
+              style={{
+                borderColor: dropReasonFor?.(null) ? 'var(--color-danger)' : 'var(--color-success)',
+                color: 'var(--color-text-2)',
+              }}
+              data-testid={`drop-to-root-${testidPrefix}`}
+              title={dropReasonFor?.(null)}
+              onDragOver={(e) => {
+                if (dropReasonFor?.(null)) return;
+                e.preventDefault();
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dropReasonFor?.(null)) return;
+                onDropOnRow(null);
+              }}
+            >
+              {dropReasonFor?.(null) ?? 'Отпустите здесь, чтобы вынести строку в корень раздела'}
+            </div>
+          ) : null}
         </div>
       )}
     </section>

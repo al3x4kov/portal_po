@@ -13,6 +13,7 @@ export * from './domain/aiOrigin.js';
 // Validation
 export * from './validation/schema.js';
 export * from './validation/ai.js';
+export * from './validation/aiNames.js';
 export * from './validation/rules.js';
 export * from './validation/targetRule.js';
 export * from './validation/contracts.js';
@@ -27,6 +28,7 @@ export * from './graph/integrity.js';
 export * from './graph/cascade.js';
 export * from './graph/tree.js';
 export * from './graph/parentCycles.js';
+export * from './graph/move.js';
 
 // Scoring (todo_19)
 export * from './scoring/rice.js';

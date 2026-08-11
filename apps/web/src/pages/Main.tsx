@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { TriangleAlert } from 'lucide-react';
 import {
   countAiPendingReview,
@@ -21,7 +21,9 @@ import { ancestorNamesOf, buildForest, descendantCountOf } from '../lib/tree';
 import { computeVisibleRows } from '../lib/visibility';
 import { sourceNamesOf } from '../lib/sources';
 import { matchesLabel, requirementsLabel } from '../lib/plural';
+import { useStructureMove } from '../lib/useStructureMove';
 import { Sidebar } from '../components/Sidebar';
+import { StructureBar } from '../components/StructureBar';
 import { PathHeader } from '../components/PathHeader';
 import { TreeToolbar } from '../components/TreeToolbar';
 import { TreeTable } from '../components/TreeTable';
@@ -30,19 +32,21 @@ import { DescPanel } from '../components/DescPanel';
 import { RequirementModal } from '../components/RequirementModal';
 import { LinkModal } from '../components/LinkModal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { ExportModal } from '../components/ExportModal';
-import { ExportTasksModal } from '../components/ExportTasksModal';
 import { GraphView } from '../components/GraphView/GraphView';
 import { AiImportModal } from '../components/AiImportModal';
 import { AiBacklogImportModal } from '../components/AiBacklogImportModal';
 
 export function Main(): React.ReactElement {
   const { id = '' } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const projectQuery = useProject(id);
   const reqQuery = useRequirements(id);
   const modal = useUiStore((s) => s.modal);
   const openModal = useUiStore((s) => s.openModal);
   const closeModal = useUiStore((s) => s.closeModal);
+  const linkOverlay = useUiStore((s) => s.linkOverlay);
+  const openLinkOverlay = useUiStore((s) => s.openLinkOverlay);
+  const closeLinkOverlay = useUiStore((s) => s.closeLinkOverlay);
 
   const graphView = useUiStore((s) => s.graphView);
   const mainView = useUiStore((s) => s.mainView);
@@ -60,6 +64,7 @@ export function Main(): React.ReactElement {
   const setSearch = useUiStore((s) => s.setSearch);
   const resetFilters = useUiStore((s) => s.resetFilters);
 
+  const structure = useStructureMove(id, reqQuery.data?.requirements ?? []);
   const deleteMut = useDeleteRequirement(id);
   const createReqMut = useCreateRequirement(id);
   const createLinkMut = useCreateLink(id);
@@ -216,8 +221,8 @@ export function Main(): React.ReactElement {
       <Sidebar
         projectId={id}
         activePage="requirements"
-        onOpenExport={() => openModal({ kind: 'export' })}
-        onOpenTasks={() => openModal({ kind: 'export-tasks' })}
+        onOpenExport={() => navigate(`/p/${id}/export`)}
+        onOpenTasks={() => navigate(`/p/${id}/generate`)}
       />
       <div
         className="flex min-h-screen flex-col"
@@ -470,6 +475,17 @@ export function Main(): React.ReactElement {
                     onAddDesc={onAddDesc}
                     onExpandNode={toggleNode}
                     onToggleNode={toggleNode}
+                    structureMode={structure.active}
+                    selectedSlug={structure.selectedSlug}
+                    onSelectRow={structure.select}
+                    moveOptions={structure.options}
+                    onMoveOp={structure.applyOp}
+                    draggingSlug={structure.draggingSlug}
+                    onDragStartRow={structure.startDrag}
+                    onDragEndRow={structure.endDrag}
+                    dropReasonFor={structure.dropReasonFor}
+                    onDropOnRow={structure.dropOn}
+                    failedSlug={structure.failedSlug}
                   />
                   <TreeTable
                     title="Нефункциональные требования"
@@ -487,6 +503,17 @@ export function Main(): React.ReactElement {
                     onAddDesc={onAddDesc}
                     onExpandNode={toggleNode}
                     onToggleNode={toggleNode}
+                    structureMode={structure.active}
+                    selectedSlug={structure.selectedSlug}
+                    onSelectRow={structure.select}
+                    moveOptions={structure.options}
+                    onMoveOp={structure.applyOp}
+                    draggingSlug={structure.draggingSlug}
+                    onDragStartRow={structure.startDrag}
+                    onDragEndRow={structure.endDrag}
+                    dropReasonFor={structure.dropReasonFor}
+                    onDropOnRow={structure.dropOn}
+                    failedSlug={structure.failedSlug}
                   />
                 </>
               )}
@@ -494,70 +521,116 @@ export function Main(): React.ReactElement {
           )}
         </main>
 
-        <footer
-          className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t px-4 py-3"
-          style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
-          data-testid="main-footer"
-        >
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="btn btn-primary text-sm"
-              data-testid="footer-add-function"
-              onClick={() => openModal({ kind: 'requirement', reqType: 'FUNCTION' })}
-            >
-              + Функция
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary text-sm"
-              data-testid="footer-add-nfr"
-              onClick={() => openModal({ kind: 'requirement', reqType: 'NFR' })}
-            >
-              + НФТ
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary inline-flex items-center gap-1.5 text-sm"
-              style={{ color: 'var(--color-primary)', borderColor: 'var(--color-primary)' }}
-              data-testid="footer-ai-import"
-              onClick={() => setAiImportOpen(true)}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
+        {/* В режиме структуры нижняя панель отдаётся перемещению: пока строку
+            двигают, «+ Функция» и AI-подгрузка не нужны (макет П1). */}
+        {structure.active ? (
+          <StructureBar
+            selectedName={structure.selected?.name ?? null}
+            currentParentName={structure.currentParentName}
+            level={structure.level}
+            depth={structure.depth}
+            descendants={structure.descendants}
+            options={structure.options}
+            error={structure.error}
+            canUndo={structure.canUndo}
+            busy={structure.busy}
+            history={structure.history}
+            onUndo={structure.undo}
+            onRetry={structure.retry}
+            onDismissError={structure.dismissError}
+            onExit={structure.exit}
+          />
+        ) : (
+          <footer
+            className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t px-4 py-3"
+            style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}
+            data-testid="main-footer"
+          >
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="btn btn-primary text-sm"
+                data-testid="footer-add-function"
+                onClick={() => openModal({ kind: 'requirement', reqType: 'FUNCTION' })}
               >
-                <path d="M12 2l1.7 5.3L19 9l-5.3 1.7L12 16l-1.7-5.3L5 9l5.3-1.7L12 2zm7 12l.9 2.6L22.5 18l-2.6.9L19 21.5l-.9-2.6L15.5 18l2.6-.9L19 14z" />
-              </svg>
-              AI подгрузка из документации
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary inline-flex items-center gap-1.5 text-sm"
-              style={{ color: 'var(--color-primary)', borderColor: 'var(--color-primary)' }}
-              data-testid="footer-ai-backlog-import"
-              onClick={() => setAiBacklogOpen(true)}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
+                + Функция
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary text-sm"
+                data-testid="footer-add-nfr"
+                onClick={() => openModal({ kind: 'requirement', reqType: 'NFR' })}
               >
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="3" y1="9" x2="21" y2="9" />
-                <line x1="9" y1="3" x2="9" y2="21" />
-              </svg>
-              AI подгрузка из бэклога
-            </button>
-          </div>
-        </footer>
+                + НФТ
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary inline-flex items-center gap-1.5 text-sm"
+                style={{ color: 'var(--color-primary)', borderColor: 'var(--color-primary)' }}
+                data-testid="footer-ai-import"
+                onClick={() => setAiImportOpen(true)}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M12 2l1.7 5.3L19 9l-5.3 1.7L12 16l-1.7-5.3L5 9l5.3-1.7L12 2zm7 12l.9 2.6L22.5 18l-2.6.9L19 21.5l-.9-2.6L15.5 18l2.6-.9L19 14z" />
+                </svg>
+                AI подгрузка из документации
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary inline-flex items-center gap-1.5 text-sm"
+                style={{ color: 'var(--color-primary)', borderColor: 'var(--color-primary)' }}
+                data-testid="footer-ai-backlog-import"
+                onClick={() => setAiBacklogOpen(true)}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <line x1="3" y1="9" x2="21" y2="9" />
+                  <line x1="9" y1="3" x2="9" y2="21" />
+                </svg>
+                AI подгрузка из бэклога
+              </button>
+            </div>
+          </footer>
+        )}
+
+        {/* Переезд раздела с потомками — единственное перемещение, которое
+            спрашивает подтверждение: масштаб и новая глубина названы заранее
+            (макет П5). */}
+        {structure.pending ? (
+          <ConfirmDialog
+            testid="move-subtree-dialog"
+            title={`Перенести раздел «${structure.pending.name}» со всем содержимым?`}
+            message={
+              <span data-testid="move-subtree-message">
+                Вместе с ним переедут{' '}
+                <strong>{requirementsLabel(structure.pending.descendantNames.length)}</strong>:{' '}
+                {structure.pending.descendantNames.map((n) => `«${n}»`).join(', ')}. Новый родитель
+                — «{structure.pending.parentName}», строка встанет на уровень{' '}
+                {structure.pending.newDepth}. Изменится одна связь; связи потомков между собой,
+                RICE, сроки и источники сохранятся.
+              </span>
+            }
+            confirmLabel="Перенести"
+            busyLabel="Переносим…"
+            busy={structure.busy}
+            onCancel={structure.cancelPending}
+            onConfirm={structure.confirmPending}
+          />
+        ) : null}
 
         {descReq ? (
           <DescPanel
@@ -570,29 +643,40 @@ export function Main(): React.ReactElement {
           />
         ) : null}
 
-        {modal?.kind === 'requirement' ? (
-          <RequirementModal
-            projectId={id}
-            reqType={modal.reqType}
-            requirement={modal.requirement}
-            nameBySlug={nameBySlug}
-            requirementsBySlug={requirementsBySlug}
-            linkFrom={modal.linkFrom}
-            linkType={modal.linkType}
-            focusField={modal.focusField}
-            noDefaultCriticality={!modal.requirement && modal.linkType === 'CHILD_OF'}
-            onAddLink={
-              modal.requirement
-                ? (typeHint: RequirementType) => {
-                    const req = modal.requirement!;
-                    closeModal();
-                    openModal({ kind: 'link', source: req, initialTypeFilter: typeHint });
+        {modal?.kind === 'requirement'
+          ? (() => {
+              // Живое требование из query-кэша: после мутации связи из оверлея
+              // refetch приносит свежий список links — карточка его подхватит,
+              // не пересоздавая форму (снимок в zustand не обновляется).
+              const liveRequirement = modal.requirement
+                ? (requirementsBySlug.get(modal.requirement.slug) ?? modal.requirement)
+                : undefined;
+              return (
+                <RequirementModal
+                  projectId={id}
+                  reqType={modal.reqType}
+                  requirement={liveRequirement}
+                  nameBySlug={nameBySlug}
+                  requirementsBySlug={requirementsBySlug}
+                  linkFrom={modal.linkFrom}
+                  linkType={modal.linkType}
+                  focusField={modal.focusField}
+                  noDefaultCriticality={!modal.requirement && modal.linkType === 'CHILD_OF'}
+                  onAddLink={
+                    liveRequirement
+                      ? (typeHint: RequirementType) => {
+                          // Карточка ОСТАЁТСЯ смонтированной — LinkModal
+                          // открывается оверлеем поверх неё, несохранённые
+                          // правки формы не теряются.
+                          openLinkOverlay({ source: liveRequirement, initialTypeFilter: typeHint });
+                        }
+                      : undefined
                   }
-                : undefined
-            }
-            onClose={closeModal}
-          />
-        ) : null}
+                  onClose={closeModal}
+                />
+              );
+            })()
+          : null}
 
         {modal?.kind === 'link' ? (
           <LinkModal
@@ -601,6 +685,17 @@ export function Main(): React.ReactElement {
             requirements={requirements}
             initialTypeFilter={modal.initialTypeFilter}
             onClose={closeModal}
+          />
+        ) : null}
+
+        {/* Оверлей «Новая связь» поверх открытой карточки требования. */}
+        {linkOverlay ? (
+          <LinkModal
+            projectId={id}
+            source={linkOverlay.source}
+            requirements={requirements}
+            initialTypeFilter={linkOverlay.initialTypeFilter}
+            onClose={closeLinkOverlay}
           />
         ) : null}
 
@@ -682,14 +777,6 @@ export function Main(): React.ReactElement {
               );
             })()
           : null}
-
-        {modal?.kind === 'export' ? (
-          <ExportModal projectId={id} requirements={requirements} onClose={closeModal} />
-        ) : null}
-
-        {modal?.kind === 'export-tasks' ? (
-          <ExportTasksModal projectId={id} requirements={requirements} onClose={closeModal} />
-        ) : null}
 
         {aiImportOpen ? (
           <AiImportModal projectId={id} onClose={() => setAiImportOpen(false)} />

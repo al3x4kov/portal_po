@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CircleStop, RefreshCw, TriangleAlert } from 'lucide-react';
 import type {
+  AiDocsReview,
+  AiDocsReviewItem,
   AiImportJobSummary,
   AiImportJobView,
   AiImportRelateView,
@@ -13,6 +15,7 @@ import {
   useAiImportJob,
   useAiImportJobs,
   useAiModelsRefresh,
+  useApplyAiDocsImport,
   useCancelAiImport,
   useConfirmAiImport,
   useResumeAiImport,
@@ -60,6 +63,13 @@ const INFER_LINKS_LABEL = 'Находить смысловые связи меж
 const INFER_LINKS_HINT =
   'Деревья ФТ и НФТ строятся всегда; эта опция дополнительно связывает НФТ ' +
   'с ФТ по смыслу. Возможны неточные связи; новые требования не добавляются.';
+
+const BUILD_TREE_LABEL = 'Собрать логическое дерево требований (навык AI Product Owner)';
+const BUILD_TREE_HINT =
+  'Модель-PO спроектирует бизнес-домены и разделы и разложит по ним все ФТ/НФТ ' +
+  'вместо повторения структуры файлов документации. Группирующие узлы будут созданы ' +
+  'как требования с пометкой «ИИ». Рекомендуется для больших архивов — без этой опции ' +
+  'сотни требований чаще остаются плоским списком.';
 
 /** Name of the optional relate step shown in the progress/result view. */
 const RELATE_STEP_LABEL = 'Проставление связей ФТ↔НФТ';
@@ -152,10 +162,19 @@ interface AiImportModalProps {
 /**
  * Local view phase. todo_20 adds `estimate` (job paused on the confirmation
  * gate, status `awaiting-confirmation`) and `interrupted` (unfinished job
- * discovered after a server restart).
+ * discovered after a server restart). Двухзонная выверка adds `review` — the
+ * docs job is paused on a duplicate-review gate (`awaiting-review` +
+ * `docsReview` in the view), nothing is written until apply.
  */
 type Phase =
-  'setup' | 'estimate' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+  | 'setup'
+  | 'estimate'
+  | 'review'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted';
 
 export function AiImportModal({ projectId, onClose }: AiImportModalProps): React.ReactElement {
   const [file, setFile] = useState<File | null>(null);
@@ -163,9 +182,16 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   const [modelOverride, setModelOverride] = useState<string | null>(null);
   // B2: optional AI relate step (ФТ↔НФТ links), off by default.
   const [inferLinks, setInferLinks] = useState(false);
+  // buildTree: логическое дерево «навыка AI PO» вместо легаси-структуризации.
+  const [buildTree, setBuildTree] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   // §2.18.1: «Остановить» is guarded by its own mini-confirm (not instant).
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  // Двухзонная выверка: selection of the current review zone + cancel guard.
+  const [reviewSelected, setReviewSelected] = useState<ReadonlySet<string>>(new Set());
+  const [cancelReviewOpen, setCancelReviewOpen] = useState(false);
+  const [reviewApplyError, setReviewApplyError] = useState<string | null>(null);
+  const reviewSeededKey = useRef<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   // todo_20 T-214: «Повторить с меньшими фрагментами» — inline how-to hint.
   const [smallerHintOpen, setSmallerHintOpen] = useState(false);
@@ -181,6 +207,8 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   const cancelMut = useCancelAiImport();
   const confirmMut = useConfirmAiImport();
   const resumeMut = useResumeAiImport(projectId);
+  // Двухзонная выверка: apply one review zone (self → existing → запись).
+  const applyDocsMut = useApplyAiDocsImport();
   // todo_20 PO №4: full run history of the project (newest first).
   const historyQuery = useAiImportJobs(projectId);
   const historyJobs: AiImportJobSummary[] = historyQuery.data?.jobs ?? [];
@@ -214,16 +242,93 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
     ? 'setup'
     : jobLost
       ? 'failed'
-      : // todo_22: `awaiting-review` is a backlog-only pause — docs jobs never
-        // reach it; the neutral running view keeps the exhaustive mapping honest.
-        !job || job.status === 'running' || job.status === 'awaiting-review'
-        ? 'running'
-        : job.status === 'awaiting-confirmation'
-          ? 'estimate'
-          : job.status;
+      : // Двухзонная выверка: docs jobs pause on `awaiting-review` with a
+        // `docsReview` payload; a backlog-shaped pause (no payload) keeps the
+        // neutral running view as before todo_22.
+        job?.status === 'awaiting-review' && job.docsReview
+        ? 'review'
+        : !job || job.status === 'running' || job.status === 'awaiting-review'
+          ? 'running'
+          : job.status === 'awaiting-confirmation'
+            ? 'estimate'
+            : job.status;
   // Start already sent (or job view not loaded yet) counts as running for the
   // close guard — the job may well be alive on the server.
   const running = phase === 'running' || startMut.isPending;
+
+  /* ── Двухзонная выверка (phase 'review') ─────────────────────────────── */
+  const review: AiDocsReview | undefined = phase === 'review' ? job?.docsReview : undefined;
+  // Default selection is seeded ONCE per (job, zone): zone 1 keeps the first
+  // record of every duplicate group + everything ungrouped; zone 2 keeps
+  // everything not flagged as a duplicate of an existing requirement.
+  const reviewKey = review && jobId ? `${jobId}:${review.phase}` : null;
+  useEffect(() => {
+    if (!review || !reviewKey || reviewSeededKey.current === reviewKey) return;
+    reviewSeededKey.current = reviewKey;
+    setReviewApplyError(null);
+    if (review.phase === 'self') {
+      const seenGroups = new Set<string>();
+      const keep = new Set<string>();
+      for (const item of review.items) {
+        if (item.groupId === undefined) {
+          keep.add(item.id);
+        } else if (!seenGroups.has(item.groupId)) {
+          seenGroups.add(item.groupId);
+          keep.add(item.id);
+        }
+      }
+      setReviewSelected(keep);
+    } else {
+      setReviewSelected(
+        new Set(review.items.filter((i) => i.duplicateOf === undefined).map((i) => i.id)),
+      );
+    }
+  }, [review, reviewKey]);
+
+  // Row order: duplicate groups (zone 1) / flagged duplicates (zone 2) first —
+  // the point of the step is in front of the eyes, the clean tail below.
+  const reviewRows = useMemo((): AiDocsReviewItem[] => {
+    if (!review) return [];
+    if (review.phase === 'self') {
+      const byGroup = new Map<string, AiDocsReviewItem[]>();
+      for (const item of review.items) {
+        if (item.groupId === undefined) continue;
+        const list = byGroup.get(item.groupId) ?? [];
+        list.push(item);
+        byGroup.set(item.groupId, list);
+      }
+      return [
+        ...[...byGroup.values()].flat(),
+        ...review.items.filter((i) => i.groupId === undefined),
+      ];
+    }
+    return [
+      ...review.items.filter((i) => i.duplicateOf !== undefined),
+      ...review.items.filter((i) => i.duplicateOf === undefined),
+    ];
+  }, [review]);
+
+  const toggleReviewItem = (id: string): void => {
+    setReviewSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const doApplyReview = (): void => {
+    if (!jobId || !review || applyDocsMut.isPending) return;
+    setReviewApplyError(null);
+    applyDocsMut.mutate(
+      {
+        jobId,
+        phase: review.phase,
+        ids: review.items.filter((i) => reviewSelected.has(i.id)).map((i) => i.id),
+      },
+      { onError: (err) => setReviewApplyError(errorMessage(err)) },
+    );
+  };
 
   // Autoscroll the log to the latest line (mockup state 4).
   const logLength = job?.log.length ?? 0;
@@ -248,7 +353,7 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
     if (!file || !modelReady || startMut.isPending) return;
     setStartError(null);
     startMut.mutate(
-      { file, model: modelOverride ?? undefined, inferLinks },
+      { file, model: modelOverride ?? undefined, inferLinks, buildTree },
       {
         onSuccess: (res) => setJobId(res.jobId),
         onError: (err) => setStartError(errorMessage(err)),
@@ -263,10 +368,16 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
   /** X / overlay / Escape: confirm while running, close silently otherwise. */
   const requestClose = (): void => {
     // Escape is already being handled by an open ConfirmDialog.
-    if (confirmOpen || stopConfirmOpen) return;
+    if (confirmOpen || stopConfirmOpen || cancelReviewOpen) return;
     if (phase === 'estimate') {
       // Estimate gate: no LLM calls have started — cancel silently and close.
       stopJob();
+      onClose();
+      return;
+    }
+    if (phase === 'review') {
+      // Двухзонная выверка: closing keeps the job PAUSED on its gate — the
+      // review re-opens from the history («Продолжить»), nothing is lost.
       onClose();
       return;
     }
@@ -394,6 +505,36 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
           }}
         >
           {estimate?.overThreshold ? 'Запустить всё равно' : 'Запустить импорт'}
+        </BusyButton>
+      </>
+    ) : phase === 'review' && review ? (
+      /* Двухзонная выверка: nothing is written until the zone-2 apply. */
+      <>
+        <p className="hint mr-auto self-center" data-testid="ai-docs-review-hint">
+          До подтверждения в проект ничего не записано
+        </p>
+        <button
+          type="button"
+          className="btn btn-secondary text-sm"
+          style={{ color: 'var(--color-danger-fg)' }}
+          data-testid="ai-docs-review-cancel"
+          disabled={cancelMut.isPending}
+          onClick={() => setCancelReviewOpen(true)}
+        >
+          Отменить импорт
+        </button>
+        <BusyButton
+          className="btn btn-primary text-sm"
+          busy={applyDocsMut.isPending}
+          busyLabel={review.phase === 'self' ? 'Анализируем…' : 'Записываем…'}
+          data-testid="ai-docs-review-apply"
+          onClick={doApplyReview}
+        >
+          {reviewSelected.size === 0
+            ? 'Завершить без записи'
+            : review.phase === 'self'
+              ? `Продолжить: дубли с проектом (${reviewSelected.size})`
+              : `Записать в проект (${reviewSelected.size})`}
         </BusyButton>
       </>
     ) : phase === 'interrupted' ? (
@@ -738,6 +879,21 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
           {/* A3: inline notice — selection reset after refresh / refresh failure. */}
           <ModelListNotice testid="ai-models-notice-import" notice={modelsRefresh.notice} />
 
+          {/* buildTree: логическое дерево «навыка AI PO» (opt-in). */}
+          <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-primary)]"
+              data-testid="ai-import-build-tree"
+              checked={buildTree}
+              onChange={(e) => setBuildTree(e.target.checked)}
+            />
+            <span>
+              {BUILD_TREE_LABEL}
+              <span className="hint mt-0.5 block">{BUILD_TREE_HINT}</span>
+            </span>
+          </label>
+
           {/* B2 + §2.18.4: opt-in AI relate step, human wording + honest hint. */}
           <label className="flex cursor-pointer items-start gap-2.5 text-sm">
             <input
@@ -804,6 +960,219 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
       ) : (
         <>
           {fileCard}
+
+          {/* Двухзонная выверка дублей: зона 1 (между собой) → зона 2 (с проектом). */}
+          {phase === 'review' && review ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-3" data-testid="ai-docs-review-step">
+              <div
+                className="flex items-center gap-2 text-xs"
+                style={{ color: 'var(--color-text-3)' }}
+                aria-hidden="true"
+              >
+                <span>1. Анализ</span>
+                <span>→</span>
+                <span
+                  className="rounded-full px-2 py-0.5 font-medium"
+                  style={
+                    review.phase === 'self'
+                      ? { background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }
+                      : undefined
+                  }
+                >
+                  2. Дубли между собой
+                </span>
+                <span>→</span>
+                <span
+                  className="rounded-full px-2 py-0.5 font-medium"
+                  style={
+                    review.phase === 'existing'
+                      ? { background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }
+                      : undefined
+                  }
+                >
+                  3. Дубли с проектом
+                </span>
+                <span>→</span>
+                <span>4. Запись</span>
+              </div>
+
+              <div
+                className="rounded-lg p-3 text-sm"
+                style={{ background: 'var(--color-info-bg)', color: 'var(--color-info-fg)' }}
+                data-testid="ai-docs-review-banner"
+              >
+                {review.phase === 'self' ? (
+                  <>
+                    <b>Зона 1 · Дубли среди сгенерированных требований.</b>{' '}
+                    {review.groupCount > 0
+                      ? `Найдено групп смысловых дублей: ${review.groupCount} — они показаны первыми, в каждой группе по умолчанию оставлена одна запись.`
+                      : 'Смысловых дублей между сгенерированными требованиями не найдено.'}{' '}
+                    Ниже — все сгенерированные требования с предлагаемым местом в дереве и связями:
+                    снимите галочки с того, что не нужно включать.
+                    {review.autoMerged.length > 0
+                      ? ` Полные повторы имён (${review.autoMerged.length}) слиты автоматически.`
+                      : ''}
+                  </>
+                ) : (
+                  <>
+                    <b>Зона 2 · Дубли с уже созданными в проекте.</b>{' '}
+                    {review.duplicateCount > 0
+                      ? `Найдено записей, дублирующих существующие требования: ${review.duplicateCount} — они показаны первыми и по умолчанию исключены из записи.`
+                      : 'Дублей с существующими требованиями проекта не найдено — подтвердите запись.'}
+                  </>
+                )}
+              </div>
+
+              <div
+                className="min-h-0 flex-1 overflow-auto rounded-lg border"
+                style={{ borderColor: 'var(--color-border)' }}
+              >
+                <table
+                  className="w-full border-collapse text-sm"
+                  data-testid="ai-docs-review-table"
+                >
+                  <thead
+                    className="sticky top-0 z-10"
+                    style={{ background: 'var(--color-surface-2)' }}
+                  >
+                    <tr className="text-left text-xs" style={{ color: 'var(--color-text-3)' }}>
+                      <th className="w-8 px-2 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label="Выбрать все записи"
+                          data-testid="ai-docs-review-select-all"
+                          checked={
+                            reviewRows.length > 0 &&
+                            reviewRows.every((i) => reviewSelected.has(i.id))
+                          }
+                          onChange={(e) =>
+                            setReviewSelected(
+                              e.target.checked ? new Set(reviewRows.map((i) => i.id)) : new Set(),
+                            )
+                          }
+                        />
+                      </th>
+                      <th className="px-2 py-2">Требование</th>
+                      <th className="px-2 py-2">Куда в дерево</th>
+                      <th className="px-2 py-2">Связи</th>
+                      <th className="px-2 py-2">
+                        {review.phase === 'self' ? 'Группа дублей' : 'Дубль с проектом'}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reviewRows.map((item) => {
+                      const checked = reviewSelected.has(item.id);
+                      const flagged =
+                        review.phase === 'self'
+                          ? item.groupId !== undefined
+                          : item.duplicateOf !== undefined;
+                      return (
+                        <tr
+                          key={item.id}
+                          className="border-t align-top"
+                          style={{
+                            borderColor: 'var(--color-border)',
+                            background: flagged ? 'var(--color-warning-bg)' : undefined,
+                            opacity: checked ? 1 : 0.55,
+                          }}
+                          data-testid={`ai-docs-review-row-${item.id}`}
+                        >
+                          <td className="px-2 py-2">
+                            <input
+                              type="checkbox"
+                              aria-label={`Включить «${item.record.name}»`}
+                              data-testid={`ai-docs-review-check-${item.id}`}
+                              checked={checked}
+                              onChange={() => toggleReviewItem(item.id)}
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <span className="font-medium" title={item.record.description}>
+                              {item.record.name}
+                            </span>
+                            <span
+                              className="ml-1.5 rounded px-1 text-[10px] font-semibold"
+                              style={{
+                                background: 'var(--color-surface-2)',
+                                color: 'var(--color-text-3)',
+                              }}
+                            >
+                              {item.record.type === 'FUNCTION' ? 'ФТ' : 'НФТ'}
+                            </span>
+                            <span
+                              className="mt-0.5 block max-w-[380px] truncate text-xs"
+                              style={{ color: 'var(--color-text-3)' }}
+                              title={`${item.record.description}\n\nИсточник: ${item.record.source}`}
+                            >
+                              {item.record.description}
+                            </span>
+                          </td>
+                          <td
+                            className="px-2 py-2 text-xs"
+                            data-testid={`ai-docs-review-parent-${item.id}`}
+                          >
+                            {item.parentName !== null ? `под «${item.parentName}»` : 'корень'}
+                          </td>
+                          <td
+                            className="px-2 py-2 text-xs"
+                            style={{ color: 'var(--color-text-3)' }}
+                          >
+                            {item.record.relatedFunctions?.length
+                              ? item.record.relatedFunctions.map((n) => `«${n}»`).join(', ')
+                              : '—'}
+                          </td>
+                          <td className="px-2 py-2 text-xs">
+                            {review.phase === 'self' && item.groupId !== undefined ? (
+                              <span
+                                className="badge"
+                                style={{
+                                  background: 'var(--color-warning-bg)',
+                                  color: 'var(--color-warning-fg)',
+                                }}
+                                data-testid={`ai-docs-review-group-${item.id}`}
+                              >
+                                группа {item.groupId.replace(/^g/, '')}
+                              </span>
+                            ) : review.phase === 'existing' && item.duplicateOf !== undefined ? (
+                              <span
+                                className="badge"
+                                style={{
+                                  background: 'var(--color-warning-bg)',
+                                  color: 'var(--color-warning-fg)',
+                                }}
+                                data-testid={`ai-docs-review-dup-${item.id}`}
+                                title={
+                                  item.duplicateSimilarity !== undefined
+                                    ? `Похожесть имён: ${Math.round(item.duplicateSimilarity * 100)}%`
+                                    : undefined
+                                }
+                              >
+                                дубль: «{item.duplicateOf}»
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {reviewApplyError ? (
+                <div
+                  className="rounded-lg p-3 text-sm"
+                  role="alert"
+                  style={{ background: 'var(--color-danger-bg)', color: 'var(--color-danger-fg)' }}
+                  data-testid="ai-docs-review-error"
+                >
+                  {reviewApplyError}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {/* todo_20 П1+П2 (mockups 01/02): the estimate step before any LLM call. */}
           {phase === 'estimate' ? (
@@ -1257,7 +1626,7 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
             </div>
           ) : null}
 
-          {phase !== 'estimate' ? (
+          {phase !== 'estimate' && phase !== 'review' ? (
             <div>
               <div
                 className="mb-1 flex items-center justify-between text-xs"
@@ -1523,9 +1892,11 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
           {/* Live log with a header (ai-import-modal mockup, state Б).
               task24: the wrapper takes the remaining height of the large modal
               (flex-1 inside the Modal body column); the inner log keeps a
-              170px floor so short content never collapses it. */}
+              170px floor so short content never collapses it.
+              Двухзонная выверка: on the review phase the table owns the
+              height — the log collapses to its floor instead of competing. */}
           <div
-            className="flex flex-1 flex-col overflow-hidden rounded-lg border"
+            className={`flex ${phase === 'review' ? 'shrink-0' : 'flex-1'} flex-col overflow-hidden rounded-lg border`}
             style={{ borderColor: 'var(--color-border)' }}
             data-testid="ai-import-log-panel"
           >
@@ -1601,6 +1972,26 @@ export function AiImportModal({ projectId, onClose }: AiImportModalProps): React
           onConfirm={() => {
             stopJob();
             setStopConfirmOpen(false);
+          }}
+        />
+      ) : null}
+
+      {/* Двухзонная выверка: cancelling the paused review is guarded too. */}
+      {cancelReviewOpen ? (
+        <ConfirmDialog
+          testid="ai-docs-review-cancel-confirm"
+          danger
+          icon={<CircleStop className="icon-sm" aria-hidden="true" />}
+          title="Отменить импорт?"
+          message="В проект ничего не записано. Выверку можно вернуть позже кнопкой «Продолжить» из истории прогонов."
+          confirmLabel="Отменить импорт"
+          busyLabel="Отменяем…"
+          cancelLabel="Вернуться к выверке"
+          busy={cancelMut.isPending}
+          onCancel={() => setCancelReviewOpen(false)}
+          onConfirm={() => {
+            stopJob();
+            setCancelReviewOpen(false);
           }}
         />
       ) : null}

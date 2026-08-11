@@ -43,12 +43,27 @@ function browserInstalled(prefix: string): boolean {
   }
 }
 
+/**
+ * Managed/remote-окружения (Claude Code on the web и т.п.) предустанавливают
+ * один системный Chromium и запрещают `playwright install`; его ревизия может
+ * не совпадать с ожидаемой текущим @playwright/test. PW_CHROMIUM_PATH указывает
+ * явный путь к бинарю — суита едет на нём; локально и в CI переменная не задана,
+ * поведение прежнее.
+ */
+const chromiumLaunchOptions = process.env.PW_CHROMIUM_PATH
+  ? { executablePath: process.env.PW_CHROMIUM_PATH }
+  : {};
+
 const projects: Project[] = [
   {
     name: 'chromium',
     // Full suite. Viewport override must live in the project `use` to beat the
     // device preset.
-    use: { ...devices['Desktop Chrome'], viewport: DESKTOP },
+    use: {
+      ...devices['Desktop Chrome'],
+      viewport: DESKTOP,
+      launchOptions: chromiumLaunchOptions,
+    },
   },
 ];
 

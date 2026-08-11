@@ -21,6 +21,7 @@ import {
   createRequirementService,
   type ServiceContext,
 } from '../src/factory.js';
+import { approveDocsReview } from './aiImportKit.js';
 import { cleanup, fixedNow, makeTmpRoot } from './helpers.js';
 
 const SECRET = 'sk-import-secret';
@@ -120,7 +121,10 @@ describe('todo_16 B2: optional inferLinks step (relate ФТ↔НФТ, mock AI cl
     const service = makeService(client);
     const archive = await writeZip({ 'docs.md': '# Вход\nВход по email.\n# SLA\nОтклик 200 мс.' });
     const { jobId } = await service.start(PROJECT, archive, undefined, opts.inferLinks);
+    // Двухзонная выверка: the run pauses at the review gate; approve both
+    // zones keeping every record — populate (+ optional relate) runs after.
     await service.waitForCompletion(jobId);
+    await approveDocsReview(service, jobId);
     return { service, jobId };
   }
 
@@ -187,6 +191,7 @@ describe('todo_16 B2: optional inferLinks step (relate ФТ↔НФТ, mock AI cl
     const { jobId } = await service.start(PROJECT, archive, undefined, true);
     holder.jobId = jobId;
     await service.waitForCompletion(jobId);
+    await approveDocsReview(service, jobId);
 
     const view = service.getView(jobId);
     expect(view.status).toBe('succeeded');
@@ -241,6 +246,7 @@ describe('todo_16 B2: optional inferLinks step (relate ФТ↔НФТ, mock AI cl
     const { jobId } = await service.start(PROJECT, archive, undefined, true);
     holder.jobId = jobId;
     await service.waitForCompletion(jobId);
+    await approveDocsReview(service, jobId);
 
     expect(service.getView(jobId).status).toBe('succeeded');
     expect(preCallLineSeen).toBe(true);
@@ -390,6 +396,7 @@ describe('todo_16 B2: optional inferLinks step (relate ФТ↔НФТ, mock AI cl
     const { jobId } = await service.start(PROJECT, archive, undefined, true);
     holder.jobId = jobId;
     await service.waitForCompletion(jobId);
+    await approveDocsReview(service, jobId);
 
     const view = service.getView(jobId);
     expect(view.status).toBe('cancelled');

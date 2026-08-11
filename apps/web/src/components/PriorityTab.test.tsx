@@ -306,3 +306,58 @@ describe('PriorityTab — aggregate & PO decision', () => {
     expect(screen.getByTestId('src-card-1')).toBeInTheDocument();
   });
 });
+
+describe('RICE — мини-инструкции по буквам (иконки-вопросики)', () => {
+  it('у каждой буквы карточки источника есть иконка-вопросик с доступным именем', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness initialDrafts={[draft()]} />);
+    for (const key of ['reach', 'impact', 'confidence', 'effort']) {
+      expect(screen.getByTestId(`rice-help-${key}-0`)).toBeInTheDocument();
+    }
+    expect(screen.getByRole('button', { name: 'Что такое Reach' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Что такое Effort' })).toBeInTheDocument();
+    // До наведения подсказок нет.
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    void user;
+  });
+
+  it('наведение раскрывает инструкцию буквы, уход мыши — закрывает', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness initialDrafts={[draft()]} />);
+    await user.hover(screen.getByTestId('rice-help-reach-0'));
+    const tip = await screen.findByTestId('rice-help-reach-0-tip');
+    expect(tip).toHaveAttribute('role', 'tooltip');
+    expect(tip).toHaveTextContent('R — Reach (охват).');
+    expect(tip).toHaveTextContent('Шкала 1–5');
+    await user.unhover(screen.getByTestId('rice-help-reach-0'));
+    expect(screen.queryByTestId('rice-help-reach-0-tip')).toBeNull();
+  });
+
+  it('фокус с клавиатуры тоже раскрывает подсказку (a11y), Esc закрывает', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness initialDrafts={[draft()]} />);
+    const btn = screen.getByTestId('rice-help-effort-0');
+    btn.focus();
+    const tip = await screen.findByTestId('rice-help-effort-0-tip');
+    expect(tip).toHaveTextContent('E — Effort (трудоёмкость).');
+    expect(tip).toHaveTextContent('RICE = R×I×C / E');
+    // Кнопка связана с подсказкой для скринридера.
+    expect(btn).toHaveAttribute('aria-describedby', tip.getAttribute('id'));
+    await user.keyboard('{Escape}');
+    expect(screen.queryByTestId('rice-help-effort-0-tip')).toBeNull();
+  });
+
+  it('тексты всех четырёх букв согласованы со шкалами селектов', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness initialDrafts={[draft()]} />);
+    const expectations: Array<[string, string]> = [
+      ['impact', '0.25 — минимальное'],
+      ['confidence', '50% — гипотеза, 80% — есть данные, 100% — подтверждено'],
+    ];
+    for (const [key, text] of expectations) {
+      await user.hover(screen.getByTestId(`rice-help-${key}-0`));
+      expect(await screen.findByTestId(`rice-help-${key}-0-tip`)).toHaveTextContent(text);
+      await user.unhover(screen.getByTestId(`rice-help-${key}-0`));
+    }
+  });
+});

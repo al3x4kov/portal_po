@@ -21,6 +21,16 @@ export type ModalState =
   | { kind: 'export-tasks' }
   | null;
 
+/**
+ * Оверлей «Новая связь» ПОВЕРХ открытой карточки требования. Отдельный слот,
+ * а не kind в `modal`: карточка должна остаться смонтированной, иначе все
+ * несохранённые правки формы (RHF + локальные вкладки) погибнут вместе с ней.
+ */
+export interface LinkOverlayState {
+  source: Requirement;
+  initialTypeFilter?: RequirementType;
+}
+
 export type Theme = 'light' | 'dark';
 
 /** "Раскрыть все" (default) vs "Скрыть зависимости" (B1). */
@@ -86,9 +96,25 @@ interface UiState {
   /** Clear every applied filter at once (UX-6 "Сбросить фильтры"). */
   resetFilters: () => void;
 
+  /**
+   * Режим структуры: строки дерева можно перемещать (перетаскиванием, стрелками
+   * или с клавиатуры). Выключен по умолчанию — в обычном режиме ручек нет и
+   * случайно перетащить требование нельзя.
+   */
+  structureMode: boolean;
+  setStructureMode: (on: boolean) => void;
+  /** Строка, выбранная для перемещения (slug); null — ничего не выбрано. */
+  moveSelection: string | null;
+  setMoveSelection: (slug: string | null) => void;
+
   modal: ModalState;
   openModal: (modal: NonNullable<ModalState>) => void;
   closeModal: () => void;
+
+  /** Оверлей связи поверх карточки требования (см. LinkOverlayState). */
+  linkOverlay: LinkOverlayState | null;
+  openLinkOverlay: (overlay: LinkOverlayState) => void;
+  closeLinkOverlay: () => void;
 }
 
 function initialTheme(): Theme {
@@ -162,7 +188,20 @@ export const useUiStore = create<UiState>((set, get) => ({
       aiPendingFilter: false,
     }),
 
+  structureMode: false,
+  // Выход из режима снимает выбор: панель перемещения не должна «висеть»
+  // с прошлой строкой, когда режим включат снова.
+  setStructureMode: (structureMode) =>
+    set(structureMode ? { structureMode } : { structureMode, moveSelection: null }),
+  moveSelection: null,
+  setMoveSelection: (moveSelection) => set({ moveSelection }),
+
   modal: null,
   openModal: (modal) => set({ modal }),
-  closeModal: () => set({ modal: null }),
+  // Закрытие базовой модалки убирает и оверлей связи — он не живёт сам по себе.
+  closeModal: () => set({ modal: null, linkOverlay: null }),
+
+  linkOverlay: null,
+  openLinkOverlay: (linkOverlay) => set({ linkOverlay }),
+  closeLinkOverlay: () => set({ linkOverlay: null }),
 }));

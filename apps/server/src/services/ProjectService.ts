@@ -1,4 +1,9 @@
-import { REQUIREMENT_FOLDER, serialize, type ExportOptionalField } from '@po/core';
+import {
+  EXPORT_OPTIONAL_FIELDS,
+  REQUIREMENT_FOLDER,
+  serialize,
+  type ExportOptionalField,
+} from '@po/core';
 import { withProjectLock } from '../lib/projectLock.js';
 import { sanitizeProjectName } from '../lib/projectName.js';
 import { withOpLog, type OpLogger } from '../lib/logger.js';
@@ -13,6 +18,19 @@ import type {
   ProjectSummary,
   RequirementRepo,
 } from '../repositories/types.js';
+
+/**
+ * Маска, включающая ВСЕ опциональные поля, ничего не отсекает — значит она
+ * эквивалентна её отсутствию. Экран экспорта всегда присылает список
+ * включённых полей (по умолчанию — все четыре), поэтому без этой проверки
+ * обычный экспорт уходил бы на путь пересборки: архив собирался бы из
+ * известных сущностей (манифест + справочники + `.md` требований), а любые
+ * прочие файлы каталога проекта — заметки, вложения — терялись бы. При полной
+ * маске выбираем побайтовое копирование: оно и полнее, и быстрее.
+ */
+function isFullFieldMask(fields: ExportOptionalField[] | undefined): boolean {
+  return fields !== undefined && EXPORT_OPTIONAL_FIELDS.every((f) => fields.includes(f));
+}
 
 /** Collaborators + configuration injected into {@link ProjectService} (BE-1 / DIP). */
 export interface ProjectServiceDeps {
@@ -108,7 +126,7 @@ export class ProjectService implements ProjectServicePort {
   ): Promise<ExportResult> {
     return withOpLog(this.log, { op: 'export', projectId: id }, async () => {
       const project = await this.repo.get(id); // 404 when missing
-      if (fields === undefined) {
+      if (fields === undefined || isFullFieldMask(fields)) {
         return this.archive.export(project.mainPath, format, project.id);
       }
       return this.exportReserialized(project, undefined, fields, format, project.id);
@@ -144,7 +162,7 @@ export class ProjectService implements ProjectServicePort {
         const body = await ExcelExportService.buildWorkbook(included, fields);
         return { body, filename: `${project.id}.xlsx`, contentType: XLSX_CONTENT_TYPE };
       }
-      if (fields === undefined) {
+      if (fields === undefined || isFullFieldMask(fields)) {
         return this.archive.exportSelected(project.mainPath, slugs, format, project.id);
       }
       return this.exportReserialized(

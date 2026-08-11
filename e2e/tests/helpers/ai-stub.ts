@@ -204,6 +204,12 @@ export interface AiStub {
   setThinkWrap(enabled: boolean): void;
   /** All captured `/chat/completions` bodies, in arrival order. */
   readonly chatRequests: AiChatCompletionCapture[];
+  /** Тест-генерация: только запросы с QA-промптом. */
+  readonly testgenRequests: AiChatCompletionCapture[];
+  /** Тест-генерация: slug'и, которые стаб «пропустит» (missing → fallback). */
+  setTestgenSkipSlugs(slugs: string[] | null): void;
+  /** Тест-генерация: лишние кейсы, добавляемые к каждому ответу (галлюцинации). */
+  setTestgenExtraCases(cases: Array<Record<string, unknown>> | null): void;
   lastChatRequest(): AiChatCompletionCapture | undefined;
   /** Task 11: only the extraction-prompt `/chat/completions` bodies. */
   readonly extractionRequests: AiChatCompletionCapture[];
@@ -283,6 +289,8 @@ const RELATE_PROMPT_MARKER = 'аналитик связей требований
 
 /** Marker of the backlog match system prompt (backlogMatchStage.ts, todo_22). */
 const BACKLOG_MATCH_PROMPT_MARKER = 'продуктовый аналитик портала управления требованиями';
+/** Тест-генерация (развилка «Генерации артефактов»): system prompt QA-персоны. */
+const TESTGEN_PROMPT_MARKER = 'senior QA-инженер';
 
 /** Deliberately NON-JSON model answer for the retry scenarios (task 13). */
 const NON_JSON_REPLY = 'Извините, сначала пришлю требования прозой, без JSON.';
@@ -501,7 +509,10 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
   let backlogAnswers: Record<string, BacklogMatchAnswerSpec> = opts.backlogAnswers ?? {};
   let backlogDelayMs = 0;
   let backlogOkCallsLeft: number | null = null;
+  let testgenSkipSlugs: string[] = [];
+  let testgenExtraCases: Array<Record<string, unknown>> = [];
   const chatRequests: AiChatCompletionCapture[] = [];
+  const testgenRequests: AiChatCompletionCapture[] = [];
   const extractionRequests: AiChatCompletionCapture[] = [];
   const structureRequests: AiChatCompletionCapture[] = [];
   const relateRequests: AiChatCompletionCapture[] = [];
@@ -538,6 +549,9 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
         const isRelate = system?.role === 'system' && system.content.includes(RELATE_PROMPT_MARKER);
         const isBacklogMatch =
           system?.role === 'system' && system.content.includes(BACKLOG_MATCH_PROMPT_MARKER);
+        const isTestgen =
+          system?.role === 'system' && system.content.includes(TESTGEN_PROMPT_MARKER);
+        if (isTestgen && body) testgenRequests.push(body);
         if (isExtraction && body) extractionRequests.push(body);
         if (isStructure && body) structureRequests.push(body);
         if (isRelate && body) relateRequests.push(body);
@@ -629,6 +643,39 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
               }
             }
             content = JSON.stringify([...pairs, ...relateRawPairs]);
+          } else if (isTestgen) {
+            // Тест-генерация: детерминированный кейс на каждую строку батча
+            // `slug\tтип\tкритичность\tимя\tописание`; пропуски и лишние
+            // кейсы настраиваются тестом (missing / галлюцинации).
+            const userMsg = body?.messages?.find((m) => m.role === 'user')?.content ?? '';
+            const rows = userMsg
+              .split('\n')
+              .filter((line) => line.includes('\t'))
+              .map((line) => {
+                const [slug, , , name] = line.split('\t');
+                return { slug: slug ?? '', name: name ?? '' };
+              })
+              .filter((r) => r.slug.length > 0 && !testgenSkipSlugs.includes(r.slug));
+            const negatives = system?.content.includes('обязательны') ?? false;
+            content = JSON.stringify({
+              cases: [
+                ...rows.map((r) => ({
+                  slug: r.slug,
+                  title: `AI-кейс: ${r.name}`,
+                  goal: `Проверить «${r.name}» по описанию`,
+                  precondition: 'Приложение запущено, проект открыт',
+                  steps: ['Выполнить основное действие', 'Проверить результат'],
+                  expected: 'Функция работает по описанию',
+                  ...(negatives
+                    ? {
+                        negativeSteps: ['Передать невалидные данные'],
+                        negativeExpected: 'Понятная ошибка, состояние не повреждено',
+                      }
+                    : {}),
+                })),
+                ...testgenExtraCases,
+              ],
+            });
           } else if (isBacklogMatch) {
             // todo_22: echo one answer per batch row — configured spec by row
             // KEY (fallback: source text), deterministic defaults otherwise.
@@ -766,6 +813,13 @@ export async function startAiStub(opts: AiStubOptions): Promise<AiStub> {
       nonJsonStructureLeft = n;
     },
     relateRequests,
+    testgenRequests,
+    setTestgenSkipSlugs(slugs) {
+      testgenSkipSlugs = slugs ?? [];
+    },
+    setTestgenExtraCases(cases) {
+      testgenExtraCases = cases ?? [];
+    },
     setRelatePairsByName(map) {
       relatePairsByName = map ?? {};
     },

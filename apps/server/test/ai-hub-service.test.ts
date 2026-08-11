@@ -41,6 +41,52 @@ describe('T-802 AiHubService', () => {
     return new AiHubService({ repo, makeClient: make });
   }
 
+  // «Задержка при отправке запросов в секундах» (глобальная настройка AI):
+  // принудительная пауза после КАЖДОГО обращения к хабу — и успешного, и упавшего.
+  describe('requestDelaySec', () => {
+    it('пауза выдерживается после успешного listModels и генерации', async () => {
+      await repo.update({
+        apiKey: SECRET,
+        projectId: 'Demo',
+        model: 'GigaChat-2-Pro',
+        requestDelaySec: 7,
+      });
+      const sleep = vi.fn(async () => {});
+      const client = mockClient();
+      const svc = new AiHubService({ repo, makeClient: () => client, sleep });
+
+      await svc.listModels();
+      expect(sleep).toHaveBeenCalledWith(7000);
+
+      sleep.mockClear();
+      await svc.generateDescription(genInput);
+      expect(sleep).toHaveBeenCalledWith(7000);
+    });
+
+    it('пауза выдерживается и после упавшего запроса (finally)', async () => {
+      await repo.update({ apiKey: SECRET, requestDelaySec: 3 });
+      const sleep = vi.fn(async () => {});
+      const boom = mockClient({
+        models: {
+          list: vi.fn(async () => {
+            throw new Error('hub down');
+          }),
+        },
+      });
+      const svc = new AiHubService({ repo, makeClient: () => boom, sleep });
+      await expect(svc.listModels()).rejects.toMatchObject({ code: 'AI_UPSTREAM' });
+      expect(sleep).toHaveBeenCalledWith(3000);
+    });
+
+    it('без настройки паузы sleep не вызывается', async () => {
+      await repo.update({ apiKey: SECRET });
+      const sleep = vi.fn(async () => {});
+      const svc = new AiHubService({ repo, makeClient: () => mockClient(), sleep });
+      await svc.listModels();
+      expect(sleep).not.toHaveBeenCalled();
+    });
+  });
+
   describe('listModels', () => {
     it('returns sorted, de-duplicated model ids using the stored key + baseURL', async () => {
       await repo.update({ apiKey: SECRET, baseURL: 'https://stub.test/v1' });

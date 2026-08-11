@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import { useEscapeToClose } from '../hooks/useEscapeToClose';
 
 /**
  * task24: modal size variant.
@@ -67,13 +68,10 @@ export function Modal({
   // UX-5: keep focus inside the dialog; preserves an inner autoFocus (see hook).
   useFocusTrap(cardRef, { restoreTo: openerRef });
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // Esc closes only the TOP overlay (shared stack with ConfirmDialog): a
+  // stacked dialog — LinkModal over the requirement card, a confirm over any
+  // modal — never fires the close/cancel guard of the layer beneath it.
+  useEscapeToClose(onClose);
 
   return (
     <div

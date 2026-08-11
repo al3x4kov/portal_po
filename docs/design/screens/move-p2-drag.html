@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>Макет П2 · Перетаскивание строки: цель и предпросмотр результата</title>
+    <link rel="stylesheet" href="../tokens.css" />
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+      body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--color-bg); height: 1000px; width: 1600px; overflow: hidden; color: var(--color-text); display: flex; }
+      .sidebar { width: 56px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 0; background: var(--color-surface); border-right: 1px solid var(--color-border); }
+      .slogo { width: 36px; height: 36px; border-radius: 10px; background: var(--color-primary); color: #fff; font-size: 13px; font-weight: 700; display: grid; place-items: center; margin-bottom: 8px; }
+      .nav { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: var(--color-text-3); }
+      .nav svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .nav.act { background: var(--color-primary-soft); color: var(--color-primary); }
+      .navdiv { width: 32px; border-top: 1px solid var(--color-border); margin: 10px 0 4px; }
+      .navlbl { font-size: 9px; color: var(--color-text-3); margin-bottom: 2px; }
+      .app { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+      .apphead { display: flex; align-items: center; gap: 16px; padding: 0 20px; height: 56px; background: var(--color-surface); border-bottom: 1px solid var(--color-border); flex: none; }
+      .back { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--color-text-2); }
+      .htitle h1 { font-size: 17px; font-weight: 600; line-height: 1.2; }
+      .hpath { font-family: ui-monospace, monospace; font-size: 11px; color: var(--color-text-3); }
+      .scrn { position: absolute; top: 12px; right: 14px; z-index: 12; background: #0f172a; color: #fff; border-radius: 999px; padding: 6px 14px; font-size: 12.5px; font-weight: 700; box-shadow: 0 4px 12px #0f172a44; }
+
+      .toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--color-border); background: var(--color-surface); flex: none; }
+      .seg { display: flex; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 9px; padding: 2px; }
+      .seg span { font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 7px; color: var(--color-text-3); }
+      .seg span.on { background: var(--color-surface); color: var(--color-text); box-shadow: 0 1px 3px #0f172a1f; }
+      .search { width: 260px; border: 1px solid var(--color-border); border-radius: 8px; padding: 7px 12px; color: var(--color-text-3); font-size: 12.5px; background: var(--color-bg); }
+      .fgroup { display: flex; align-items: center; gap: 8px; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 10px; padding: 4px 8px; }
+      .flbl { font-size: 11.5px; color: var(--color-text-3); }
+      .chip { border: 1px solid var(--color-border); border-radius: 8px; padding: 6px 11px; font-size: 12px; font-weight: 600; background: var(--color-surface); white-space: nowrap; }
+      .chip.on { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+      .chip.warn { background: var(--color-warning-bg); border-color: var(--color-warning-fg); color: var(--color-warning-fg); }
+      .chip.off { opacity: 0.45; }
+      .shown { font-size: 12px; color: var(--color-text-3); white-space: nowrap; }
+      .spacer { margin-left: auto; }
+
+      .tabs { display: flex; gap: 6px; padding: 10px 20px 0; flex: none; }
+      .tabs span { font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 9px; color: var(--color-text-3); }
+      .tabs span.on { background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text); }
+
+      .main { flex: 1; min-height: 0; padding: 10px 20px 0; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+      .card { border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+      .cardhead { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; }
+      .cardhead h2 { font-size: 15px; font-weight: 700; }
+      .cardhead .add { background: var(--color-primary); color: #fff; border-radius: 8px; padding: 7px 13px; font-size: 12.5px; font-weight: 600; }
+
+      .thead, .row { display: flex; align-items: center; gap: 8px; padding: 0 14px; }
+      .thead { height: 38px; border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); background: var(--color-bg); font-size: 10.5px; font-weight: 700; letter-spacing: 0.03em; color: var(--color-text-3); text-transform: uppercase; }
+      .row { min-height: 44px; padding-top: 7px; padding-bottom: 7px; border-bottom: 1px solid var(--color-border); font-size: 13px; }
+      .row:last-child { border-bottom: none; }
+      .row.sel { background: var(--color-primary-soft); box-shadow: inset 3px 0 0 var(--color-primary); }
+      .row.ghost { opacity: 0.42; }
+      .row.drop { background: var(--color-success-bg); box-shadow: inset 3px 0 0 var(--color-success); }
+      .row.deny { background: var(--color-danger-bg); box-shadow: inset 3px 0 0 var(--color-danger); }
+      .row.moved { background: var(--color-success-bg); }
+      .insert { height: 3px; background: var(--color-success); margin: 0 14px; border-radius: 3px; position: relative; }
+      .insert::before { content: ''; position: absolute; left: 0; top: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--color-success); }
+
+      .c-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; }
+      .c-crit { width: 118px; flex: none; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+      .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+      .c-rice { width: 58px; flex: none; font-size: 12.5px; color: var(--color-text-2); }
+      .c-src { width: 176px; flex: none; font-size: 11.5px; color: var(--color-text-2); display: flex; flex-direction: column; gap: 4px; }
+      .c-due { width: 116px; flex: none; font-size: 12px; }
+      .c-links { width: 196px; flex: none; display: flex; flex-direction: column; gap: 4px; }
+      .c-desc { width: 208px; flex: none; font-size: 12.5px; color: var(--color-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .c-act { width: 132px; flex: none; display: flex; justify-content: flex-end; gap: 5px; }
+
+      .grip { width: 13px; flex: none; color: var(--color-text-3); letter-spacing: -1px; cursor: grab; }
+      .grip.hide { visibility: hidden; }
+      .ind { width: 20px; flex: none; }
+      .chev { width: 11px; flex: none; color: var(--color-text-3); font-size: 11px; }
+      .type { font-size: 10px; font-weight: 700; border-radius: 999px; padding: 2px 7px; flex: none; }
+      .type.ft { background: var(--color-primary-soft); color: var(--color-primary); }
+      .type.nft { background: var(--color-info-bg); color: var(--color-info-fg); }
+      .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .done { color: var(--color-success-fg); font-weight: 600; }
+      .mut { color: var(--color-text-3); }
+      .lchip { font-size: 10.5px; border-radius: 6px; padding: 3px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .lchip.rel { background: var(--color-primary-soft); color: var(--color-primary); }
+      .lchip.dep { background: var(--color-warning-bg); color: var(--color-warning-fg); }
+      .lchip.blk { background: var(--color-danger-bg); color: var(--color-danger-fg); }
+      .srcchip { background: var(--color-danger-bg); color: var(--color-danger-fg); border-radius: 6px; padding: 2px 7px; font-size: 10.5px; font-weight: 600; align-self: flex-start; }
+      .icn { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; color: var(--color-text-3); }
+      .icn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .op { width: 27px; height: 27px; border-radius: 7px; border: 1px solid var(--color-border); background: var(--color-bg); display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--color-text-2); }
+      .op.off { opacity: 0.32; }
+      .op.hot { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+      .op.bad { background: var(--color-danger-bg); border-color: var(--color-danger-fg); color: var(--color-danger-fg); }
+
+      .bottom { flex: none; border-top: 1px solid var(--color-border); background: var(--color-surface); padding: 10px 20px; display: flex; flex-direction: column; gap: 8px; }
+      .brow { display: flex; align-items: center; gap: 12px; }
+      .bstat { display: flex; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; }
+      .bstat b { font-weight: 700; }
+      .arrow { color: var(--color-text-3); }
+      .pill { border-radius: 999px; padding: 4px 11px; font-size: 12px; font-weight: 600; background: var(--color-bg); border: 1px solid var(--color-border); }
+      .pill.ok { background: var(--color-success-bg); border-color: var(--color-success); color: var(--color-success-fg); }
+      .pill.bad { background: var(--color-danger-bg); border-color: var(--color-danger-fg); color: var(--color-danger-fg); }
+      .keys { display: flex; align-items: center; gap: 14px; font-size: 11.5px; color: var(--color-text-3); flex-wrap: wrap; }
+      .keys .k { display: flex; align-items: center; gap: 6px; }
+      .kbd { border: 1px solid var(--color-border); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; font-family: ui-monospace, monospace; font-size: 10.5px; background: var(--color-bg); color: var(--color-text-2); }
+      .btn { border-radius: 8px; padding: 8px 14px; font-size: 12.5px; font-weight: 600; border: 1px solid var(--color-border); background: var(--color-surface); white-space: nowrap; }
+      .btn.primary { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+      .btn.ghost { background: var(--color-bg); }
+      .btn.link { border: none; background: none; color: var(--color-primary); }
+      .banner { border-radius: 10px; padding: 9px 13px; font-size: 12.5px; line-height: 1.5; }
+      .banner.info { background: var(--color-info-bg); color: var(--color-info-fg); }
+      .banner.warn { background: var(--color-warning-bg); color: var(--color-warning-fg); }
+      .banner.err { background: var(--color-danger-bg); color: var(--color-danger-fg); }
+      .banner.ok { background: var(--color-success-bg); color: var(--color-success-fg); }
+      .banner b { font-weight: 700; }
+
+      .toast { position: absolute; bottom: 130px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; background: #0f172a; color: #fff; border-radius: 12px; padding: 11px 18px; font-size: 13px; box-shadow: 0 10px 30px #0f172a55; z-index: 7; }
+      .toast .undo { font-weight: 700; color: #93c5fd; }
+      .overlay { position: absolute; inset: 0; background: #0f172a66; z-index: 8; display: grid; place-items: center; }
+      .dialog { width: 500px; background: var(--color-surface); border-radius: 14px; box-shadow: 0 25px 60px #0f172a66; padding: 22px 24px; }
+      .dialog h3 { font-size: 16px; margin-bottom: 8px; }
+      .dialog p { font-size: 13px; color: var(--color-text-2); line-height: 1.55; margin-bottom: 14px; }
+      .dialog .row2 { display: flex; justify-content: flex-end; gap: 10px; }
+      .tip { position: absolute; background: #0f172a; color: #fff; border-radius: 8px; padding: 7px 11px; font-size: 12px; max-width: 320px; z-index: 7; box-shadow: 0 8px 20px #0f172a55; }
+      .note { position: absolute; background: #fff8dc; border: 1px solid #eab308; color: #713f12; border-radius: 10px; padding: 8px 12px; font-size: 12.5px; max-width: 330px; box-shadow: 0 6px 18px #0f172a33; z-index: 9; }
+      .note b { color: #854d0e; }
+    </style>
+  </head>
+  <body>
+    <div class="sidebar">
+      <span class="slogo">PO</span>
+      <span class="nav act"><svg viewBox="0 0 24 24"><path d="M21 12h-8" /><path d="M21 6H8" /><path d="M21 18h-8" /><path d="M3 6v4c0 1.1.9 2 2 2h3" /><path d="M3 10v6c0 1.1.9 2 2 2h3" /></svg></span>
+      <span class="nav"><svg viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16" /><path d="M18 17V9" /><path d="M13 17V5" /><path d="M8 17v-3" /></svg></span>
+      <span class="nav"><svg viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" /><path d="M10 2v8l3-3 3 3V2" /></svg></span>
+      <span class="nav"><svg viewBox="0 0 24 24"><path d="M9.9 15.5 8.5 14l-6.1-1.6a.5.5 0 0 1 0-1L8.5 10l1.4-1.5 1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1 1.4 1.5 6.1 1.6a.5.5 0 0 1 0 1L15.5 14l-1.4 1.5-1.6 6.1a.5.5 0 0 1-1 0z" /></svg></span>
+      <span class="nav"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span>
+      <span class="navdiv"></span>
+      <span class="navlbl">Действия</span>
+      <span class="nav"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /><path d="M12 15V3" /></svg></span>
+      <span class="nav"><svg viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" /></svg></span>
+    </div>
+    <div class="app">
+      <div class="apphead">
+        <span class="back">← Проекты</span>
+        <span class="htitle">
+          <h1>Twitter</h1>
+          <div class="hpath">/Users/po/Projects/Twitter · копируется по клику</div>
+        </span>
+      </div>
+      <div class="toolbar">
+        <span class="seg"><span class="on">☰ Дерево</span><span>⌁ Граф</span></span>
+        <span class="search">Поиск по имени…</span>
+        <span class="fgroup">
+          <span class="flbl">Фильтры</span>
+          <span class="chip">Критичность</span>
+          <span class="chip">Реализация</span>
+          <span class="chip">Источник</span>
+          <span class="chip">✨ Непроверенные</span>
+        </span>
+        <span class="icn"><svg viewBox="0 0 24 24"><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" /></svg></span>
+        <span class="icn"><svg viewBox="0 0 24 24"><path d="M4 14h6v6" /><path d="M20 10h-6V4" /><path d="M14 10l7-7" /><path d="M3 21l7-7" /></svg></span>
+        <span class="shown">Показано 43 из 43</span>
+        <span class="spacer"></span>
+        <span class="chip on">⠿ Режим структуры</span>
+      </div>
+      <div class="tabs"><span class="on">Дерево</span><span>По источникам</span></div>
+      <div class="main">
+        <div class="card">
+          <div class="cardhead"><h2>Функциональные требования (34)</h2><span class="add">+ Функция</span></div>
+            <div class="thead"><span class="c-name">Требование</span><span class="c-crit">Критичность</span><span class="c-rice">RICE ⇅</span><span class="c-src">Источники · приоритет</span><span class="c-due">Срок реализации</span><span class="c-links">Связи</span><span class="c-desc">Описание</span><span class="c-act">Действия</span></div>
+            <div class="row"><span class="c-name"><span class="grip">⠿</span><span class="chev">⌄</span><span class="type ft">ФТ</span><span class="nm">Лента</span></span><span class="c-crit" style="color: var(--crit-medium)"><span class="dot" style="background: var(--crit-medium)"></span>Средняя</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span class="done">Реализовано</span></span><span class="c-links"><span class="mut">—</span></span><span class="c-desc">Персональные ленты тви…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row"><span class="c-name"><span class="grip">⠿</span><span class="ind"></span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Алгоритмическая лента «Для вас»</span></span><span class="c-crit" style="color: var(--crit-high)"><span class="dot" style="background: var(--crit-high)"></span>Высокая</span><span class="c-rice">2.4</span><span class="c-src"><span>👤 CPO</span><span class="srcchip">● Стратегическая ставка</span></span><span class="c-due"><span>Q1 2027</span></span><span class="c-links"><span class="lchip rel">связано с «Лента откры…»</span></span><span class="c-desc">Ранжирование твитов по …</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row ghost"><span class="c-name"><span class="grip">⠿</span><span class="ind"></span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Бесконечная прокрутка</span></span><span class="c-crit" style="color: var(--crit-low)"><span class="dot" style="background: var(--crit-low)"></span>Низкая</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span class="done">Реализовано</span></span><span class="c-links"><span class="mut">—</span></span><span class="c-desc">Подгрузка следующих тв…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row"><span class="c-name"><span class="grip">⠿</span><span class="ind"></span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Хронологическая лента подписок</span></span><span class="c-crit" style="color: var(--crit-medium)"><span class="dot" style="background: var(--crit-medium)"></span>Средняя</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span class="done">Реализовано</span></span><span class="c-links"><span class="mut">—</span></span><span class="c-desc">Твиты только от подписо…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row drop"><span class="c-name"><span class="grip">⠿</span><span class="chev">⌄</span><span class="type ft">ФТ</span><span class="nm">Личные сообщения</span></span><span class="c-crit" style="color: var(--crit-medium)"><span class="dot" style="background: var(--crit-medium)"></span>Средняя</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span class="done">Реализовано</span></span><span class="c-links"><span class="mut">—</span></span><span class="c-desc">Приватное общение: диа…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row"><span class="c-name"><span class="grip">⠿</span><span class="ind"></span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Групповые чаты</span></span><span class="c-crit" style="color: var(--crit-medium)"><span class="dot" style="background: var(--crit-medium)"></span>Средняя</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span>Q4 2026</span></span><span class="c-links"><span class="lchip dep">зависит от «Диалоги 1-…»</span></span><span class="c-desc">Беседы до 50 участников…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row"><span class="c-name"><span class="grip">⠿</span><span class="ind"></span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Диалоги 1-на-1</span></span><span class="c-crit" style="color: var(--crit-high)"><span class="dot" style="background: var(--crit-high)"></span>Высокая</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span class="done">Реализовано</span></span><span class="c-links"><span class="lchip rel">связано с «Шифровани…»</span><span class="lchip blk">блокируется «Группов…»</span></span><span class="c-desc">Личная переписка с фото…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row"><span class="c-name"><span class="grip">⠿</span><span class="chev">⌄</span><span class="type ft">ФТ</span><span class="nm">Модерация и безопасность контента</span></span><span class="c-crit" style="color: var(--crit-medium)"><span class="dot" style="background: var(--crit-medium)"></span>Средняя</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span class="done">Реализовано</span></span><span class="c-links"><span class="mut">—</span></span><span class="c-desc">Инструменты защиты по…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row"><span class="c-name"><span class="grip">⠿</span><span class="ind"></span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Блокировка и мьют</span></span><span class="c-crit" style="color: var(--crit-high)"><span class="dot" style="background: var(--crit-high)"></span>Высокая</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span class="done">Реализовано</span></span><span class="c-links"><span class="mut">—</span></span><span class="c-desc">Блокировка обрывает вза…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+            <div class="row"><span class="c-name"><span class="grip">⠿</span><span class="ind"></span><span class="chev"></span><span class="type ft">ФТ</span><span class="nm">Жалобы на контент</span></span><span class="c-crit" style="color: var(--crit-critical)"><span class="dot" style="background: var(--crit-critical)"></span>Критическая</span><span class="c-rice"><span class=mut>–</span></span><span class="c-src"><span class="mut">—</span></span><span class="c-due"><span class="done">Реализовано</span></span><span class="c-links"><span class="mut">—</span></span><span class="c-desc">Жалоба на твит или акка…</span><span class="c-act"><span class="icn"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.5" /><path d="m10.2 6.3-3.9 3.9" /><circle cx="4.5" cy="12" r="2.5" /><path d="M7 12h10" /><circle cx="19.5" cy="12" r="2.5" /><path d="m13.8 17.7 3.9-3.9" /><circle cx="12" cy="19.5" r="2.5" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="M12 9v6" /><path d="M9 12h6" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg></span><span class="icn"><svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg></span></span></div>
+        </div>
+      </div>
+      <div class="bottom">
+          <div class="brow">
+            <span class="bstat">
+              <span class="pill ok">Отпустите — станет ребёнком «Личные сообщения»</span>
+              <span>было</span><b>Лента → Бесконечная прокрутка</b>
+              <span class="arrow">→</span>
+              <span>станет</span><b>Личные сообщения → Бесконечная прокрутка</b>
+            </span>
+            <span class="spacer"></span>
+            <span class="btn">Esc — отменить</span>
+          </div>
+          <div class="keys">
+            <span class="k"><b>на строку</b> — стать её ребёнком</span>
+            <span class="k"><b>между строк</b> — стать соседом (тот же родитель)</span>
+            <span class="k"><b>в пустое поле</b> — вынести в корень раздела</span>
+            <span class="k">Свёрнутый узел под курсором раскрывается сам через 0,6 с</span>
+            <span class="k">Старая связь заменяется: у требования всегда ровно один родитель</span>
+          </div>
+      </div>
+    </div>
+    <span class="scrn">П2 · перетаскивание</span>
+
+
+    <div class="note" style="top: 745px; left: 100px"><b>П2</b> Исходная строка бледнеет на месте, но не исчезает — данные всех колонок видны, ничего не «прыгает».</div>
+    <div class="note" style="top: 745px; left: 560px"><b>П2</b> Строка-цель подсвечена зелёным по всей ширине таблицы, вместе со всеми колонками.</div>
+    <div class="note" style="top: 745px; left: 1030px"><b>П2</b> Панель заранее показывает «было → станет» — догадываться, куда упадёт строка, не нужно.</div>
+  </body>
+</html>

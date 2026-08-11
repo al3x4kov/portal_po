@@ -321,6 +321,8 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
   const setWidgetPos = useChatStore((s) => s.setWidgetPos);
   const modelOverride = useChatStore((s) => s.modelOverride);
   const setModelOverride = useChatStore((s) => s.setModelOverride);
+  const projectContext = useChatStore((s) => s.projectContext);
+  const setProjectContext = useChatStore((s) => s.setProjectContext);
   const messages = useChatStore((s) => s.messages);
   const appendMessage = useChatStore((s) => s.appendMessage);
   const error = useChatStore((s) => s.error);
@@ -392,6 +394,9 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
     const request: AiChatRequest = { messages: history.slice(-AI_CHAT_HISTORY_LIMIT) };
     if (projectId) request.projectId = projectId;
     if (modelOverride) request.model = modelOverride;
+    // Переключатель осмыслен только при открытом проекте — off-path запрос
+    // остаётся байт-в-байт прежним (обратная совместимость контракта).
+    if (projectId && projectContext) request.useProjectContext = true;
     setError(null);
     chatMut.mutate(request, {
       onSuccess: (res) => appendMessage(res.message),
@@ -522,14 +527,33 @@ function ChatPanel({ projectId }: { projectId: string | undefined }): React.Reac
         </div>
         {/* §2.17.2: chat context — the current project is always visible. */}
         {projectId ? (
-          <p
-            className="mt-1.5 flex items-center gap-1.5 text-xs"
-            style={{ color: 'var(--color-text-3)' }}
-            data-testid="chat-project"
-          >
-            <FolderOpen size={14} aria-hidden="true" />
-            Проект: {projectName}
-          </p>
+          <>
+            <p
+              className="mt-1.5 flex items-center gap-1.5 text-xs"
+              style={{ color: 'var(--color-text-3)' }}
+              data-testid="chat-project"
+            >
+              <FolderOpen size={14} aria-hidden="true" />
+              Проект: {projectName}
+            </p>
+            {/* Переключатель: диалог учитывает ФТ/НФТ проекта. Сервер сам
+                укладывает их в бюджет — целиком для 10–15 требований,
+                релевантной выборкой + обзором дерева для 1000–2000. */}
+            <label
+              className="mt-1 flex cursor-pointer items-center gap-1.5 text-xs"
+              style={{ color: 'var(--color-text-3)' }}
+              title="Ответы будут опираться на зафиксированные ФТ/НФТ проекта. Для больших проектов в модель уходит выборка, релевантная вопросу, и обзор дерева."
+            >
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 shrink-0 accent-[var(--color-primary)]"
+                data-testid="chat-context-toggle"
+                checked={projectContext}
+                onChange={(e) => setProjectContext(e.target.checked)}
+              />
+              Учитывать требования проекта
+            </label>
+          </>
         ) : null}
       </div>
 

@@ -75,11 +75,10 @@ async function apiCreateLink(
 
 // ── UI-помощники экрана «Формат выгрузки» ───────────────────────────────────
 
-/** Открыть ExportModal и дойти до шага format (выбраны все требования по умолчанию). */
+/** Открыть полноэкранный экспорт (по умолчанию выбран весь проект). */
 async function gotoFormatStep(page: Page): Promise<void> {
   await page.getByTestId('sidebar-open-export').click();
   await expect(page.getByTestId('export-modal')).toBeVisible();
-  await page.getByTestId('export-next').click();
   await expect(page.getByTestId('export-fmt-xlsx')).toBeVisible();
 }
 
@@ -103,9 +102,10 @@ async function downloadFormat(
   fmt: 'xlsx' | 'zip' | 'targz',
   testInfo: TestInfo,
 ): Promise<{ path: string; filename: string }> {
+  await page.getByTestId(`export-fmt-${fmt}`).click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByTestId(`export-fmt-${fmt}`).click(),
+    page.getByTestId('export-run').click(),
   ]);
   const filename = download.suggestedFilename();
   const target = testInfo.outputPath(filename);
@@ -186,7 +186,7 @@ async function seedProject(page: Page, tag: string): Promise<Seed> {
   const childSlug = await apiCreateRich(page, projectId, { name: uniqueName('C-child') });
   await apiCreateLink(page, projectId, childSlug, 'CHILD_OF', parentSlug);
 
-  // Перечитать страницу, чтобы ExportModal увидел свежие требования из API.
+  // Перечитать страницу, чтобы экран экспорта увидел свежие требования из API.
   await page.reload();
   await expect(page.getByTestId('main-page')).toBeVisible();
 
@@ -426,7 +426,7 @@ test.describe('T-204 · скриншот экрана «Формат выгру�
       .getByTestId('export-modal')
       .screenshot({ path: path.join(SCREENSHOTS_DIR, 'export-format-light.png') });
 
-    // Dark — закрыть модалку, переключить тему, открыть снова.
+    // Dark — вернуться к требованиям, переключить тему, открыть снова.
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('export-modal')).toBeHidden();
     await page.getByTestId('theme-toggle').click();

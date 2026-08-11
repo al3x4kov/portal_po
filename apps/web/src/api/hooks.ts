@@ -6,6 +6,7 @@ import type {
   AiChatResponse,
   AiConfigUpdate,
   AiConfigView,
+  AiDocsReviewPhase,
   AiImportConfirmBody,
   AiImportJobList,
   AiImportJobView,
@@ -35,6 +36,7 @@ import type {
   AddSourceInput,
   DeleteRequirementResult,
   LinkInput,
+  MoveRequirementResult,
   ProjectSummary,
   RequirementCreateInput,
   RequirementListResult,
@@ -170,6 +172,26 @@ export function useDeleteRequirement(projectId: string) {
       const deleted = result?.deleted ?? 1;
       toast.show(`Удалено ${requirementsLabel(deleted)}`);
     },
+  });
+}
+
+/**
+ * Move a row in the tree (structure mode): replace one CHILD_OF link.
+ *
+ * No toast here — the screen narrates the result itself (it also offers
+ * «Отменить»), and an error must reach the caller so the row can roll back to
+ * its previous parent instead of pretending the move landed.
+ */
+export function useMoveRequirement(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    MoveRequirementResult,
+    Error,
+    { slug: string; parentSlug: string | null; expectedParentSlug?: string | null }
+  >({
+    mutationFn: ({ slug, parentSlug, expectedParentSlug }) =>
+      requirementsApi.move(projectId, slug, { parentSlug, expectedParentSlug }),
+    onSettled: () => invalidateRequirements(qc, projectId),
   });
 }
 
@@ -417,19 +439,24 @@ export const AI_IMPORT_POLL_MS = 800;
 
 /**
  * Starts an AI-import job: uploads the archive, gets back `{ jobId }`.
- * `inferLinks` (todo_16 B2) opts into the AI relate step; when falsy the call
+ * `inferLinks` (todo_16 B2) opts into the AI relate step, `buildTree` — into
+ * the AI-PO logical tree; when falsy the call
  * keeps the exact pre-B2 shape so the off-path behaviour stays byte-identical.
  */
 export function useStartAiImport(projectId: string) {
   return useMutation<
     AiImportStartResponse,
     Error,
-    { file: File; model?: string; inferLinks?: boolean }
+    { file: File; model?: string; inferLinks?: boolean; buildTree?: boolean }
   >({
-    mutationFn: ({ file, model, inferLinks }) =>
-      inferLinks
-        ? aiImportApi.start(projectId, file, model, true)
-        : aiImportApi.start(projectId, file, model),
+    // Флаги добавляют аргументы только включёнными, поэтому off-path вызов
+    // (и его запрос) остаётся байт-в-байт прежним.
+    mutationFn: ({ file, model, inferLinks, buildTree }) =>
+      buildTree
+        ? aiImportApi.start(projectId, file, model, inferLinks ?? false, true)
+        : inferLinks
+          ? aiImportApi.start(projectId, file, model, true)
+          : aiImportApi.start(projectId, file, model),
   });
 }
 
@@ -462,6 +489,24 @@ export function useApplyAiBacklogImport() {
     // present only when at least one row really differs from the AI proposal.
     mutationFn: ({ jobId, rowIds, overrides }) =>
       aiImportApi.apply(jobId, overrides ? { rowIds, overrides } : { rowIds }),
+    onSuccess: (job) => qc.setQueryData(queryKeys.aiImportJob(job.jobId), job),
+  });
+}
+
+/**
+ * Двухзонная выверка docs-импорта: apply one review zone
+ * (`POST /api/ai-import/:jobId/apply` with `{phase, ids}`). Zone 1 re-opens the
+ * gate as zone 2 (no writes); zone 2 launches populate — the fresh view lands
+ * in the cache, re-arming {@link useAiImportJob} polling.
+ */
+export function useApplyAiDocsImport() {
+  const qc = useQueryClient();
+  return useMutation<
+    AiImportJobView,
+    Error,
+    { jobId: string; phase: AiDocsReviewPhase; ids: string[] }
+  >({
+    mutationFn: ({ jobId, phase, ids }) => aiImportApi.applyDocs(jobId, { phase, ids }),
     onSuccess: (job) => qc.setQueryData(queryKeys.aiImportJob(job.jobId), job),
   });
 }

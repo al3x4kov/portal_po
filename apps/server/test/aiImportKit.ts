@@ -135,6 +135,32 @@ export async function makeImportHarness(
   return { ctx, configRepo, checkpoints, jobs, makeService, setPreset };
 }
 
+/**
+ * Двухзонная выверка: approve BOTH docs review gates keeping EVERY item —
+ * reproduces the pre-review pipeline outcome (populate everything, existing
+ * requirements are still skipped by populate itself). No-op when the job is
+ * not paused on a docs review gate. Waits for the final populate run.
+ */
+export async function approveDocsReview(service: AiImportService, jobId: string): Promise<void> {
+  const zone1 = service.getView(jobId);
+  if (zone1.status === 'awaiting-review' && zone1.docsReview?.phase === 'self') {
+    await service.applyDocsReview(
+      jobId,
+      'self',
+      zone1.docsReview.items.map((i) => i.id),
+    );
+  }
+  const zone2 = service.getView(jobId);
+  if (zone2.status === 'awaiting-review' && zone2.docsReview?.phase === 'existing') {
+    await service.applyDocsReview(
+      jobId,
+      'existing',
+      zone2.docsReview.items.map((i) => i.id),
+    );
+  }
+  await service.waitForCompletion(jobId);
+}
+
 /* ── todo_22: synthetic backlog xlsx (kept minimal — the reader's own fixture
  * is the REAL Jira queryTable export in test/fixtures/Книга2.xlsx) ─────────── */
 

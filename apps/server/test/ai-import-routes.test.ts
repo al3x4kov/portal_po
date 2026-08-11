@@ -125,6 +125,28 @@ describe('T11 AI import routes (integration, mock client)', () => {
     throw new Error('job did not finish in time');
   }
 
+  /**
+   * Двухзонная выверка over HTTP: while the job pauses on the docs review gate
+   * (`awaiting-review` + docsReview), approve EVERY item of the current phase
+   * via POST /apply, then keep polling to the terminal status.
+   */
+  async function approveReviewAndFinish(jobId: string): Promise<AiImportJobView> {
+    for (let i = 0; i < 10; i++) {
+      const view = await pollUntilDone(jobId);
+      if (view.status !== 'awaiting-review' || !view.docsReview) return view;
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/ai-import/${jobId}/apply`,
+        payload: {
+          phase: view.docsReview.phase,
+          ids: view.docsReview.items.map((item) => item.id),
+        },
+      });
+      expect(res.statusCode).toBe(200);
+    }
+    throw new Error('docs review gate did not converge to a terminal status');
+  }
+
   beforeEach(async () => {
     root = await makeTmpRoot();
   });
@@ -142,7 +164,14 @@ describe('T11 AI import routes (integration, mock client)', () => {
     const { jobId } = start.json();
     expect(jobId).toBeTruthy();
 
-    const view = await pollUntilDone(jobId);
+    // Двухзонная выверка: the analysis pauses on the review gate (zone 1,
+    // gen-vs-gen duplicates) with NOTHING written to the project yet.
+    const gate = await pollUntilDone(jobId);
+    expect(gate.status).toBe('awaiting-review');
+    expect(gate.docsReview?.phase).toBe('self');
+    expect(gate.docsReview?.items.map((item) => item.id)).toEqual(['d1', 'd2']);
+
+    const view = await approveReviewAndFinish(jobId);
     expect(view.status).toBe('succeeded');
     expect(view.progress).toBe(100);
     expect(view.result).toEqual({
@@ -183,14 +212,35 @@ describe('T11 AI import routes (integration, mock client)', () => {
   });
 
   it('todo_16 B2: inferLinks field — "true" runs the relate step, "false"/omitted does not', async () => {
-    await boot(okClient('[]'));
+    // First call (extraction of the "on" import) yields one FUNCTION so the
+    // review gate opens and the relate step runs after zone-2 apply; every
+    // later call answers '[]' (structure mapping / empty extractions).
+    const single = JSON.stringify([
+      {
+        type: 'FUNCTION',
+        name: 'Одинокая функция',
+        description: 'Единственное требование.',
+        source: 'a.md § 1',
+      },
+    ]);
+    let call = 0;
+    await boot({
+      models: { list: vi.fn(async () => ({ data: [] })) },
+      chat: {
+        completions: {
+          create: vi.fn(async () => ({
+            choices: [{ message: { content: call++ === 0 ? single : '[]' } }],
+          })),
+        },
+      },
+    });
     await configure();
 
     const on = await startImport({ 'a.md': 'Текст.' }, { inferLinks: 'true' });
     expect(on.statusCode).toBe(202);
-    const onView = await pollUntilDone(on.json().jobId);
+    const onView = await approveReviewAndFinish(on.json().jobId);
     expect(onView.status).toBe('succeeded');
-    // Nothing was extracted → nothing to relate, but the step IS reported.
+    // No NFRs were extracted → nothing to relate, but the step IS reported.
     expect(onView.relate).toEqual({ status: 'done', created: 0 });
 
     const off = await startImport({ 'b.md': 'Текст.' }, { inferLinks: 'false' });
@@ -369,7 +419,7 @@ describe('T11 AI import routes (integration, mock client)', () => {
       payload: body,
     });
     expect(res.statusCode).toBe(202);
-    const view = await pollUntilDone((res.json() as { jobId: string }).jobId);
+    const view = await approveReviewAndFinish((res.json() as { jobId: string }).jobId);
 
     // The malicious entry is skipped (warn in the log), the good doc analyzed.
     expect(view.status).toBe('succeeded');

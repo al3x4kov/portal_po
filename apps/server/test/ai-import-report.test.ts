@@ -8,6 +8,7 @@ import { ReportBuilder } from '../src/services/aiImport/report.js';
 import { cleanup, makeTmpRoot } from './helpers.js';
 import {
   KIT_PROJECT,
+  approveDocsReview,
   makeImportHarness,
   scriptedClient,
   writeZipArchive,
@@ -194,6 +195,8 @@ describe('T-213 · таксономия на всех fail-путях + отчё
       await zip({ 'auth.md': '# Что нового\nВход по паролю.', 'logo.png': 'PNGDATA' }),
     );
     await service.waitForCompletion(jobId);
+    // Двухзонная выверка: approve both review gates keeping every item.
+    await approveDocsReview(service, jobId);
     const view = service.getView(jobId);
     expect(view.status).toBe('succeeded');
 

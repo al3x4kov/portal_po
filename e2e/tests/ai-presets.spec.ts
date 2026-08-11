@@ -2,7 +2,7 @@ import AdmZip from 'adm-zip';
 import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { startAiStub, type AiStub } from './helpers/ai-stub.js';
 import { createProject, projectIdFromUrl, rowByName, uniqueName } from './helpers/app.js';
-import { expectAiImportSummary } from './helpers/ai-import.js';
+import { approveDocsReviewGates, expectAiImportSummary } from './helpers/ai-import.js';
 
 /**
  * todo_18 · E2E for the two user-facing outcomes of the «thinking models»
@@ -289,6 +289,10 @@ test.describe('todo_18 · AI-импорт думающей моделью со �
       await page.getByTestId('ai-import-file').setInputFiles(zip);
       await page.getByTestId('ai-import-infer-links').check();
       await page.getByTestId('ai-import-start').click();
+
+      // Двухзонная выверка дублей: одобряем обе зоны (гейт идёт до populate
+      // и relate-шага).
+      await approveDocsReviewGates(page);
 
       // Импорт завершился успешно, несмотря на <think>-обёртку во всех ответах.
       const success = page.getByTestId('ai-import-success');

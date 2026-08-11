@@ -113,7 +113,7 @@ export class FsAiJobsRepo implements CheckpointSink {
         if (state.status !== 'running' && state.status !== 'awaiting-confirmation') continue;
         // todo_22: a PAUSED backlog job (waiting for user confirmation) is not
         // «killed mid-flight» — after a restart it is the same pause, never
-        // `interrupted` (see also listPausedBacklog()).
+        // `interrupted` (see also listPausedGates()).
         if (state.kind === 'backlog' && state.status === 'awaiting-confirmation') continue;
         state.status = 'interrupted';
         state.finishedAt = now();
@@ -131,19 +131,22 @@ export class FsAiJobsRepo implements CheckpointSink {
   }
 
   /**
-   * todo_22: backlog jobs paused on a user gate (`awaiting-confirmation` /
-   * `awaiting-review`) that must be re-adopted into memory after a restart —
-   * the same pause survives, NOT `interrupted` (BACKLOG contract).
+   * todo_22: jobs paused on a REST user gate that must be re-adopted into
+   * memory after a restart — the same pause survives, NOT `interrupted`.
+   * Backlog jobs pause on `awaiting-confirmation` (preview) and
+   * `awaiting-review` (mapping); docs jobs pause on `awaiting-review` only
+   * (двухзонная выверка дублей) — their `awaiting-confirmation` (estimate) is
+   * an in-process waiter and IS lost on restart (handled by markInterrupted).
    */
-  async listPausedBacklog(): Promise<AiJobCheckpoint[]> {
+  async listPausedGates(): Promise<AiJobCheckpoint[]> {
     const paused: AiJobCheckpoint[] = [];
     for (const projectId of await this.projectIds()) {
       for (const state of await this.list(projectId)) {
-        if (state.kind !== 'backlog') continue;
-        if (state.status !== 'awaiting-confirmation' && state.status !== 'awaiting-review') {
-          continue;
-        }
-        paused.push(state);
+        const pausedGate =
+          state.kind === 'backlog'
+            ? state.status === 'awaiting-confirmation' || state.status === 'awaiting-review'
+            : state.status === 'awaiting-review';
+        if (pausedGate) paused.push(state);
       }
     }
     return paused;

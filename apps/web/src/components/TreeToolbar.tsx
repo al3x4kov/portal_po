@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FoldVertical, Search, Sparkles, UnfoldVertical, X } from 'lucide-react';
+import { FoldVertical, GripVertical, Search, Sparkles, UnfoldVertical, X } from 'lucide-react';
 import { CRITICALITIES, type Criticality } from '@po/core';
 import { useUiStore, type ImplStatus } from '../store/ui';
 import { CRITICALITY_COLOR_VAR, CRITICALITY_LABEL } from '../lib/criticality';
@@ -76,6 +76,8 @@ export function TreeToolbar({
   const graphView = useUiStore((s) => s.graphView);
   const setGraphView = useUiStore((s) => s.setGraphView);
   const resetFilters = useUiStore((s) => s.resetFilters);
+  const structureMode = useUiStore((s) => s.structureMode);
+  const setStructureMode = useUiStore((s) => s.setStructureMode);
 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Set<Criticality>>(new Set(applied));
@@ -111,6 +113,18 @@ export function TreeToolbar({
   // task26: счётчик «Не проверено» видим, когда есть что проверять, либо пока
   // включён фильтр (чтобы было видно, как N обнуляется, и можно было выключить).
   const showAiPendingCount = aiPendingCount > 0 || aiPendingApplied;
+  // Дерево на экране неполное: часть строк скрыта поиском, фильтрами или
+  // свёрнутыми уровнями. «Выше/ниже» тогда означало бы не то, что видит
+  // пользователь, поэтому режим структуры целиком недоступен (макет П8).
+  // «Свернуть все» прячет ровно так же, как фильтр: видны одни корни, а строка
+  // уезжает в невидимую ветку — поэтому режим гаснет и здесь.
+  const treeIncomplete = filtersActive || search.trim().length > 0 || treeMode === 'collapse';
+
+  // Фильтр или поиск, включённые поверх режима структуры, гасят его сами:
+  // иначе на экране остались бы ручки у неполного дерева.
+  useEffect(() => {
+    if (treeIncomplete && structureMode) setStructureMode(false);
+  }, [treeIncomplete, structureMode, setStructureMode]);
 
   // Sync the draft with the applied set whenever the dropdown opens.
   useEffect(() => {
@@ -710,6 +724,44 @@ export function TreeToolbar({
             <span className="tip tip-below">Свернуть все</span>
           </button>
         </div>
+      ) : null}
+
+      {/* Режим структуры: перемещение строк по дереву. Недоступен, когда дерево
+          показано не целиком — двигать строку вслепую нельзя (макет П8). */}
+      {!graphView ? (
+        <button
+          type="button"
+          className="tip-host btn btn-secondary btn-sm inline-flex flex-none items-center gap-1.5"
+          style={
+            structureMode
+              ? {
+                  background: 'var(--color-primary)',
+                  color: '#fff',
+                  borderColor: 'var(--color-primary)',
+                }
+              : treeIncomplete
+                ? { opacity: 0.5 }
+                : undefined
+          }
+          aria-pressed={structureMode}
+          aria-disabled={treeIncomplete}
+          data-testid="toggle-structure-mode"
+          data-disabled={treeIncomplete ? 'true' : undefined}
+          onClick={() => {
+            if (treeIncomplete) return;
+            setStructureMode(!structureMode);
+          }}
+        >
+          <GripVertical className="icon-sm" aria-hidden="true" />
+          Режим структуры
+          {/* tip-end: кнопка стоит у правого края — подсказка растёт влево,
+              иначе её хвост уезжает за границу окна и не читается. */}
+          <span className="tip tip-below tip-end tip-wrap">
+            {treeIncomplete
+              ? 'Недоступно: дерево показано не целиком — сначала сбросьте поиск, фильтры и разверните уровни'
+              : 'Перемещение строк по дереву: перетаскиванием, стрелками или с клавиатуры'}
+          </span>
+        </button>
       ) : null}
 
       {/* §2.6 · единая строка результата фильтрации (средний род: «Показано») */}
